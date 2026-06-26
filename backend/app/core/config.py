@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     RETRIEVAL_BACKEND: Literal["bm25", "vector"] = "bm25"
     ROUTING_STRATEGY: Literal["rule_based", "rl"] = "rule_based"
 
+    # --- Pipeline tuning --------------------------------------------------
+    # Minimum classifier confidence for an email to qualify for the FAQ
+    # auto-reply lane. Kept distinct from CONFIDENCE_THRESHOLD so the FAQ
+    # gate can be tuned independently of the general confidence floor.
+    FAQ_CONFIDENCE_THRESHOLD: float = 0.65
+    # Max policy chunks the retriever returns as grounding context.
+    MAX_RETRIEVED_CHUNKS: int = 3
+    # Max tokens the drafter may generate for a reply.
+    DRAFTER_MAX_TOKENS: int = 500
+
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
     DATABASE_URL: str = "sqlite:///./conference_email.db"

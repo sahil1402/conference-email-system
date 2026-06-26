@@ -1,0 +1,362 @@
+[
+  {
+    "id": "policy_001",
+    "category": "submission_deadlines",
+    "title": "Abstract Registration Deadline",
+    "content": "All submissions must register a title and abstract by the abstract deadline, which falls one week before the full paper deadline. Abstract registration is mandatory; papers without a registered abstract cannot upload a full PDF. The abstract may be lightly edited after registration but the paper's research area cannot be changed after this date.",
+    "source": "CFP 2025",
+    "tags": ["deadline", "abstract", "registration", "submission"]
+  },
+  {
+    "id": "policy_002",
+    "category": "submission_deadlines",
+    "title": "Full Paper Submission Deadline",
+    "content": "The full paper deadline is the final date by which the complete manuscript and any supplementary material must be uploaded. All deadlines are specified in Anywhere on Earth (AoE) time, meaning the deadline has not passed as long as it is still that date anywhere on the globe. Late submissions are not accepted under any circumstances once the system closes.",
+    "source": "CFP 2025",
+    "tags": ["deadline", "full-paper", "AoE", "timezone", "submission"]
+  },
+  {
+    "id": "policy_003",
+    "category": "submission_deadlines",
+    "title": "Deadline Extension Policy",
+    "content": "The conference does not guarantee deadline extensions, and authors should plan to meet the published dates. If an extension is granted due to exceptional circumstances such as a portal outage, it will be announced officially through the conference website and email list. Authors should never rely on social media rumors or assume an extension based on prior years.",
+    "source": "CFP 2025",
+    "tags": ["extension", "deadline", "announcement", "policy"]
+  },
+  {
+    "id": "policy_004",
+    "category": "submission_deadlines",
+    "title": "Abstract and Full Paper Deadline Relationship",
+    "content": "Missing the abstract registration deadline disqualifies a paper from the full paper submission, as the system links the uploaded PDF to a previously registered abstract. The gap between the two deadlines is fixed at seven calendar days. Authors are strongly encouraged to register abstracts early to avoid being locked out of the full submission step.",
+    "source": "CFP 2025",
+    "tags": ["abstract", "full-paper", "deadline", "disqualify", "schedule"]
+  },
+  {
+    "id": "policy_005",
+    "category": "submission_deadlines",
+    "title": "Rebuttal and Author Response Period",
+    "content": "After initial reviews are released, authors have a fixed five-day window to submit a rebuttal addressing reviewer questions. The rebuttal period dates are published in the conference timeline and also follow AoE time. Responses submitted after the window closes will not be visible to reviewers or the area chair.",
+    "source": "Author Guidelines 2025",
+    "tags": ["rebuttal", "response", "deadline", "reviewers", "timeline"]
+  },
+  {
+    "id": "policy_006",
+    "category": "submission_deadlines",
+    "title": "Camera-Ready Submission Deadline",
+    "content": "Authors of accepted papers must upload the final camera-ready version by the camera-ready deadline, which is typically four weeks after acceptance notification. The camera-ready deadline is strict because it feeds directly into proceedings production. Failure to submit on time may result in the paper being removed from the proceedings.",
+    "source": "Author Guidelines 2025",
+    "tags": ["camera-ready", "deadline", "proceedings", "accepted", "final"]
+  },
+  {
+    "id": "policy_007",
+    "category": "general_faq",
+    "title": "Notification and Decision Dates",
+    "content": "Acceptance and rejection notifications are sent on the published decision date, after the area chair and program committee meetings conclude. Authors should not contact chairs for early decisions, as outcomes are released simultaneously to ensure fairness. The full timeline including notification dates is maintained on the official conference dates page.",
+    "source": "CFP 2025",
+    "tags": ["notification", "decision", "timeline", "acceptance", "dates"]
+  },
+  {
+    "id": "policy_008",
+    "category": "formatting_requirements",
+    "title": "Page Limit for Main Technical Track",
+    "content": "Main track submissions are limited to eight pages of body text, including all figures and tables. References do not count toward the page limit and may extend beyond the eight pages. An optional technical appendix is permitted but reviewers are not obligated to read material beyond the main eight pages.",
+    "source": "CFP 2025",
+    "tags": ["page-limit", "main-track", "references", "appendix", "formatting"]
+  },
+  {
+    "id": "policy_009",
+    "category": "formatting_requirements",
+    "title": "Official Paper Template",
+    "content": "All submissions must use the official conference LaTeX or Word template provided on the website for the current year. Templates from prior editions are not accepted because column widths and metadata fields change. Papers using a non-standard template, altered margins, or reduced font sizes may be desk-rejected without review.",
+    "source": "CFP 2025",
+    "tags": ["template", "latex", "word", "formatting", "desk-reject"]
+  },
+  {
+    "id": "policy_010",
+    "category": "formatting_requirements",
+    "title": "Font and Layout Requirements",
+    "content": "Submissions must use the two-column format with a 10-point serif font for body text as defined in the official template. Authors must not modify line spacing, margins, or font sizes to fit additional content. Documents must be submitted as a single PDF with embedded fonts to ensure consistent rendering across reviewer systems.",
+    "source": "CFP 2025",
+    "tags": ["font", "two-column", "layout", "pdf", "formatting"]
+  },
+  {
+    "id": "policy_011",
+    "category": "formatting_requirements",
+    "title": "Anonymization for Double-Blind Review",
+    "content": "The conference uses double-blind review, so submissions must not contain author names, affiliations, or acknowledgments that reveal identity. References to the authors' own prior work should be written in the third person rather than removed. Links to code or data must point to anonymized repositories that do not expose author identity.",
+    "source": "Author Guidelines 2025",
+    "tags": ["anonymization", "double-blind", "identity", "self-citation", "formatting"]
+  },
+  {
+    "id": "policy_012",
+    "category": "formatting_requirements",
+    "title": "Supplementary Material Format",
+    "content": "Supplementary material may be uploaded as a single ZIP archive and may include code, additional proofs, videos, or extended results. Accepted video formats are MP4 and WebM, and the total supplement size must not exceed 100 MB. Reviewers may consult the supplement at their discretion but the main paper must be self-contained.",
+    "source": "CFP 2025",
+    "tags": ["supplementary", "zip", "video", "size-limit", "formatting"]
+  },
+  {
+    "id": "policy_013",
+    "category": "formatting_requirements",
+    "title": "References and Citation Style",
+    "content": "References must follow the citation style defined in the official template and should be complete and verifiable. There is no limit on the number of references. Authors should ensure that all claims relying on prior work are properly cited, as uncited reuse of text or results may be treated as a formatting and integrity issue.",
+    "source": "Author Guidelines 2025",
+    "tags": ["references", "citation", "style", "bibliography", "formatting"]
+  },
+  {
+    "id": "policy_014",
+    "category": "formatting_requirements",
+    "title": "Figures, Tables, and Accessibility",
+    "content": "Figures and tables must be legible in both color and grayscale, as some reviewers print submissions. Authors should use colorblind-friendly palettes and ensure text within figures meets minimum font size requirements. Captions should be descriptive enough that the figure can be understood without reading the surrounding text.",
+    "source": "Author Guidelines 2025",
+    "tags": ["figures", "tables", "accessibility", "grayscale", "formatting"]
+  },
+  {
+    "id": "policy_015",
+    "category": "review_process",
+    "title": "Reviewer Assignment and Load",
+    "content": "Reviewers are typically assigned three to six papers based on declared expertise and bidding preferences. The system attempts to match papers to reviewer subject areas, but mismatches can occur. Reviewers who receive papers far outside their expertise or an unusually high load should contact their area chair promptly to request rebalancing.",
+    "source": "Reviewer Handbook 2025",
+    "tags": ["reviewer", "assignment", "load", "expertise", "area-chair"]
+  },
+  {
+    "id": "policy_016",
+    "category": "review_process",
+    "title": "Conflict of Interest Declaration",
+    "content": "Reviewers must declare a conflict of interest with any paper authored by recent collaborators, advisors, advisees, or colleagues at the same institution within the past two years. Conflicts should be declared in the review system as soon as they are identified, and the reviewer should not access the manuscript further. The area chair will reassign conflicted papers.",
+    "source": "Reviewer Handbook 2025",
+    "tags": ["conflict-of-interest", "reviewer", "declaration", "reassignment", "ethics"]
+  },
+  {
+    "id": "policy_017",
+    "category": "review_process",
+    "title": "Review Confidentiality",
+    "content": "All submitted papers are confidential and reviewers may not share, distribute, or use any ideas, methods, or results from a submission for their own purposes. Confidentiality obligations continue even after the review process ends and regardless of whether the paper is accepted. Breaches of confidentiality are treated as serious ethics violations and may lead to a reviewing ban.",
+    "source": "Reviewer Handbook 2025",
+    "tags": ["confidentiality", "reviewer", "ethics", "violation", "review-process"]
+  },
+  {
+    "id": "policy_018",
+    "category": "review_process",
+    "title": "Review Quality and Tone Standards",
+    "content": "Reviews must be constructive, specific, and professional, focusing on the technical merits of the work rather than personal remarks. Reviewers should justify scores with concrete evidence and avoid dismissive or hostile language. Area chairs may discount reviews that are unsubstantiated, abusive, or that appear to reflect undisclosed bias.",
+    "source": "Reviewer Handbook 2025",
+    "tags": ["review-quality", "tone", "constructive", "bias", "area-chair"]
+  },
+  {
+    "id": "policy_019",
+    "category": "review_process",
+    "title": "Declining or Returning Assignments",
+    "content": "Reviewers who cannot complete their assignments due to personal emergencies or other constraints should notify their area chair as early as possible. Early notice allows the chair to reassign papers without delaying the timeline. Reviewers are asked not to silently abandon assignments, as missing reviews place an unfair burden on co-reviewers and authors.",
+    "source": "Reviewer Handbook 2025",
+    "tags": ["decline", "assignment", "reviewer", "reassignment", "notice"]
+  },
+  {
+    "id": "policy_020",
+    "category": "review_process",
+    "title": "Author Rebuttal Handling",
+    "content": "After authors submit rebuttals, reviewers are expected to read the response and update their reviews and scores where warranted. Reviewers should acknowledge points that were successfully addressed and explain remaining concerns. The discussion phase that follows allows reviewers and the area chair to converge on a recommendation.",
+    "source": "Reviewer Handbook 2025",
+    "tags": ["rebuttal", "reviewer", "discussion", "score-update", "review-process"]
+  },
+  {
+    "id": "policy_021",
+    "category": "review_process",
+    "title": "Reviewer System Access Issues",
+    "content": "Reviewers who cannot see their assigned papers, despite receiving an assignment notification, should first confirm they are logged into the correct account linked to their reviewer profile. If assignments still do not appear, they should contact the program committee support address with their submission system ID. Access problems do not extend review deadlines unless explicitly granted by an area chair.",
+    "source": "Reviewer Handbook 2025",
+    "tags": ["access", "reviewer", "system", "support", "login"]
+  },
+  {
+    "id": "policy_022",
+    "category": "ethics_policy",
+    "title": "Plagiarism and Text Reuse",
+    "content": "Submissions must be original work, and copying text, figures, or results from other publications without proper attribution constitutes plagiarism. Self-plagiarism, including substantial reuse of the authors' own prior text without citation, is also prohibited. Confirmed plagiarism cases lead to immediate rejection and may be reported to the authors' institutions.",
+    "source": "Ethics Policy 2025",
+    "tags": ["plagiarism", "originality", "text-reuse", "attribution", "ethics"]
+  },
+  {
+    "id": "policy_023",
+    "category": "ethics_policy",
+    "title": "Reporting Suspected Misconduct",
+    "content": "Anyone, including reviewers and authors, may report suspected research or review misconduct confidentially to the ethics chair. Reports should include specific evidence such as the relevant text, figures, or timestamps. The identity of the reporter is protected to the extent possible, and reports are investigated through a formal process before any action is taken.",
+    "source": "Ethics Policy 2025",
+    "tags": ["misconduct", "report", "ethics-chair", "confidential", "investigation"]
+  },
+  {
+    "id": "policy_024",
+    "category": "ethics_policy",
+    "title": "Human Subjects and IRB Approval",
+    "content": "Research involving human subjects or sensitive behavioral data must comply with applicable ethical standards and obtain institutional review board (IRB) or equivalent approval. Authors must disclose the approval and describe consent procedures in the paper. Submissions that use human data without documented approval may be flagged for ethics review and held pending clarification.",
+    "source": "Ethics Policy 2025",
+    "tags": ["human-subjects", "IRB", "consent", "approval", "ethics"]
+  },
+  {
+    "id": "policy_025",
+    "category": "ethics_policy",
+    "title": "Dual Submission and Concurrent Review",
+    "content": "Papers must not be under concurrent review at another archival venue, and submitting substantially similar work to multiple venues simultaneously is prohibited. Authors with overlapping submissions should withdraw one to remain compliant. Dual submission, when discovered, results in rejection of all affected papers and may trigger an ethics inquiry.",
+    "source": "Ethics Policy 2025",
+    "tags": ["dual-submission", "concurrent", "overlap", "rejection", "ethics"]
+  },
+  {
+    "id": "policy_026",
+    "category": "ethics_policy",
+    "title": "Breach of Review Confidentiality",
+    "content": "Using or disclosing confidential ideas obtained during review, such as releasing a preprint that exploits an unpublished method from a reviewed paper, is a severe ethics violation. Allegations are investigated by the ethics committee using submitted evidence including drafts and timestamps. Substantiated breaches can result in multi-year bans from reviewing and submitting.",
+    "source": "Ethics Policy 2025",
+    "tags": ["confidentiality", "breach", "review", "preprint", "ethics"]
+  },
+  {
+    "id": "policy_027",
+    "category": "ethics_policy",
+    "title": "Undisclosed Conflicts and Biased Reviewing",
+    "content": "Reviewers must not review papers where an undisclosed competitive or personal conflict could bias their judgment. Authors who suspect a review reflects an undisclosed conflict may raise the concern with the area chair, who will assess whether a conflict was improperly hidden. The goal is to evaluate the integrity of the process, not simply to change a score.",
+    "source": "Ethics Policy 2025",
+    "tags": ["conflict", "bias", "undisclosed", "reviewer", "ethics"]
+  },
+  {
+    "id": "policy_028",
+    "category": "ethics_policy",
+    "title": "Use of Generative AI in Submissions",
+    "content": "Authors may use generative AI tools for editing and assistance but remain fully responsible for the accuracy, originality, and integrity of their submission. AI-generated content that introduces fabricated citations or results is treated as a serious integrity violation. Substantial use of AI in producing the research itself should be disclosed in the paper.",
+    "source": "Ethics Policy 2025",
+    "tags": ["generative-ai", "disclosure", "integrity", "fabrication", "ethics"]
+  },
+  {
+    "id": "policy_029",
+    "category": "authorship_guidelines",
+    "title": "Criteria for Authorship",
+    "content": "Authorship should be limited to those who made substantial intellectual contributions to the conception, execution, or analysis of the work. Each listed author should be able to take public responsibility for the content. Individuals who provided only minor assistance, such as funding or general supervision without intellectual input, should be acknowledged rather than listed as authors.",
+    "source": "Authorship Guidelines 2025",
+    "tags": ["authorship", "contribution", "criteria", "responsibility", "guidelines"]
+  },
+  {
+    "id": "policy_030",
+    "category": "authorship_guidelines",
+    "title": "Author Order and Consent",
+    "content": "The order of authors should reflect the agreed-upon division of contributions and must be settled among all authors before submission. Every listed author must consent to being included and to the final author order. Adding someone as an author without their knowledge or consent is a violation of authorship integrity.",
+    "source": "Authorship Guidelines 2025",
+    "tags": ["author-order", "consent", "agreement", "integrity", "guidelines"]
+  },
+  {
+    "id": "policy_031",
+    "category": "authorship_guidelines",
+    "title": "Resolving Authorship Disputes",
+    "content": "Authorship disputes should first be addressed within the author group, ideally with guidance from a neutral mentor or institutional authority. If the dispute cannot be resolved internally, the affected party may contact the program chairs, who will handle the matter confidentially. The chairs can hold a paper's status while the dispute is examined but do not adjudicate institutional credit assignments.",
+    "source": "Authorship Guidelines 2025",
+    "tags": ["dispute", "authorship", "resolution", "chairs", "confidential"]
+  },
+  {
+    "id": "policy_032",
+    "category": "authorship_guidelines",
+    "title": "Adding or Removing Authors",
+    "content": "Changes to the author list after submission, including additions or removals, require the consent of all current authors and a written justification. Requests are reviewed by the program chairs to prevent honorary or coerced authorship. Legitimate corrections, such as restoring an accidentally omitted contributor, are generally permitted before the camera-ready deadline.",
+    "source": "Authorship Guidelines 2025",
+    "tags": ["add-author", "remove-author", "consent", "camera-ready", "guidelines"]
+  },
+  {
+    "id": "policy_033",
+    "category": "authorship_guidelines",
+    "title": "Author Responsibilities and Accountability",
+    "content": "All authors share responsibility for the integrity of the submitted work, including the validity of results and the proper citation of prior work. At least one corresponding author must be designated to handle communication with the conference. Authors are accountable for ensuring that co-authors are aware of and approve the submission.",
+    "source": "Authorship Guidelines 2025",
+    "tags": ["responsibility", "accountability", "corresponding-author", "integrity", "guidelines"]
+  },
+  {
+    "id": "policy_034",
+    "category": "authorship_guidelines",
+    "title": "Honorary and Ghost Authorship",
+    "content": "Honorary authorship, where a senior figure is listed without meaningful contribution, and ghost authorship, where a real contributor is omitted, are both prohibited. These practices distort the record of who is responsible for the work. The conference may investigate credible reports of either practice as authorship integrity concerns.",
+    "source": "Authorship Guidelines 2025",
+    "tags": ["honorary", "ghost-authorship", "integrity", "contribution", "guidelines"]
+  },
+  {
+    "id": "policy_035",
+    "category": "authorship_guidelines",
+    "title": "Equal Contribution and Affiliation Notes",
+    "content": "Papers may designate equal contribution among two or more authors using a clear footnote in the camera-ready version. Affiliations should reflect where the work was primarily conducted. Any special notation, such as equal contribution or shared corresponding authorship, must be agreed upon by the involved authors before the final version is submitted.",
+    "source": "Authorship Guidelines 2025",
+    "tags": ["equal-contribution", "affiliation", "footnote", "camera-ready", "guidelines"]
+  },
+  {
+    "id": "policy_036",
+    "category": "withdrawal_policy",
+    "title": "Withdrawing a Submission Before Decisions",
+    "content": "Authors may withdraw a submission at any time before final decisions are released by using the withdrawal function in the submission system or by contacting the program chairs. A withdrawal request should identify the specific submission number. Once withdrawn, a paper is removed from the review process and cannot be reinstated for the current cycle.",
+    "source": "Withdrawal Policy 2025",
+    "tags": ["withdrawal", "submission", "before-decision", "submission-id", "policy"]
+  },
+  {
+    "id": "policy_037",
+    "category": "withdrawal_policy",
+    "title": "Withdrawal After Acceptance",
+    "content": "Withdrawing a paper after acceptance is strongly discouraged but permitted in cases such as legal or patent conflicts. Authors must submit a formal written request to the program chairs explaining the reason. Late withdrawals are processed to remove the paper from the proceedings, and the chairs aim to handle such cases without prejudice to future submissions.",
+    "source": "Withdrawal Policy 2025",
+    "tags": ["withdrawal", "after-acceptance", "patent", "proceedings", "policy"]
+  },
+  {
+    "id": "policy_038",
+    "category": "withdrawal_policy",
+    "title": "Withdrawing One of Multiple Submissions",
+    "content": "When authors have overlapping submissions and wish to withdraw one to comply with the dual-submission policy, they should specify exactly which submission number to withdraw and which to retain. The retained submission remains active in review. Withdrawing the overlapping paper before reviews begin is the recommended way to avoid a dual-submission violation.",
+    "source": "Withdrawal Policy 2025",
+    "tags": ["withdrawal", "overlap", "dual-submission", "submission-id", "policy"]
+  },
+  {
+    "id": "policy_039",
+    "category": "withdrawal_policy",
+    "title": "Effect of Withdrawal on Future Submissions",
+    "content": "Withdrawing a submission in good faith does not penalize authors or affect their eligibility to submit in future editions of the conference. There is no blacklist for legitimate withdrawals. Repeated patterns of strategic withdrawal intended to game deadlines or reviews, however, may be reviewed by the chairs.",
+    "source": "Withdrawal Policy 2025",
+    "tags": ["withdrawal", "future-submission", "eligibility", "penalty", "policy"]
+  },
+  {
+    "id": "policy_040",
+    "category": "withdrawal_policy",
+    "title": "Data Deletion After Withdrawal",
+    "content": "Upon withdrawal, authors may request that uploaded files, including datasets and supplementary material, be deleted from the conference servers. The organizers will confirm deletion in writing and typically complete it within thirty days, subject to any required audit retention. Requests citing institutional data governance requirements are accommodated wherever feasible.",
+    "source": "Withdrawal Policy 2025",
+    "tags": ["data-deletion", "withdrawal", "files", "governance", "policy"]
+  },
+  {
+    "id": "policy_041",
+    "category": "withdrawal_policy",
+    "title": "Withdrawal Confirmation and Records",
+    "content": "Every withdrawal is acknowledged with a written confirmation from the submission system or the program chairs. Authors should retain this confirmation as their record that the paper is no longer under review. If a confirmation is not received within two business days of a withdrawal request, authors should follow up with the program committee.",
+    "source": "Withdrawal Policy 2025",
+    "tags": ["confirmation", "withdrawal", "records", "acknowledgment", "policy"]
+  },
+  {
+    "id": "policy_042",
+    "category": "general_faq",
+    "title": "Registration Fees and Timing",
+    "content": "There is no fee to submit a paper; registration fees apply only after acceptance. At least one author of each accepted paper must register at the full rate to have the paper included in the proceedings. Early-bird registration rates are available for a limited window after notification.",
+    "source": "General FAQ 2025",
+    "tags": ["registration", "fee", "accepted", "proceedings", "faq"]
+  },
+  {
+    "id": "policy_043",
+    "category": "general_faq",
+    "title": "Attendance and Virtual Presentation",
+    "content": "The conference offers both in-person and virtual presentation options for accepted papers. Inclusion in the proceedings requires that the paper be presented in at least one of these formats by a registered author. Authors facing travel constraints should select the virtual option during registration rather than skipping presentation entirely.",
+    "source": "General FAQ 2025",
+    "tags": ["attendance", "virtual", "presentation", "proceedings", "faq"]
+  },
+  {
+    "id": "policy_044",
+    "category": "general_faq",
+    "title": "Submission Limits per Author",
+    "content": "There is no strict limit on the number of papers an author may co-author, but each author is expected to fulfill reviewing duties proportional to their submissions. Being a co-author and a lead author carry the same integrity responsibilities. Authors should ensure they can genuinely stand behind every submission bearing their name.",
+    "source": "General FAQ 2025",
+    "tags": ["submission-limit", "co-author", "lead-author", "reviewing", "faq"]
+  },
+  {
+    "id": "policy_045",
+    "category": "general_faq",
+    "title": "Workshops and Main Track Tracks",
+    "content": "Workshops operate on separate timelines from the main track and have their own submission systems and deadlines. A paper rejected from the main track may be eligible for submission to a relevant workshop if the workshop's deadline has not passed and dual-submission rules are respected. Authors should consult each workshop's individual call for participation.",
+    "source": "General FAQ 2025",
+    "tags": ["workshop", "main-track", "deadline", "fallback", "faq"]
+  }
+]

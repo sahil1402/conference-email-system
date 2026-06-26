@@ -1,0 +1,302 @@
+[
+  {
+    "id": "email_001",
+    "from": "j.martinez@stanford.edu",
+    "to": "chairs@aaai2025.org",
+    "subject": "Confirming the full paper submission deadline",
+    "body": "Dear Program Chairs, I want to make sure I have the correct date for the full paper submission. Our team has the abstract registered already, but we are coordinating across three time zones and need to plan our final push carefully. Could you confirm the exact full paper deadline and whether it is anchored to AoE? We would rather not assume and risk missing it. Thank you for your help and for organizing such a wonderful program this year.",
+    "timestamp": "2025-08-12T09:23:00Z",
+    "expected_intent": "submission_deadline",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_002",
+    "from": "wchen@nus.edu.sg",
+    "to": "chairs@aaai2025.org",
+    "subject": "Is there a deadline extension this year?",
+    "body": "Hello, every year there seems to be a last-minute extension and I am trying to figure out whether I should bank on one. I have a student whose results are still coming together and a few extra days would make a real difference. Can you tell me the official submission deadline as it stands now, and whether any extension has been announced? I do not want to rely on rumors from social media. Appreciate the clarity.",
+    "timestamp": "2025-08-13T14:05:00Z",
+    "expected_intent": "submission_deadline",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_003",
+    "from": "okafor.research@gmail.com",
+    "to": "chairs@aaai2025.org",
+    "subject": "Deadline times confusing",
+    "body": "hi, the website lists a date but no time and i keep getting confused about timezones. when exactly does submission close? is it midnight where the conference is held or anywhere on earth? i have been burned by this before when i assumed local time and the portal had already locked me out. so i would really appreciate a clear answer on both the date and the cutoff time so i can plan my final upload. please clarify, thanks.",
+    "timestamp": "2025-08-14T22:47:00Z",
+    "expected_intent": "submission_deadline",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_004",
+    "from": "priya.nair@iitb.ac.in",
+    "to": "chairs@aaai2025.org",
+    "subject": "Abstract vs full paper deadline gap",
+    "body": "Dear Chairs, I understand there is an abstract registration deadline that precedes the full paper deadline. Could you confirm how many days separate the two, and whether missing the abstract deadline disqualifies us from submitting the full paper? I am advising several first-time submitters and want to give them accurate guidance so nobody is caught off guard. Many thanks for your time.",
+    "timestamp": "2025-08-15T06:31:00Z",
+    "expected_intent": "submission_deadline",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_005",
+    "from": "lukas.brandt@tum.de",
+    "to": "chairs@aaai2025.org",
+    "subject": "Page limit clarification for main track",
+    "body": "Dear Program Committee, I would like to confirm the page limit for the main technical track. Our paper currently runs to eight pages of body text plus references, and I want to be certain whether references and the appendix count toward the limit or sit outside it. The CFP wording was slightly ambiguous to me. Could you please clarify the exact page allowance and what is excluded? Thank you very much.",
+    "timestamp": "2025-08-16T11:18:00Z",
+    "expected_intent": "formatting_requirements",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_006",
+    "from": "sara.lindqvist@kth.se",
+    "to": "chairs@aaai2025.org",
+    "subject": "Which LaTeX template should we use?",
+    "body": "Hello, there appear to be a couple of template versions floating around from previous years and I want to avoid using an outdated one. Could you point me to the official LaTeX style file for this year's submissions? I also want to confirm the required font size and whether the two-column format is mandatory. I would hate to have our paper desk-rejected over a formatting technicality. Thanks so much for your guidance.",
+    "timestamp": "2025-08-17T15:42:00Z",
+    "expected_intent": "formatting_requirements",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_007",
+    "from": "tom.alvarez@berkeley.edu",
+    "to": "chairs@aaai2025.org",
+    "subject": "anonymization rules",
+    "body": "Hi team, quick one. We cite our own prior work several times and I am not sure how to handle this under double-blind review. Should those references be written in third person, or removed entirely? Also can we link to a GitHub repo if it is anonymized? Want to make sure we do not accidentally break the anonymity requirement. Thanks.",
+    "timestamp": "2025-08-18T08:09:00Z",
+    "expected_intent": "formatting_requirements",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_008",
+    "from": "h.tanaka@u-tokyo.ac.jp",
+    "to": "chairs@aaai2025.org",
+    "subject": "Supplementary material format and size",
+    "body": "Dear Chairs, our submission includes a video demonstration and a sizeable dataset description. Could you tell me the accepted file formats for supplementary material and whether there is a maximum upload size? I also want to confirm whether reviewers are required to consult the supplement or whether it is optional. We want to package everything correctly the first time. Thank you for the clarification and for your hard work on the program.",
+    "timestamp": "2025-08-19T13:55:00Z",
+    "expected_intent": "formatting_requirements",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_009",
+    "from": "monica.feld@ethz.ch",
+    "to": "chairs@aaai2025.org",
+    "subject": "First time submitting - general questions",
+    "body": "Hello, this is my first time submitting to a conference of this scale and I have a few general questions. Is there a registration fee required at submission time, or only upon acceptance? Will all authors need to register, or just the presenter? And roughly when can we expect notification of the outcome? I appreciate your patience with what are probably very basic questions. Thank you.",
+    "timestamp": "2025-08-20T10:24:00Z",
+    "expected_intent": "general_inquiry",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_010",
+    "from": "david.osei@uct.ac.za",
+    "to": "chairs@aaai2025.org",
+    "subject": "Question about virtual attendance",
+    "body": "Dear organizers, I am hoping to understand the attendance options for this year. If our paper is accepted, is in-person presentation mandatory or is there a virtual presentation track? Travel funding at my institution is limited and I want to set expectations with my co-authors early. Could you also confirm whether the proceedings publication depends on attendance? Thank you very much for the information.",
+    "timestamp": "2025-08-21T17:33:00Z",
+    "expected_intent": "general_inquiry",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_011",
+    "from": "anya.volkova@gmail.com",
+    "to": "chairs@aaai2025.org",
+    "subject": "how many papers can i submit",
+    "body": "hi there, is there a limit on the number of submissions one author can be on? i am involved in several projects this cycle and want to make sure i am not breaking any rule by being a co-author on multiple papers. also does being a co-author count differently from being lead author? thanks for letting me know.",
+    "timestamp": "2025-08-22T19:01:00Z",
+    "expected_intent": "general_inquiry",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_012",
+    "from": "r.delacroix@inria.fr",
+    "to": "chairs@aaai2025.org",
+    "subject": "Workshop and main track relationship",
+    "body": "Dear Chairs, I would like to understand the relationship between the workshops and the main track. If a paper is rejected from the main track, can it still be submitted to a workshop, and are the deadlines independent? I am trying to plan a fallback strategy for some early-stage work. A short overview of how the tracks interact would be tremendously helpful. Thank you for your time and consideration.",
+    "timestamp": "2025-08-23T12:47:00Z",
+    "expected_intent": "general_inquiry",
+    "expected_lane": "faq"
+  },
+  {
+    "id": "email_013",
+    "from": "g.fischer@mpi-inf.mpg.de",
+    "to": "chairs@aaai2025.org",
+    "subject": "Reviewer load is unmanageable",
+    "body": "Dear Program Chairs, I was assigned eight papers to review with only two weeks until the deadline, and several fall well outside my stated area of expertise. This is more than double what I agreed to when I signed up as a reviewer. I want to provide quality feedback, but this load makes that impossible. Could we discuss a reassignment of at least three of these papers to more appropriate reviewers? I am happy to flag which ones are furthest from my expertise. Thank you.",
+    "timestamp": "2025-08-24T09:12:00Z",
+    "expected_intent": "review_assignment",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_014",
+    "from": "l.romano@polimi.it",
+    "to": "chairs@aaai2025.org",
+    "subject": "Conflict of interest on assigned paper",
+    "body": "Dear Chairs, one of the papers assigned to me appears to be from a group at my former institution, and I co-authored a paper with one of the listed authors within the last two years. I believe this constitutes a conflict of interest under the review policy. Please advise on how to formally declare the conflict and have the paper reassigned. I would prefer not to access the manuscript further until this is resolved. Thank you for handling this carefully.",
+    "timestamp": "2025-08-25T14:38:00Z",
+    "expected_intent": "review_assignment",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_015",
+    "from": "kevin.zhao@gatech.edu",
+    "to": "chairs@aaai2025.org",
+    "subject": "Cannot access review system",
+    "body": "Hi, I am an assigned reviewer but my dashboard shows no papers even though I received an email saying my assignments are ready. I have tried logging out and back in. I am worried I am falling behind through no fault of my own. Could someone check whether my reviewer account is correctly linked to my assignments? Happy to provide my submission system ID if that helps. Thanks for the quick help.",
+    "timestamp": "2025-08-26T20:05:00Z",
+    "expected_intent": "review_assignment",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_016",
+    "from": "n.haddad@aub.edu.lb",
+    "to": "chairs@aaai2025.org",
+    "subject": "Request to decline review assignment",
+    "body": "Dear Program Committee, due to an unexpected family medical situation I will be unable to complete my assigned reviews this cycle. I deeply regret the late notice and the burden this places on the committee. I have not yet started any of the four reviews assigned to me, so reassignment should be straightforward. Please let me know if there is anything I can do to ease the transition. I hope to return as a reviewer next year. Thank you for understanding.",
+    "timestamp": "2025-08-27T07:50:00Z",
+    "expected_intent": "review_assignment",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_017",
+    "from": "elena.petrov@cmu.edu",
+    "to": "chairs@aaai2025.org",
+    "subject": "Dispute over author order on submission 1182",
+    "body": "Dear Chairs, I am writing with serious concern regarding submission 1182. I made substantial contributions to the methodology and experiments, yet I have been listed as fourth author, and a colleague who joined late is listed second. This does not reflect the actual division of work, and attempts to resolve it within the team have stalled. I want to understand what recourse exists through the conference for contested authorship before the camera-ready stage. This is affecting my standing with my advisor. Thank you for treating this confidentially.",
+    "timestamp": "2025-08-28T11:29:00Z",
+    "expected_intent": "authorship_dispute",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_018",
+    "from": "m.okonkwo@imperial.ac.uk",
+    "to": "chairs@aaai2025.org",
+    "subject": "Author added without my consent",
+    "body": "Dear Program Chairs, I have just discovered that my name was added as a co-author to a submission without my knowledge or consent. I did not contribute to this work and do not wish to be associated with it in its current form. I am quite upset that this happened. How do I formally request removal from the author list, and what verification will you require? I would appreciate a prompt response as the notification deadline is approaching. Thank you.",
+    "timestamp": "2025-08-29T16:44:00Z",
+    "expected_intent": "authorship_dispute",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_019",
+    "from": "yusuf.demir@metu.edu.tr",
+    "to": "chairs@aaai2025.org",
+    "subject": "Missing co-author on accepted paper",
+    "body": "Dear Chairs, our paper was accepted, but during submission a co-author who contributed significantly to the theoretical proofs was accidentally omitted from the author list. We would like to add her before the camera-ready deadline. All current authors agree to this addition. Could you advise on the process and any documentation you need to verify the legitimacy of the change? We want to handle this correctly and transparently. Thank you for your guidance.",
+    "timestamp": "2025-08-30T09:58:00Z",
+    "expected_intent": "authorship_dispute",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_020",
+    "from": "claire.dubois@epfl.ch",
+    "to": "chairs@aaai2025.org",
+    "subject": "Withdrawing submission 0934",
+    "body": "Dear Program Chairs, after internal discussion we have decided to withdraw submission 0934 from consideration. We discovered an error in our experimental setup that we cannot fully correct within the review timeline, and we would rather withdraw than have flawed results reviewed. Could you confirm the withdrawal has been processed and let us know whether withdrawal at this stage has any implications for resubmission to future editions? Thank you for your understanding and professionalism.",
+    "timestamp": "2025-08-31T13:21:00Z",
+    "expected_intent": "submission_withdrawal",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_021",
+    "from": "raj.patel@uwaterloo.ca",
+    "to": "chairs@aaai2025.org",
+    "subject": "Need to withdraw after acceptance - urgent",
+    "body": "Hello, this is difficult to write. Our paper was accepted but we now need to withdraw it because a patent filing conflict has come up with our industry partner and legal has instructed us not to publish at this time. I understand this is very late and I apologize for the disruption. What is the formal withdrawal procedure after acceptance, and will this affect our standing for future submissions? Please advise as soon as possible. Thank you.",
+    "timestamp": "2025-09-01T18:07:00Z",
+    "expected_intent": "submission_withdrawal",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_022",
+    "from": "sofia.greco@unitn.it",
+    "to": "chairs@aaai2025.org",
+    "subject": "withdraw one of two submissions",
+    "body": "hi, we have two submissions that overlap more than we realized and we think one should be withdrawn to avoid any dual-submission concern. how do we withdraw submission 0712 specifically while keeping 0713 active? i want to be very careful here because i do not want to accidentally pull the wrong paper or trigger a violation flag on both of them. want to do this before reviews start so it stays clean. let me know the exact steps please, thanks.",
+    "timestamp": "2025-09-02T10:36:00Z",
+    "expected_intent": "submission_withdrawal",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_023",
+    "from": "a.kowalski@uw.edu.pl",
+    "to": "chairs@aaai2025.org",
+    "subject": "Withdrawal request and data deletion",
+    "body": "Dear Chairs, we wish to withdraw submission 1450. In addition to removing it from review, we request confirmation that the uploaded files, including our proprietary dataset sample, will be deleted from your servers and not retained. This is a requirement from our institution's data governance office. Could you confirm both the withdrawal and the deletion timeline in writing? We appreciate your attention to this compliance matter. Thank you.",
+    "timestamp": "2025-09-03T15:49:00Z",
+    "expected_intent": "submission_withdrawal",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_024",
+    "from": "marcus.bauer@uni-freiburg.de",
+    "to": "chairs@aaai2025.org",
+    "subject": "Possible plagiarism in submission I reviewed",
+    "body": "Dear Program Chairs, while reviewing a paper assigned to me I noticed that several paragraphs and a key figure appear to be copied verbatim from a 2022 publication without citation. I want to raise this through the proper channel rather than simply scoring the paper low. Could you advise on how to formally report a suspected plagiarism case, and what evidence you require? I would prefer to keep my identity confidential during the process. Thank you for taking this seriously.",
+    "timestamp": "2025-09-04T08:14:00Z",
+    "expected_intent": "ethics_concern",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_025",
+    "from": "in.kim@kaist.ac.kr",
+    "to": "chairs@aaai2025.org",
+    "subject": "Concern about undisclosed human subjects data",
+    "body": "Dear Chairs, I am concerned that a submission in my batch uses human behavioral data without any mention of IRB approval or participant consent. Given the sensitivity of the data described, this seems like a potential ethics violation rather than a mere oversight. How should I escalate this concern, and will the authors be asked to provide ethics documentation? I want to ensure the conference's standards are upheld. Thank you for your guidance on the proper procedure.",
+    "timestamp": "2025-09-05T12:52:00Z",
+    "expected_intent": "ethics_concern",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_026",
+    "from": "f.nakamura@riken.jp",
+    "to": "chairs@aaai2025.org",
+    "subject": "Reviewer using submission for own benefit",
+    "body": "Dear Program Committee, I have reason to believe that confidential ideas from my submission were shared or reused outside the review process. Shortly after submission, a preprint appeared from a group with a clear overlap and unusual similarity to our unpublished method. I realize this is a serious allegation and I do not make it lightly. Could you advise on how the conference investigates breaches of review confidentiality? I am willing to provide timestamps and drafts as evidence. Thank you.",
+    "timestamp": "2025-09-06T17:25:00Z",
+    "expected_intent": "ethics_concern",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_027",
+    "from": "lena.schulz@uni-bonn.de",
+    "to": "chairs@aaai2025.org",
+    "subject": "Undisclosed conflict between authors and reviewer",
+    "body": "Dear Chairs, I want to confidentially flag a possible undisclosed conflict of interest. I believe one of the reviewers on my paper is a direct competitor who recently had a grant proposal rejected in favor of mine, and the review reads as unusually hostile and factually incorrect. I am not asking you to change the score, only to assess whether a conflict was improperly undisclosed. How is this kind of concern reviewed? Thank you for considering this seriously and discreetly.",
+    "timestamp": "2025-09-07T09:40:00Z",
+    "expected_intent": "ethics_concern",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_028",
+    "from": "carlos.mendez@itesm.mx",
+    "to": "chairs@aaai2025.org",
+    "subject": "Upload keeps failing at final step",
+    "body": "Hi, I have been trying to upload my final PDF for the last hour and the system throws an error at the very last step every time, saying the file could not be processed. The file is well under the size limit and opens fine locally. I am getting nervous because the deadline is tonight. Is there a known issue with the submission portal right now, and is there an alternate way to submit if this continues? Please help, thank you.",
+    "timestamp": "2025-09-08T21:11:00Z",
+    "expected_intent": "technical_issue",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_029",
+    "from": "p.andersson@chalmers.se",
+    "to": "chairs@aaai2025.org",
+    "subject": "password reset email never arrives",
+    "body": "hello, i cannot log into the submission system and the password reset email never shows up, i checked spam too. i have an abstract registered under this address so i really need access before the full paper deadline. can you manually reset my account or tell me what is going on? getting a bit stressed here. thanks.",
+    "timestamp": "2025-09-09T19:33:00Z",
+    "expected_intent": "technical_issue",
+    "expected_lane": "human_review"
+  },
+  {
+    "id": "email_030",
+    "from": "amir.hosseini@sharif.edu",
+    "to": "chairs@aaai2025.org",
+    "subject": "Submitted paper shows wrong title and missing file",
+    "body": "Dear Chairs, after submitting I noticed that the system saved an old title for my paper and the supplementary ZIP appears to be missing from my submission record, even though I uploaded it and saw a confirmation. The edit window now seems locked. Could someone verify what was actually received on your end and help me correct the title and re-attach the supplement? I want to be sure reviewers see the complete and correct submission. Thank you for your assistance.",
+    "timestamp": "2025-09-10T13:18:00Z",
+    "expected_intent": "technical_issue",
+    "expected_lane": "human_review"
+  }
+]
