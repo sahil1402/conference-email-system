@@ -371,6 +371,82 @@ GitHub commit: feat(pipeline): implement classify → retrieve → route → dra
 
 ---
 
+### Phase 1D — COMPLETE
+
+What was built:
+- backend/app/api/v1/__init__.py — CREATED (package marker)
+- backend/app/api/v1/emails.py — CREATED: v1 email router
+  (POST /emails/ingest, GET /emails/queue, GET /emails/{id},
+   PATCH /emails/{id}/approve, PATCH /emails/{id}/reroute)
+- backend/app/api/v1/analytics.py — CREATED: analytics router
+  (GET /analytics/summary, GET /analytics/recent-activity)
+- backend/main.py — MODIFIED: import + include emails_router & analytics_router
+  under prefix "/api/v1" (existing /api stub routers left intact)
+- backend/scripts/__init__.py — CREATED (package marker)
+- backend/scripts/seed.py — CREATED: idempotent policy load + pipeline over toy emails
+- backend/app/pipeline/classifier.py — MODIFIED: keyword-rule tweaks (see deviations)
+- backend/pyproject.toml — MODIFIED: added pytest-asyncio>=0.23 (dev) +
+  [tool.pytest.ini_options] (asyncio_mode="auto", testpaths=["tests"])
+- backend/tests/conftest.py — CREATED: mock_db_session, sample_email_dict,
+  sample_classification_result, sample_retrieved_chunk fixtures
+- backend/tests/test_classifier.py — CREATED (6 tests)
+- backend/tests/test_router.py — CREATED (6 tests)
+- backend/tests/test_retriever.py — CREATED (4 tests)
+
+Key decisions:
+- get_db pattern (confirmed from main.py / app/db/database.py): routes use
+  `from app.db.database import get_db` with `db: AsyncSession = Depends(get_db)`,
+  and a module-level `router = APIRouter(prefix=..., tags=...)` mounted in main.py
+  via `app.include_router(router, prefix="/api/v1")`. Matched exactly; no new pattern.
+- Lane / confidence storage (JSON columns on `emails`): lane lives in the `routing`
+  JSON column (`routing.lane`); confidence + intent live in the `classification`
+  JSON column (`classification.confidence`, `classification.intent`). Analytics
+  reads these JSON keys in Python (no new repo methods / raw SQL).
+- Deviations from spec (and why):
+  1. classifier.py KEYWORD_RULES adjusted to make the *prescribed* TASK 4 tests pass
+     (they encode intended behavior the Phase 1C keyword set didn't yet satisfy):
+       - ethics_concern: added "ethical", "violation" so "ethical violation by a
+         reviewer" classifies as ethics_concern instead of tying review_assignment.
+       - general_inquiry: removed generic "question"/"general" so a vague
+         "general question about the conference" falls back to general_inquiry at
+         the 0.3 confidence floor (test requires <= 0.35). Real inquiry cues
+         (registration/fee/workshop/etc.) are unchanged.
+  2. approve/reroute use literal lowercase statuses "approved"/"rerouted" per spec
+     (these are free-text on the String status column, distinct from the uppercase
+     EmailStatus enum values used by the pipeline lifecycle).
+  3. /emails/queue `total` = sum of count_emails_by_status (overall email count),
+     since there is no count-by-lane repo method and the task scoped out adding one.
+  4. analytics `pending_count` = emails whose status is not in {approved, rerouted}
+     (i.e., still awaiting a chair decision); `approved_count` = status == "approved".
+  5. final_text on approve is recorded in the audit metadata (no dedicated column);
+     reroute updates the `routing.lane` JSON in place + logs reason/new_lane.
+
+Verified with (run from backend/ via .venv):
+- pytest: 16 passed, 0 failed (test_classifier 6, test_router 6, test_retriever 4)
+- alembic upgrade head: ran clean (already at head)
+- seed.py: 30/30 processed — 6 FAQ, 24 human_review, avg confidence 0.730, 0 failures
+- /health: {"status":"ok","version":"0.1.0","service":"conference-email-system"}
+- /api/v1/emails/queue: total=30, page_info honored; sample email id=30,
+  status=DRAFT_GENERATED, lane=human_review, intent=technical_issue
+- /api/v1/analytics/summary: total_emails=30, faq_lane_count=6,
+  human_review_count=24, approved_count=0, pending_count=30, avg_confidence=0.73,
+  intent_distribution + 7-day daily_volume (30 on today, 0 prior) returned
+- /api/v1/analytics/recent-activity: 200 OK
+
+Note: drafts are fallback text ("API key not configured") because ANTHROPIC_API_KEY
+is unset in this environment; pipeline status is still "complete" (no draft error),
+so lane/queue/analytics are fully populated. Set ANTHROPIC_API_KEY to generate real
+grounded drafts.
+
+Tests added:
+- backend/tests/test_classifier.py — 6 tests
+- backend/tests/test_router.py — 6 tests
+- backend/tests/test_retriever.py — 4 tests
+
+GitHub commit: feat(api): add endpoints, seed script, and unit tests
+
+---
+
 ## Current Status
 
 | Phase | Status | What It Contains |
@@ -379,8 +455,8 @@ GitHub commit: feat(pipeline): implement classify → retrieve → route → dra
 | Phase 1A | Complete | Toy dataset + knowledge base JSON |
 | Phase 1B | Complete | Repository layer + config updates |
 | Phase 1C | Complete | Pipeline modules (classify/retrieve/route/draft + orchestrator) |
-| Phase 1D | Next | API routes + seed script + tests |
-| Phase 2 | Future | Trainable classifier + RL router |
+| Phase 1D | Complete | API routes (v1) + seed script + unit tests |
+| Phase 2 | Next | Trainable classifier + RL router |
 | Phase 3 | Future | Frontend UI build-out |
 | Phase 4 | Future | Evaluation + research instrumentation |
 

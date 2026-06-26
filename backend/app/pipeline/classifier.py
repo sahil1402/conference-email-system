@@ -37,8 +37,7 @@ KEYWORD_RULES: dict[str, list[str]] = {
     ],
     "general_inquiry": [
         "registration", "fee", "virtual", "attend", "workshop", "first time",
-        "how many", "question", "general", "proceedings", "present",
-        "co-author", "inquiry",
+        "how many", "proceedings", "present", "co-author", "inquiry",
     ],
     "review_assignment": [
         "review", "reviewer", "assigned", "assignment", "reassign",
@@ -56,9 +55,10 @@ KEYWORD_RULES: dict[str, list[str]] = {
         "withdraw submission", "after acceptance",
     ],
     "ethics_concern": [
-        "plagiarism", "plagiar", "ethics", "misconduct", "irb",
-        "human subjects", "consent", "confidentiality", "breach",
-        "dual submission", "fabricat", "undisclosed conflict", "report",
+        "plagiarism", "plagiar", "ethics", "ethical", "violation",
+        "misconduct", "irb", "human subjects", "consent", "confidentiality",
+        "breach", "dual submission", "fabricat", "undisclosed conflict",
+        "report",
     ],
     "technical_issue": [
         "upload", "error", "cannot log in", "can't log in", "login",
