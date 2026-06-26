@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     MAX_RETRIEVED_CHUNKS: int = 3
     # Max tokens the drafter may generate for a reply.
     DRAFTER_MAX_TOKENS: int = 500
+    # Model the drafter calls when MODEL_PROVIDER == "anthropic_api". Never
+    # hardcode a model id in source — read it from here so it stays swappable.
+    DRAFT_MODEL: str = "claude-opus-4-8"
 
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None

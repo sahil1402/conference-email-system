@@ -303,6 +303,74 @@ GitHub commit: feat(backend): add repository layer and update config
 
 ---
 
+### Phase 1C — COMPLETE
+
+What was built:
+- backend/app/core/config.py — MODIFIED: added DRAFT_MODEL (default "claude-opus-4-8")
+  so the drafter never hardcodes a model id
+- backend/app/pipeline/classifier.py — CREATED: IntentClassifier + ClassificationResult
+  (keyword-overlap baseline; classify / classify_batch; VALID_INTENTS + KEYWORD_RULES)
+- backend/app/pipeline/retriever.py — CREATED: PolicyRetriever + RetrievedChunk
+  (BM25 via rank_bm25 over data/knowledge_base/policies.json; retrieve / rebuild_index;
+   lazy-loaded + cached index)
+- backend/app/pipeline/router.py — CREATED: EmailRouter + RoutingDecision
+  (sensitive-intent override + threshold/grounding gate; reads FAQ_CONFIDENCE_THRESHOLD)
+- backend/app/pipeline/drafter.py — CREATED: ResponseDrafter + DraftResponse
+  (AsyncAnthropic; no-key + error fallbacks; citation parsing of policy_\\d+)
+- backend/app/pipeline/orchestrator.py — CREATED: EmailPipeline + PipelineResult
+  (classify → retrieve → route → draft → persist + audit; timing; failure policy)
+- backend/app/pipeline/{classifier,retriever,router,drafter}/ — DELETED: empty Phase 0
+  stub sub-packages that would shadow the new flat modules (see Key decisions)
+
+Key decisions:
+- Model name config field: added DRAFT_MODEL to config.py (default "claude-opus-4-8").
+  The drafter reads settings.DRAFT_MODEL — no hardcoded model id anywhere (honors the
+  CLAUDE.md "never hardcode model names" rule; the drafter spec explicitly permitted
+  adding this field). DRAFTER_MAX_TOKENS is used for max_tokens.
+- policies.json field names confirmed: each chunk has id, category, title, content,
+  source, tags. The retriever maps id→policy_id and indexes title + content + tags;
+  "source" is not used for retrieval.
+- Deviations from spec (and why):
+  1. DELETED four empty stub sub-packages (pipeline/classifier/, retriever/, router/,
+     drafter/ — 0-byte __init__.py each, from Phase 0). A directory package shadows a
+     same-named .py module, so the required test `from app.pipeline.classifier import
+     IntentClassifier` would have imported the empty package and failed. Removing them
+     was necessary to make the flat-file modules importable. No real code was lost.
+  2. Drafter omits the `thinking` parameter (no extended/adaptive thinking). With
+     DRAFTER_MAX_TOKENS=500 a grounded reply is short; leaving thinking off keeps the
+     full budget for the answer and avoids truncation. Easy to revisit later.
+  3. Module __init__ flags: classifier has no settings flag (strategy="keyword");
+     retriever uses RETRIEVAL_BACKEND, router uses ROUTING_STRATEGY, drafter uses
+     MODEL_PROVIDER. These are stored for future strategy switching; behavior is the
+     baseline regardless of value.
+  4. PipelineResult.status ("complete"/"draft_failed"/"error") is the pipeline outcome;
+     it maps to the persisted Email.status lifecycle value (DRAFT_GENERATED / ROUTED).
+
+Verified with (run from backend/ via .venv):
+- Import test:
+    from app.pipeline.classifier import IntentClassifier
+    from app.pipeline.retriever import PolicyRetriever
+    from app.pipeline.router import EmailRouter
+    from app.pipeline.drafter import ResponseDrafter
+    from app.pipeline.orchestrator import EmailPipeline
+  → "All pipeline modules import cleanly"
+- Classifier smoke ("When is the paper submission deadline?" / "Deadline question"):
+    intent='submission_deadline' confidence=0.5
+    reasoning="Top intent 'submission_deadline' scored 2.50 (confidence 0.50)."
+    secondary_intents=['general_inquiry']
+- Router smoke (ethics_concern, confidence 0.99, no chunks):
+    lane: human_review | override: Intent 'ethics_concern' always requires human review
+- Extra in-memory E2E (no API key): retriever returned 3 chunks; orchestrator produced
+  email_id=1, intent=submission_deadline, lane=faq, status=complete, model_used=none,
+  processing_time_ms>0.
+
+Tests added:
+- None (tests arrive in Phase 1D)
+
+GitHub commit: feat(pipeline): implement classify → retrieve → route → draft
+
+---
+
 ## Current Status
 
 | Phase | Status | What It Contains |
@@ -310,8 +378,8 @@ GitHub commit: feat(backend): add repository layer and update config
 | Phase 0 | Complete | Skeleton, config, DB, frontend shell |
 | Phase 1A | Complete | Toy dataset + knowledge base JSON |
 | Phase 1B | Complete | Repository layer + config updates |
-| Phase 1C | Next | Pipeline modules |
-| Phase 1D | Pending | API routes + seed script + tests |
+| Phase 1C | Complete | Pipeline modules (classify/retrieve/route/draft + orchestrator) |
+| Phase 1D | Next | API routes + seed script + tests |
 | Phase 2 | Future | Trainable classifier + RL router |
 | Phase 3 | Future | Frontend UI build-out |
 | Phase 4 | Future | Evaluation + research instrumentation |
