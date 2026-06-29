@@ -12,7 +12,9 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.database import get_db
+from app.pipeline.rl_router import get_rl_router
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
 
@@ -92,6 +94,14 @@ async def analytics_summary(db: AsyncSession = Depends(get_db)) -> dict:
             {"date": day, "count": count} for day, count in daily_buckets.items()
         ],
     }
+
+
+@router.get("/rl-stats")
+async def rl_stats() -> dict:
+    """Return the RL router's per-intent win rates (empty unless RL is active)."""
+    if settings.ROUTING_STRATEGY != "rl":
+        return {"routing_strategy": "rule_based", "stats": {}}
+    return {"routing_strategy": "rl", "stats": get_rl_router().get_stats()}
 
 
 @router.get("/recent-activity")

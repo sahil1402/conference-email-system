@@ -11,16 +11,35 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import logging
+
 from app.db.database import get_db
 from app.db.models import AuditLog, Email
 from app.pipeline.orchestrator import EmailPipeline
+from app.pipeline.rl_router import get_rl_router
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/emails", tags=["emails"])
 
 email_repo = EmailRepository()
 audit_repo = AuditRepository()
+
+
+def _record_rl_feedback(email: Email, lane: str | None, outcome: str) -> None:
+    """Feed a chair decision to the RL bandit. Never raises.
+
+    The bandit learns from real approve/reroute signals; a failure here must
+    not break the chair's action, so everything is best-effort.
+    """
+    try:
+        intent = (email.classification or {}).get("intent")
+        if intent and lane:
+            get_rl_router().record_feedback(intent=intent, action=lane, outcome=outcome)
+    except Exception:  # noqa: BLE001 - feedback is best-effort
+        logger.warning("RL feedback recording failed (%s).", outcome, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +180,8 @@ async def approve_email(
         db, email_id, "approved", payload.approved_by,
         {"final_text": payload.final_text},
     )
+    # The approved lane was the right call → reward that (intent, lane) arm.
+    _record_rl_feedback(updated, (updated.routing or {}).get("lane"), "approved")
     return _email_to_dict(updated)
 
 
@@ -175,6 +196,7 @@ async def reroute_email(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Email {email_id} not found",
         )
+    original_lane = (existing.routing or {}).get("lane")
     new_routing = dict(existing.routing or {})
     new_routing["lane"] = payload.new_lane
     updated = await email_repo.update_email_status(
@@ -184,4 +206,6 @@ async def reroute_email(
         db, email_id, "rerouted", payload.rerouted_by,
         {"reason": payload.reason, "new_lane": payload.new_lane},
     )
+    # The original lane was wrong → penalize that (intent, lane) arm (no win).
+    _record_rl_feedback(existing, original_lane, "rerouted")
     return _email_to_dict(updated)

@@ -10,7 +10,7 @@ the declarative base). Callers pass plain ``metadata`` here; it is stored on
 ``extra_metadata``.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AuditLog
@@ -79,3 +79,107 @@ class AuditRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    @staticmethod
+    def _build_filters(
+        email_id: str | None,
+        action: str | None,
+        actor: str | None,
+    ) -> list | None:
+        """Build a list of SQLAlchemy WHERE conditions from optional filters.
+
+        Returns ``None`` to signal an impossible filter (a non-numeric
+        ``email_id``), so callers can short-circuit to an empty result without
+        running a query. An empty list means "no filters" (match everything).
+        """
+        conditions: list = []
+        if email_id is not None:
+            fk = _coerce_id(email_id)
+            if fk is None:
+                return None
+            conditions.append(AuditLog.email_id == fk)
+        if action is not None:
+            conditions.append(AuditLog.action == action)
+        if actor is not None:
+            conditions.append(AuditLog.actor == actor)
+        return conditions
+
+    async def get_audit_logs(
+        self,
+        db: AsyncSession,
+        *,
+        email_id: str | None = None,
+        action: str | None = None,
+        actor: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[AuditLog]:
+        """Return audit logs with optional filtering and pagination.
+
+        Ordered newest-first by ``timestamp`` (then ``id`` to break ties
+        deterministically). A non-numeric ``email_id`` yields an empty list.
+        """
+        conditions = self._build_filters(email_id, action, actor)
+        if conditions is None:
+            return []
+        stmt = (
+            select(AuditLog)
+            .where(*conditions)
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_audit_log_count(
+        self,
+        db: AsyncSession,
+        *,
+        email_id: str | None = None,
+        action: str | None = None,
+        actor: str | None = None,
+    ) -> int:
+        """Return the total count matching the same filters (for pagination)."""
+        conditions = self._build_filters(email_id, action, actor)
+        if conditions is None:
+            return 0
+        stmt = select(func.count()).select_from(AuditLog).where(*conditions)
+        result = await db.execute(stmt)
+        return int(result.scalar_one())
+
+    async def get_audit_log_by_id(
+        self, db: AsyncSession, log_id: int
+    ) -> AuditLog | None:
+        """Return a single audit log by primary key, or ``None`` if absent."""
+        return await db.get(AuditLog, log_id)
+
+    async def create_audit_log(
+        self,
+        db: AsyncSession,
+        *,
+        email_id: str,
+        action: str,
+        actor: str,
+        details: dict | None = None,
+    ) -> AuditLog | None:
+        """Insert a new audit log entry and return it.
+
+        ``details`` is stored on the ``extra_metadata`` JSON column. Returns
+        ``None`` if ``email_id`` is not a valid integer key (matching the
+        repository's no-exception contract).
+        """
+        fk = _coerce_id(email_id)
+        if fk is None:
+            return None
+
+        entry = AuditLog(
+            email_id=fk,
+            action=action,
+            actor=actor,
+            extra_metadata=details,
+        )
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+        return entry

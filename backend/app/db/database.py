@@ -37,6 +37,9 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
+# The engine is built from settings.DATABASE_URL — never a hardcoded string.
+# For production, set DATABASE_URL in .env to postgresql+asyncpg://user:password@host:5432/confmail
+# (the URL passes through _to_async_url unchanged; only SQLite is rewritten to aiosqlite).
 engine = create_async_engine(ASYNC_DATABASE_URL, echo=False, future=True)
 
 async_session_factory = async_sessionmaker(

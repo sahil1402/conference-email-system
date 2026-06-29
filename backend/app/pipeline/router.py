@@ -68,6 +68,15 @@ class EmailRouter:
         confidence = classification.confidence
         chunk_count = len(retrieved_chunks)
 
+        # RL strategy: delegate the lane choice to the learning bandit. It keeps
+        # the same RoutingDecision contract and its own hard safety guards
+        # (sensitive intents + a low-confidence floor). Imported lazily to avoid
+        # a circular import (rl_router imports RoutingDecision from this module).
+        if self.strategy == "rl":
+            from app.pipeline.rl_router import get_rl_router
+
+            return get_rl_router().route(intent, confidence, threshold)
+
         # Hard rule: sensitive intents are never auto-answered.
         if intent in SENSITIVE_INTENTS:
             override = f"Intent '{intent}' always requires human review"

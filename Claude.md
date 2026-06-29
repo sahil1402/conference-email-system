@@ -297,3 +297,253 @@ At the end of EVERY session without exception, Claude must:
 4. Report: "CLAUDE.md updated — [phase name] logged"
 
 This is not optional. If a session ends without this step, the project memory is broken.
+
+---
+
+## Phase 3E — Audit Endpoint Fix
+**Status:** Complete
+**Date:** 2026-06-29
+
+### What was built
+- `audit_repository.py` rewritten: `get_audit_logs`, `get_audit_log_count`, `create_audit_log`
+- `GET /api/v1/audit` — paginated, filterable by email_id / action / actor
+- `GET /api/v1/audit/{log_id}` — single log lookup with 404
+- `AuditLogResponse` Pydantic schema with id, email_id, action, actor, details, created_at
+- New test file: `tests/test_audit_endpoint.py` (5 tests)
+
+### What changed
+- Removed stub that was normalizing analytics/recent-activity data
+- GET /audit now reads directly from audit_logs table
+
+### Test results
+- Previous suite: 16/16 passing
+- New suite: 21/21 passing
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **Repo location**: the audit repository is at `app/repositories/audit_repository.py`
+  (NOT `app/db/repositories/`, whose `__init__.py` is empty). New methods were
+  added to the existing **class** `AuditRepository` (instance methods) rather than
+  as module-level functions, to preserve the pattern used by orchestrator/emails.py
+  and avoid breaking those callers. The 3 pre-existing methods (`log_action`,
+  `get_audit_trail`, `get_recent_actions`) were kept intact. Also added
+  `get_audit_log_by_id` so the single-log route stays repository-only (architecture rule).
+- **Schema mapping**: `AuditLog` has no `created_at`/`details` columns. The real
+  columns are `timestamp` and `extra_metadata` (DB column literally `"metadata"`).
+  `AuditLogResponse` maps them via Pydantic `validation_alias`:
+  `created_at` ← `timestamp`, `details` ← `extra_metadata`. Ordering is `timestamp DESC, id DESC`.
+- **Mount path**: the audit router was a bare stub mounted at `/api/audit`. To
+  expose `/api/v1/audit` it is now mounted under `/api/v1` in `main.py` (alongside
+  `emails_router`/`analytics_router`); the old `/api` stub mount was removed. There
+  was no analytics import in the backend route to remove (that behavior lived in the frontend).
+- **Tests**: existing tests mock the session; the new endpoint tests use a real
+  in-memory SQLite DB (StaticPool so all connections share one `:memory:` DB),
+  override the `get_db` dependency, seed logs via the repo, and drive the app
+  through httpx `ASGITransport`. No real DB file or network. (httpx already
+  available; `asgi_lifespan` not needed — app lifespan is empty.)
+
+---
+
+## Phase 3C — PostgreSQL Migration
+**Status:** Complete
+**Date:** 2026-06-29
+
+### What was built
+- asyncpg (0.31.0) + psycopg2-binary (2.9.12) added to pyproject.toml (aiosqlite kept for tests)
+- .env.example updated: DATABASE_URL (asyncpg) + SYNC_DATABASE_URL (psycopg2), with a commented SQLite-dev alternative
+- SYNC_DATABASE_URL added to Settings (`app/core/config.py`) for Alembic / sync-tooling use
+- migrations/env.py: already async (`run_async_migrations` + `async_engine_from_config`); made `render_as_batch` dialect-conditional (SQLite-only) so it won't interfere with PostgreSQL ALTERs
+- Alembic checkpoint revision generated: `507ef4c2d805_phase3c_postgres_ready` (empty up/down — zero schema drift)
+
+### How to switch to PostgreSQL
+1. Install and start PostgreSQL locally
+2. Create database: `createdb confmail`
+3. Set in .env: DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/confmail
+   (optionally SYNC_DATABASE_URL=postgresql+psycopg2://... for sync tooling)
+4. Run: cd backend && alembic upgrade head
+5. Run: cd backend && python scripts/seed.py
+
+### Tests
+- SQLite in-memory tests unchanged: 21/21 passing
+- No live PostgreSQL instance required to run tests
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **Config path**: settings live at `app/core/config.py` (not `app/config.py`).
+- **Alembic was already async**: env.py already used `run_async_migrations()` /
+  `async_engine_from_config` and injected `ASYNC_DATABASE_URL` from settings — no
+  conversion needed. Only change: `render_as_batch` is now `True` solely for the
+  SQLite dialect (offline checks the URL prefix; online checks
+  `connection.dialect.name`).
+- **SYNC_DATABASE_URL is not consumed by the async env.py** (which uses asyncpg).
+  It's added to Settings + .env.example as documented config for sync tooling /
+  psycopg2-based migrations if preferred later. Defaults to SQLite so dev/tests
+  with no .env keep working.
+- **Install flag**: used a plain venv `pip install` (Windows `.venv`), not
+  `--break-system-packages` (that flag is for Linux PEP-668 environments).
+- **Seed path**: the seed script is `backend/scripts/seed.py`, not `backend/seed.py`.
+- **No `alembic upgrade` run against PostgreSQL** (no live PG in dev). The checkpoint
+  migration was verified by `py_compile` + `alembic history`/`heads` (single linear
+  head `507ef4c2d805`). The autogenerate diff was run against the at-head SQLite DB
+  and came back empty, confirming models match the schema.
+
+---
+
+## Phase 3D — Local Model Integration
+**Status:** Complete
+**Date:** 2026-06-29
+
+### What was built
+- `LOCAL_MODEL_BASE_URL` (default `http://localhost:11434/v1`) + `LOCAL_MODEL_NAME` (default `llama3.1:8b`) added to config
+- drafter.py: "local" provider branch — httpx POST to OpenAI-compatible `{base}/chat/completions` (60s timeout, same system+user prompt as Anthropic, parses `choices[0].message.content`)
+- Graceful degradation: httpx/parse errors → fallback draft (`model_used="none"`), warning logged, never raises
+- GET /api/v1/health/model — live model status badge endpoint (probes `{base}/models` with 3s timeout when provider=local)
+- .env.example updated with MODEL_PROVIDER, LOCAL_MODEL_BASE_URL, LOCAL_MODEL_NAME
+- New test file: tests/test_drafter_local.py (4 tests)
+
+### How to switch to local model (Delta GPU)
+1. SSH into Delta GPU node
+2. Install Ollama: curl -fsSL https://ollama.com/install.sh | sh
+3. Pull model: ollama pull llama3.1:8b
+4. Start server: ollama serve
+5. In backend/.env: MODEL_PROVIDER=local
+6. Optionally set LOCAL_MODEL_BASE_URL if not localhost
+
+### Tests
+- Full suite: 25/25 passing (21 prior + 4 new)
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **MODEL_PROVIDER values**: the existing flag was `Literal["anthropic_api", "local"]`.
+  Widened to `["anthropic_api", "anthropic", "local", "fallback"]` — both anthropic
+  spellings map to the Anthropic backend, so the historical default `anthropic_api`
+  still works while the plan's `anthropic`/`fallback` are now valid. Default kept at
+  `anthropic_api`.
+- **Drafter was not actually provider-aware**: `draft()` previously ignored
+  `self.provider` and branched only on `ANTHROPIC_API_KEY`. Now it branches on
+  `self.provider` (anthropic/anthropic_api → Anthropic, local → httpx, else →
+  fallback), via new `_draft_anthropic` / `_draft_local` helpers + a shared
+  `_fallback()`. Public interface (`__init__(provider=...)`, `draft(...)`) unchanged;
+  the orchestrator already passes `settings.MODEL_PROVIDER`.
+- **Health endpoint placement**: the plan named `routes/analytics.py`, which doesn't
+  exist (the implemented analytics router is `app/api/v1/analytics.py` with prefix
+  `/analytics`). No existing v1 router's prefix can yield `/api/v1/health/model`, so
+  the endpoint is defined app-level in `main.py` (mirroring the existing `/health`
+  probe) — honors "no new router file" and the exact required path. The endpoint
+  normalizes `anthropic_api` → `anthropic` in its `provider` field.
+- **httpx**: promoted from a dev-only dependency to a main dependency in pyproject
+  (already installed in the venv). Installed via plain venv `pip` earlier (Phase 3C),
+  not `--break-system-packages` (Windows venv, not Linux PEP-668).
+- **Tests**: HTTP fully mocked via `monkeypatch` of `drafter.httpx.AsyncClient`
+  (raising client → fallback path; OK client → parse/citation path) + ASGITransport
+  for the health endpoint. No real Anthropic or local-model calls.
+
+---
+
+## Phase 3A — Trainable Classifier
+**Status:** Complete
+**Date:** 2026-06-29
+
+### What was built
+- `backend/app/pipeline/trainable_classifier.py`: TrainableClassifier class
+  - Embedding: all-MiniLM-L6-v2 (sentence-transformers, CPU-only, lazy-loaded)
+  - Model: LogisticRegression(max_iter=1000, C=1.0) (sklearn), saved via joblib
+  - Fallback: delegates to `keyword_classify` when no artifact on disk (embedder not loaded)
+  - Singleton pattern: `get_trainable_classifier()` (instantiated once at module level)
+- CLASSIFIER_BACKEND flag added (Literal["keyword","trainable"], default "keyword")
+- `POST /api/v1/train/classifier` endpoint (min 5 samples → 422, returns accuracy)
+- Model artifacts saved to: backend/models/ (resolved from __file__, cwd-safe)
+- New test file: tests/test_trainable_classifier.py (5 tests)
+
+### How to activate
+In .env: CLASSIFIER_BACKEND=trainable
+Then POST to /api/v1/train/classifier with labeled email data.
+Until trained, falls back to keyword classifier automatically.
+
+### Tests
+- Full suite: 30/30 passing (25 prior + 5 new)
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **No CLASSIFIER_BACKEND existed**: the classifier was selected via
+  `IntentClassifier(strategy="keyword")` (orchestrator hardcoded "keyword"). Added
+  the flag to config and wired the orchestrator to
+  `IntentClassifier(strategy=settings.CLASSIFIER_BACKEND)`.
+- **Interface preserved via refactor**: the public interface is still the async
+  `IntentClassifier.classify(email_text, subject)` + `classify_batch`. The keyword
+  scoring was extracted into a module-level sync `keyword_classify(subject, body)`
+  (no logic duplicated); `IntentClassifier.classify` now dispatches — `trainable`/
+  `trained` → `get_trainable_classifier().classify(subject, email_text)`, else
+  `keyword_classify`. `TrainableClassifier.classify(subject, body)` is sync per the
+  plan; the async wrapper adapts arg order.
+- **`method` field added** to `ClassificationResult` (optional, default "keyword";
+  trained path sets "trained_classifier"). Backward-compatible — existing
+  tests/contracts unaffected.
+- **Artifact paths**: class attrs `MODEL_PATH`/`LABEL_PATH` keep the plan's display
+  strings (surfaced in the API response), but real joblib IO uses absolute paths
+  anchored on `Path(__file__).parents[2]/"models"` so it works regardless of cwd
+  (tests run from backend/, where the literal "backend/models/..." would have been wrong).
+- **Install**: sklearn/sentence-transformers/joblib (+ torch 2.x **cpu**) installed
+  into the Windows `.venv` with plain `pip`, not `--break-system-packages`.
+- **Endpoint**: defined in `app/api/routes/training.py` (router prefix `/train`,
+  mounted under `/api/v1` → `/api/v1/train/classifier`); training runs in a
+  threadpool (`run_in_threadpool`) since it's CPU-bound; 422 via Pydantic
+  `min_length=5`; 500 with "Training failed: …" on error.
+- **Test isolation**: tests redirect the module's `_MODELS_DIR`/`_MODEL_FILE`/
+  `_LABEL_FILE` globals + reset the singleton via `monkeypatch` to a `tmp_path`, so
+  the repo's `backend/models/` is never written. Verified clean after the run. The
+  embedder downloads once (~90MB) and is then served from the huggingface cache.
+
+---
+
+## Phase 3B — RL Router
+**Status:** Complete
+**Date:** 2026-06-29
+
+### What was built
+- `backend/app/pipeline/rl_router.py`: RLRouter — epsilon-greedy bandit
+  - Arms: auto_reply | human_review, per-intent {wins, trials} state
+  - Epsilon: 0.15 (15% exploration); optimistic init (win-rate 0.5 for untried arms)
+  - Hard guards (checked before the bandit): sensitive intent → human_review; confidence < 0.4 → human_review; confidence < threshold → human_review
+  - Persistence: backend/models/rl_router_state.json (human-readable JSON)
+  - Singleton: get_rl_router()
+- ROUTING_STRATEGY already included "rl" (no config change needed)
+- Feedback loop: approve/reroute endpoints call record_feedback() (approve→reward approved lane; reroute→penalize original lane)
+- GET /api/v1/analytics/rl-stats — per-intent win rates
+- New test file: tests/test_rl_router.py (6 tests)
+
+### How to activate
+In .env: ROUTING_STRATEGY=rl
+Router immediately starts learning from approve/reroute actions.
+State persists across restarts in backend/models/rl_router_state.json.
+
+### Tests
+- Full suite: 36/36 passing (30 prior + 6 new)
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **ROUTING_STRATEGY already had "rl"** — Step 3a was a no-op.
+- **Interface preserved**: public `EmailRouter.route(classification, retrieved_chunks)
+  -> RoutingDecision` is unchanged. When `strategy == "rl"`, it lazily imports
+  `get_rl_router()` (lazy avoids a circular import: rl_router imports RoutingDecision
+  from router) and delegates with extracted `(intent, confidence, threshold)`.
+- **Arm vs lane vocabulary**: bandit arms are `auto_reply`/`human_review`; the stored
+  lane is `faq`/`human_review`. `RoutingDecision.lane` stays `faq` (downstream
+  unchanged); `record_feedback` normalizes `faq` → `auto_reply` so feedback and
+  routing agree.
+- **Additive safety**: the RL path *keeps* the sensitive-intent override and adds the
+  spec's hard confidence floor (0.4) — checked before the bandit, so learning never
+  overrides safety. (With the default threshold 0.65 the floor is only independently
+  observable when threshold < 0.4, but it's implemented as a first-class guard so the
+  floor test holds regardless of threshold.)
+- **Email field access**: there is no `email.classification_result`/`email.lane`;
+  the feedback helper reads `email.classification["intent"]` and
+  `email.routing["lane"]` (JSON columns). For reroute, feedback uses the *original*
+  lane (from `existing.routing` before the update) — the action being penalized.
+- **Endpoint locations**: approve/reroute are in `app/api/v1/emails.py` (not
+  `routes/emails.py`, which is a stub); the rl-stats route was added to
+  `app/api/v1/analytics.py` (prefix `/analytics`) → `/api/v1/analytics/rl-stats`.
+- **Feedback is best-effort**: both calls go through `_record_rl_feedback`, wrapped
+  in try/except + logged — it can never break the chair's approve/reroute action.
+- **STATE_PATH**: class attr keeps the display string `backend/models/rl_router_state.json`;
+  actual IO resolves it fresh each call (relative → anchored to project root,
+  parents[3]; absolute → used as-is), so tests monkeypatch `STATE_PATH` to a tmp file
+  and reset the singleton. Repo `backend/models/` verified clean after the run.
+
+**Phase 3 is fully complete** (3A trainable classifier, 3B RL router, 3C PostgreSQL,
+3D local model, 3E audit endpoint).

@@ -56,7 +56,7 @@ class EmailPipeline:
 
     def __init__(self) -> None:
         # Each module is instantiated from its swappable settings flag.
-        self.classifier = IntentClassifier(strategy="keyword")
+        self.classifier = IntentClassifier(strategy=settings.CLASSIFIER_BACKEND)
         self.retriever = PolicyRetriever(backend=settings.RETRIEVAL_BACKEND)
         self.router = EmailRouter(strategy=settings.ROUTING_STRATEGY)
         self.drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
