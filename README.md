@@ -281,10 +281,10 @@ Toy dataset (25 emails), FAQ knowledge base (20 entries), repository layer, pipe
 ### Phase 2 — Live Pipeline ✅
 Real BM25 retriever, prompt-based classifier via Anthropic API, rule-based router with confidence thresholds, AI draft generation with policy citations.
 
-### Phase 3 — Full UI 🔄
+### Phase 3 — Full UI ✅
 Dashboard with analytics, email queue with split-pane view, classification/retrieval/routing panels, approval workflow, audit log.
 
-### Phase 4 — Research Extensions
+### Phase 4 — Research Extensions 🔄
 Trainable classifier (fine-tuning pipeline), RL-based router, vector retrieval (FAISS), local deployment mode, eval harness with ground truth labels.
 
 ---
