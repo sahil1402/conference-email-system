@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.models.enums import EmailStatus
 from app.pipeline.classifier import ClassificationResult, IntentClassifier
 from app.pipeline.drafter import DraftResponse, ResponseDrafter
-from app.pipeline.retriever import PolicyRetriever, RetrievedChunk
+from app.pipeline.retriever import RetrievedChunk, get_retriever
 from app.pipeline.router import EmailRouter, RoutingDecision
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
@@ -57,7 +57,7 @@ class EmailPipeline:
     def __init__(self) -> None:
         # Each module is instantiated from its swappable settings flag.
         self.classifier = IntentClassifier(strategy=settings.CLASSIFIER_BACKEND)
-        self.retriever = PolicyRetriever(backend=settings.RETRIEVAL_BACKEND)
+        self.retriever = get_retriever()
         self.router = EmailRouter(strategy=settings.ROUTING_STRATEGY)
         self.drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
         self.email_repo = EmailRepository()

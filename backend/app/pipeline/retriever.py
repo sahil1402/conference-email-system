@@ -11,10 +11,15 @@ content + tags and return chunks ranked by BM25 relevance.
 """
 
 import json
+import logging
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 from rank_bm25 import BM25Okapi
+
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # data/knowledge_base/policies.json lives at the project root. This file is at
 # backend/app/pipeline/retriever.py → parents[3] is the repo root.
@@ -75,6 +80,12 @@ class PolicyRetriever:
         self._policies = None
         self._index = None
 
+    @property
+    def document_count(self) -> int:
+        """Number of policy chunks in the corpus (loads the KB if needed)."""
+        self._ensure_loaded()
+        return len(self._policies or [])
+
     async def retrieve(
         self, query: str, intent: str, top_k: int = 3
     ) -> list[RetrievedChunk]:
@@ -107,3 +118,44 @@ class PolicyRetriever:
             )
             for i in chosen
         ]
+
+
+# ---------------------------------------------------------------------------
+# Retriever factory (the RETRIEVAL_BACKEND swap seam)
+# ---------------------------------------------------------------------------
+# Process-wide singleton. Rebuilt only if RETRIEVAL_BACKEND changes (so tests
+# that flip the flag get a fresh instance, while normal runs build once).
+_retriever_singleton: object | None = None
+_retriever_backend: str | None = None
+
+
+def get_retriever():
+    """Return the configured retriever singleton.
+
+    ``RETRIEVAL_BACKEND == "bm25"`` → ``PolicyRetriever`` (BM25, unchanged).
+    ``RETRIEVAL_BACKEND == "faiss"`` → ``FAISSRetriever`` (dense vectors).
+    Anything else raises ``ValueError``. Both expose the same async
+    ``retrieve(query, intent, top_k) -> list[RetrievedChunk]`` contract.
+    """
+    global _retriever_singleton, _retriever_backend
+    backend = settings.RETRIEVAL_BACKEND
+
+    if _retriever_singleton is not None and _retriever_backend == backend:
+        return _retriever_singleton
+
+    if backend == "bm25":
+        _retriever_singleton = PolicyRetriever(backend="bm25")
+    elif backend == "faiss":
+        # Imported lazily so faiss / sentence-transformers load only when the
+        # FAISS backend is actually selected.
+        from app.pipeline.faiss_retriever import FAISSRetriever
+
+        _retriever_singleton = FAISSRetriever(model_name=settings.FAISS_MODEL_NAME)
+    else:
+        raise ValueError(
+            f"Unknown RETRIEVAL_BACKEND {backend!r}; expected 'bm25' or 'faiss'."
+        )
+
+    _retriever_backend = backend
+    logger.info("Retriever backend initialized: %s", backend)
+    return _retriever_singleton

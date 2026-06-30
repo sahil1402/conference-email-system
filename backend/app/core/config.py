@@ -33,7 +33,9 @@ class Settings(BaseSettings):
         "anthropic_api"
     )
     CONFIDENCE_THRESHOLD: float = 0.75
-    RETRIEVAL_BACKEND: Literal["bm25", "vector"] = "bm25"
+    # Retriever backend: "bm25" → keyword BM25 over the KB (default); "faiss" →
+    # dense sentence-embedding retrieval (FAISS IndexFlatIP, cosine).
+    RETRIEVAL_BACKEND: Literal["bm25", "faiss"] = "bm25"
     ROUTING_STRATEGY: Literal["rule_based", "rl"] = "rule_based"
     # Classifier backend. "keyword" → dependency-free baseline; "trainable" →
     # sentence-embedding + LogisticRegression model (auto-falls back to keyword
@@ -47,6 +49,9 @@ class Settings(BaseSettings):
     FAQ_CONFIDENCE_THRESHOLD: float = 0.65
     # Max policy chunks the retriever returns as grounding context.
     MAX_RETRIEVED_CHUNKS: int = 3
+    # Sentence-transformers model used by the FAISS retriever (CPU). Only read
+    # when RETRIEVAL_BACKEND == "faiss".
+    FAISS_MODEL_NAME: str = "all-MiniLM-L6-v2"
     # Max tokens the drafter may generate for a reply.
     DRAFTER_MAX_TOKENS: int = 500
     # Model the drafter calls when MODEL_PROVIDER == "anthropic_api". Never

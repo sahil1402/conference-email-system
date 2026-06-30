@@ -262,11 +262,7 @@ resolve inside SVG attributes. They mirror the globals.css tokens.
 
 **Phase 2 is complete.** All frontend pages are built, typed, and demo-ready.
 
-**Next steps (Phase 3 options):**
-  A. Trainable classifier (fine-tuned intent model)
-  B. RL-based router (reward signal from chair approve/reroute actions)
-  C. PostgreSQL migration (Alembic, production-ready persistence)
-  D. Delta GPU activation + local model swap (one-line drafter change)
+**Next steps (Phase 4):** Deployment + pilot — Docker, CI/CD, live conference integration.
 
 ---
 
@@ -279,12 +275,17 @@ resolve inside SVG attributes. They mirror the globals.css tokens.
 | Phase 1B | Complete | Repository layer + config updates |
 | Phase 1C | Complete | Pipeline modules (classify/retrieve/route/draft + orchestrator) |
 | Phase 1D | Complete | API routes (v1) + seed script + unit tests |
+| **Phase 2** | **Complete** | **Full frontend — all pages built, typed, demo-ready** |
 | Phase 2A | Complete | Frontend API client layer + React Query hooks |
 | Phase 2B | Complete | Layout shell + dashboard (design system, ui components, sidebar, dashboard page) |
 | Phase 2C | Complete | Email Queue split-pane + auto-replies table + ingest panel |
 | Phase 2D | Complete | Audit log timeline + Analytics charts + responsive polish pass |
-| **Phase 2** | **Complete** | **Full frontend — all pages built, typed, demo-ready** |
-| Phase 3 | Next | Trainable classifier / RL router / Postgres / local model (see options) |
+| **Phase 3** | **Complete** | **All 5 sub-phases complete — 36/36 tests** |
+| Phase 3E | Complete | Real audit endpoint /api/v1/audit — paginated, filterable |
+| Phase 3C | Complete | PostgreSQL migration ready (asyncpg, Alembic checkpoint) |
+| Phase 3D | Complete | Local model backend (Ollama-compatible, MODEL_PROVIDER=local) |
+| Phase 3A | Complete | Trainable classifier (all-MiniLM-L6-v2 + LogisticRegression) |
+| Phase 3B | Complete | RL bandit router (ε=0.15, feedback loop, rl-stats endpoint) |
 
 ---
 
@@ -547,3 +548,47 @@ State persists across restarts in backend/models/rl_router_state.json.
 
 **Phase 3 is fully complete** (3A trainable classifier, 3B RL router, 3C PostgreSQL,
 3D local model, 3E audit endpoint).
+
+---
+
+## Phase 4A — FAISS Vector Retrieval [COMPLETE]
+- Added FAISSRetriever using sentence-transformers (all-MiniLM-L6-v2) + faiss-cpu
+- IndexFlatIP with L2 normalization (cosine similarity)
+- Lazy index build on first retrieve() call
+- rebuild_index() method for live reindexing after policy doc updates
+- Factory pattern in retriever __init__.py: RETRIEVAL_BACKEND=faiss | bm25
+- New config field: FAISS_MODEL_NAME
+- New endpoint: GET /api/v1/retrieval/info
+- 6 new tests — all passing
+- BM25 unchanged and still default
+- Next: Phase 4B — Eval harness with ground truth labels
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **No `retriever/` package** — it's a flat module `app/pipeline/retriever.py` (the
+  subpackage was deleted in Phase 1C because it shadowed the module). So
+  `FAISSRetriever` lives in flat `app/pipeline/faiss_retriever.py`, and the
+  `get_retriever()` factory was added to `retriever.py` (not a `retriever/__init__.py`).
+- **RetrievedChunk contract kept identical** — fields are `policy_id, title, content,
+  score, category, tags` (not the plan's `chunk_id/text/source/intent`), so FAISS is a
+  true drop-in for BM25. `content` is the chunk text, `policy_id` the identifier;
+  `intent` is a passthrough input (logged, not stored on the chunk).
+- **DB-backed (option A)**: FAISS loads PolicyDocument rows via `PolicyRepository`
+  using its own short-lived async session (`async_session_factory`), so the public
+  `retrieve(query, intent, top_k)` signature stays sessionless like BM25's. BM25 still
+  reads `data/knowledge_base/policies.json` (unchanged). repo + session_factory are
+  constructor-injectable → tests mock them with zero DB access.
+- **Factory wiring**: `get_retriever()` is a singleton that rebuilds only when
+  RETRIEVAL_BACKEND changes; `bm25`→PolicyRetriever, `faiss`→FAISSRetriever
+  (lazy import), else ValueError. The orchestrator now calls `get_retriever()` (was
+  constructing PolicyRetriever directly) so the flag actually swaps the backend.
+- **Config**: RETRIEVAL_BACKEND Literal is now `["bm25","faiss"]` (dropped the dead
+  `"vector"` placeholder; default still `bm25`). Added `FAISS_MODEL_NAME="all-MiniLM-L6-v2"`.
+- **Endpoint location**: there's no `routes/pipeline.py`; the info route is a focused
+  `app/api/v1/retrieval.py` router (prefix `/retrieval`) mounted under `/api/v1` →
+  `/api/v1/retrieval/info`. For FAISS, `document_count`/`index_built` reflect the lazy
+  index (0/false until first retrieve); for BM25, count comes from the KB and
+  `index_built` is always true.
+- **Install**: `faiss-cpu>=1.8` (cp313 Windows wheel, v1.14.3) into the `.venv` with
+  plain `pip` (not `--break-system-packages`); `sentence-transformers` was already present.
+- **Verification**: full suite 42/42; live `curl /api/v1/retrieval/info` →
+  `{"backend":"bm25","document_count":45,"model_name":null,"index_built":true}`.
