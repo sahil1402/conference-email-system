@@ -629,3 +629,38 @@ State persists across restarts in backend/models/rl_router_state.json.
 - **scikit-learn**: already a dependency (added in Phase 3A) — no new install needed.
 - **Verification**: eval smoke run processes all 40 emails, EXIT=0; `tests/test_eval_harness.py`
   5/5; full suite 47/47.
+
+---
+
+## Phase 4C — PDF Progress Document Update [COMPLETE]
+- Added Phase 3 section (3E, 3C, 3D, 3A, 3B) to progress document
+- Added Phase 4 section (4A FAISS, 4B eval harness) to progress document
+- Baseline eval finding documented: FAQ routing 6/15 (threshold issue)
+- PDF regenerated successfully
+- Document now covers all phases 0–4
+- Project is feature-complete per the original Phase 4 roadmap
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **No existing PDF generator existed**: none of the candidate paths
+  (`scripts/generate_pdf.py`, etc.) existed, no source imported reportlab, and
+  reportlab was not installed. The only PDF was a static, externally-produced
+  `Conference Email System Design Document.pdf` (40 KB, predates Phase 3/4) with no
+  generator. Per user decision, built a **new** ReportLab generator from scratch
+  covering Phases 0–4 rather than appending to a nonexistent script.
+- **New generator**: `scripts/generate_progress_pdf.py` (new top-level `scripts/` dir).
+  reportlab 5.0.0 installed into the `.venv`. Output:
+  `Conference Email System Progress Report.pdf` at repo root (~4 pages, ~12.8 KB) —
+  a NEW file; the original Design Document PDF is left untouched (unchanged, 40607 bytes).
+- **Structure**: title block → concise Phase 0–2 context → detailed Phase 3 (5 sub-phases,
+  each with What built / Key decision / Not built / "In a meeting" callout + summary table,
+  36 passing) → detailed Phase 4 (4A, 4B, green "baseline eval results" callout, summary
+  table, 47 passing, amber "what comes next" callout). Custom flowables: callout boxes +
+  summary tables; indigo accent mirrors the frontend design system.
+- **Model-name convention**: this is an internal engineering progress report (not the
+  shared design doc), but per the "no specific model names in design documents" convention
+  the drafter's hosted option is described generically as a "configurable AI provider" (no
+  foundation-model name); library/technique names (all-MiniLM-L6-v2, Ollama-style, FAISS,
+  epsilon-greedy) are retained as requested.
+- **Verification**: generator exits 0; story-content check confirms all sections present
+  (Phase 0–4, sub-phases 3E/3C/3D/3A/3B + 4A/4B, "36 passing" + "47 passing"); no visual
+  render available in this environment (no `pdftoppm`/PDF lib) so verification is structural.
