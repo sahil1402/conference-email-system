@@ -9,7 +9,14 @@ The `ClassificationResult` contract and the `classify` / `classify_batch`
 signatures are what the router and orchestrator depend on; keep them stable.
 """
 
+import logging
+
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+# Backends we've already warned about (missing calibrator) — warn only once each.
+_calibration_warned: set[str] = set()
 
 VALID_INTENTS = [
     "submission_deadline",
@@ -95,6 +102,18 @@ class ClassificationResult(BaseModel):
     method: str = Field(
         default="keyword",
         description='Backend that produced this result ("keyword" | "trained_classifier").',
+    )
+    # --- Calibration (Phase 5B; both None unless calibration is active) ---
+    raw_confidence: float | None = Field(
+        default=None,
+        description="Original raw confidence, preserved when calibration is applied.",
+    )
+    calibrated_confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Calibrated P(correct); set only when CALIBRATION_ENABLED and a "
+        "fitted calibrator exists. The router prefers this when present.",
     )
 
 
@@ -191,8 +210,44 @@ class IntentClassifier:
             # is selected, keeping the keyword path import-light.
             from app.pipeline.trainable_classifier import get_trainable_classifier
 
-            return get_trainable_classifier().classify(subject, email_text)
-        return keyword_classify(subject, email_text)
+            result = get_trainable_classifier().classify(subject, email_text)
+        else:
+            result = keyword_classify(subject, email_text)
+
+        return self._apply_calibration(result)
+
+    def _apply_calibration(self, result: ClassificationResult) -> ClassificationResult:
+        """Attach calibrated confidence when calibration is enabled + available.
+
+        Side-effect-free on the raw score: ``result.confidence`` is left as the
+        raw classifier output; only the separate ``raw_confidence`` /
+        ``calibrated_confidence`` fields are populated. Never raises — a missing
+        artifact logs a warning once and falls back to raw confidence.
+        """
+        # Imported lazily so config/settings are read fresh and to avoid a
+        # classifier ↔ calibration import cycle.
+        from app.core.config import settings
+
+        if not settings.CALIBRATION_ENABLED:
+            return result
+
+        from app.pipeline.calibration import backend_key, get_calibrator
+
+        key = backend_key(self.strategy)
+        calibrator = get_calibrator(key)
+        if calibrator is None:
+            if key not in _calibration_warned:
+                _calibration_warned.add(key)
+                logger.warning(
+                    "CALIBRATION_ENABLED is set but no fitted calibrator exists "
+                    "for backend '%s'; falling back to raw confidence.",
+                    key,
+                )
+            return result
+
+        result.raw_confidence = result.confidence
+        result.calibrated_confidence = calibrator.calibrate(result.confidence)
+        return result
 
     async def classify_batch(
         self, emails: list[dict]

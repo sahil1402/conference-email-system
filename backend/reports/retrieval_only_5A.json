@@ -1,0 +1,39 @@
+{
+  "run_id": "17aa990d-dc3b-4dbf-9dbc-29474a0cddc8",
+  "timestamp": "2026-07-01T14:55:30",
+  "mode": "retrieval_only",
+  "config": {
+    "top_k": 5
+  },
+  "retrieval_metrics": {
+    "ks": [
+      1,
+      3,
+      5
+    ],
+    "query_intent_source": "ground_truth_intent",
+    "scored_emails": 38,
+    "excluded_no_gold": [
+      "eval_037",
+      "eval_039"
+    ],
+    "backends": {
+      "bm25": {
+        "recall@1": 0.7105,
+        "ndcg@1": 0.7105,
+        "recall@3": 0.8684,
+        "ndcg@3": 0.8067,
+        "recall@5": 0.9211,
+        "ndcg@5": 0.8282
+      },
+      "faiss": {
+        "recall@1": 0.8158,
+        "ndcg@1": 0.8158,
+        "recall@3": 0.9737,
+        "ndcg@3": 0.912,
+        "recall@5": 1.0,
+        "ndcg@5": 0.9233
+      }
+    }
+  }
+}

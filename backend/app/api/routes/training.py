@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from app.pipeline.calibration import VALID_METHODS, fit_calibrator_for_backend
 from app.pipeline.trainable_classifier import (
     TrainableClassifier,
     get_trainable_classifier,
@@ -62,4 +63,54 @@ async def train_classifier(payload: TrainClassifierRequest) -> dict:
         "classes": result["classes"],
         "accuracy": result["accuracy"],
         "model_path": TrainableClassifier.MODEL_PATH,
+    }
+
+
+class TrainCalibrationRequest(BaseModel):
+    """Payload for a calibration fitting run (Phase 5B).
+
+    Fits against the labeled ground-truth set on disk, so no samples are sent in
+    the body — only the backend to calibrate and the method to use.
+    """
+
+    backend: str = Field(default="keyword", pattern="^(keyword|trainable)$")
+    method: str = Field(default="platt")
+
+
+@router.post("/calibration")
+async def train_calibration(payload: TrainCalibrationRequest | None = None) -> dict:
+    """Fit + persist a confidence calibrator for a classifier backend.
+
+    Runs the classifier over the ground-truth set, fits the calibrator, and saves
+    the artifact under backend/models/ (CPU-bound → threadpool). Mirrors
+    /train/classifier. The calibrator only takes effect when CALIBRATION_ENABLED.
+    """
+    req = payload or TrainCalibrationRequest()
+    if req.method not in VALID_METHODS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown method '{req.method}'; expected one of {list(VALID_METHODS)}.",
+        )
+
+    try:
+        report = await run_in_threadpool(
+            fit_calibrator_for_backend, req.backend, req.method
+        )
+    except Exception as exc:  # noqa: BLE001 - surface fitting failure as 500
+        logger.exception("Calibration fitting failed.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Calibration fitting failed: {exc}",
+        ) from exc
+
+    return {
+        "status": "calibrated",
+        "backend": report["backend"],
+        "method": report["method"],
+        "samples": report["samples"],
+        "brier_before": report["brier_before"],
+        "brier_after": report["brier_after"],
+        "ece_before": report["ece_before"],
+        "ece_after": report["ece_after"],
+        "artifact_path": report["artifact_path"],
     }

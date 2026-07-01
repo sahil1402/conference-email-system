@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
 
+from app.core.tracing import read_traces
 from app.db.database import get_db
 from app.db.models import AuditLog, Email
 from app.pipeline.orchestrator import EmailPipeline
@@ -162,6 +163,29 @@ async def get_email(
     return {
         "email": _email_to_dict(email),
         "audit_trail": [_audit_to_dict(a) for a in trail],
+    }
+
+
+@router.get("/{email_id}/trace")
+async def get_email_trace(
+    email_id: str, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Return the ordered per-stage pipeline trace for one email.
+
+    The trace records (classify → retrieve → route → draft) are read from the
+    structured trace log, oldest first. 404s if the email itself is unknown.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+    entries = read_traces(str(email.id))
+    return {
+        "email_id": str(email.id),
+        "count": len(entries),
+        "trace": entries,
     }
 
 

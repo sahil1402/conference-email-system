@@ -41,10 +41,14 @@ def eval_report(tmp_path_factory) -> dict:
 # ---------------------------------------------------------------------------
 def test_ground_truth_loads():
     entries = _load_ground_truth()
-    assert len(entries) == 40
+    # 40 original + 18 Phase 5A boundary cases.
+    assert len(entries) == 58
     required = {"id", "subject", "body", "ground_truth_intent", "ground_truth_lane"}
     assert all(required <= set(e) for e in entries)
     assert all(e["ground_truth_lane"] in ("faq", "human_review") for e in entries)
+    # Every entry carries a relevant_chunk_id field (may be null when the KB
+    # genuinely has no relevant policy) for the retrieval-only metrics.
+    assert all("relevant_chunk_id" in e for e in entries)
 
 
 def test_ground_truth_intent_distribution():
@@ -60,16 +64,24 @@ def test_ground_truth_intent_distribution():
 # Eval report
 # ---------------------------------------------------------------------------
 def test_eval_produces_valid_report(eval_report):
+    expected_total = len(_load_ground_truth())
     summary = eval_report["summary"]
-    assert summary["total_emails"] == 40
+    assert summary["total_emails"] == expected_total
     assert 0.0 <= summary["classification_macro_f1"] <= 1.0
     assert 0.0 <= summary["routing_accuracy"] <= 1.0
     assert 0.0 <= summary["retrieval_hit_rate"] <= 1.0
+    # end_to_end_metrics and retrieval_metrics are separate, non-blended sections.
+    assert eval_report["end_to_end_metrics"] == summary
+    rm = eval_report["retrieval_metrics"]
+    assert set(rm["backends"]) == {"bm25", "faiss"}
+    for k in (1, 3, 5):
+        assert 0.0 <= rm["backends"]["bm25"][f"recall@{k}"] <= 1.0
+        assert 0.0 <= rm["backends"]["bm25"][f"ndcg@{k}"] <= 1.0
 
 
 def test_eval_per_email_completeness(eval_report):
     per_email = eval_report["per_email"]
-    assert len(per_email) == 40
+    assert len(per_email) == len(_load_ground_truth())
     for entry in per_email:
         assert isinstance(entry["correct_intent"], bool)
         assert isinstance(entry["correct_lane"], bool)

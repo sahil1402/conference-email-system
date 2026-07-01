@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     # until a model is trained). Default stays "keyword".
     CLASSIFIER_BACKEND: Literal["keyword", "trainable"] = "keyword"
 
+    # Confidence calibration (Phase 5B). When True AND a fitted calibrator
+    # artifact exists for the active CLASSIFIER_BACKEND, the router uses the
+    # calibrated confidence instead of the raw classifier score. Off by default
+    # so behaviour is unchanged for anyone not opting in; the calibrator maps
+    # raw confidence → P(correct) and never changes intent predictions or the
+    # FAQ threshold itself.
+    CALIBRATION_ENABLED: bool = False
+
     # --- Pipeline tuning --------------------------------------------------
     # Minimum classifier confidence for an email to qualify for the FAQ
     # auto-reply lane. Kept distinct from CONFIDENCE_THRESHOLD so the FAQ

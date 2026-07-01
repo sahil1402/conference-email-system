@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import sys
 import uuid
 from datetime import datetime
@@ -46,6 +47,63 @@ from app.pipeline.router import EmailRouter  # noqa: E402
 
 _DEFAULT_GROUND_TRUTH = _PROJECT_ROOT / "data" / "eval" / "ground_truth.json"
 _REPORTS_DIR = _BACKEND_DIR / "reports"
+
+# Cutoffs for the retrieval-only ranking metrics (recall@k / nDCG@k).
+_RETRIEVAL_KS = (1, 3, 5)
+# Backends compared side-by-side in the retrieval-only section.
+_RETRIEVAL_BACKENDS = ("bm25", "faiss")
+
+
+# ---------------------------------------------------------------------------
+# Retrieval-only ranking metrics (pure functions — no DB, no I/O)
+# ---------------------------------------------------------------------------
+# These isolate retrieval quality from classification: they score the ranked
+# policy ids a retriever returns against a single hand-labeled relevant chunk
+# (``relevant_chunk_id`` in the ground truth). Kept pure so they are unit-tested
+# directly on small hand-checked fixtures.
+def recall_at_k(retrieved_ids: list[str], relevant_id: str, k: int) -> float:
+    """1.0 if the relevant chunk is in the top-k, else 0.0 (single-gold)."""
+    return 1.0 if relevant_id in retrieved_ids[:k] else 0.0
+
+
+def dcg_at_k(retrieved_ids: list[str], relevant_id: str, k: int) -> float:
+    """Discounted cumulative gain at k for a single relevant document.
+
+    Binary relevance: the one relevant chunk contributes ``1 / log2(rank + 1)``
+    at its 1-based rank if it lands within the top-k, otherwise 0.
+    """
+    for rank, pid in enumerate(retrieved_ids[:k], start=1):
+        if pid == relevant_id:
+            return 1.0 / math.log2(rank + 1)
+    return 0.0
+
+
+def ndcg_at_k(retrieved_ids: list[str], relevant_id: str, k: int) -> float:
+    """nDCG at k. With a single relevant doc the ideal DCG is 1.0 (rank 1),
+    so nDCG reduces to the DCG value itself."""
+    return dcg_at_k(retrieved_ids, relevant_id, k)
+
+
+def score_retrieval(
+    scored: list[tuple[str, list[str]]], ks: tuple[int, ...] = _RETRIEVAL_KS
+) -> dict:
+    """Aggregate recall@k and nDCG@k (mean over queries) for each k.
+
+    ``scored`` is a list of ``(relevant_id, retrieved_ids)`` pairs; queries with
+    no gold chunk must be filtered out by the caller before this is called.
+    """
+    n = len(scored)
+    metrics: dict[str, float] = {}
+    for k in ks:
+        if n == 0:
+            metrics[f"recall@{k}"] = 0.0
+            metrics[f"ndcg@{k}"] = 0.0
+            continue
+        recall = sum(recall_at_k(ids, rel, k) for rel, ids in scored) / n
+        ndcg = sum(ndcg_at_k(ids, rel, k) for rel, ids in scored) / n
+        metrics[f"recall@{k}"] = round(recall, 4)
+        metrics[f"ndcg@{k}"] = round(ndcg, 4)
+    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +132,19 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--verbose", action="store_true", help="Print per-email results."
+    )
+    parser.add_argument(
+        "--retrieval-only",
+        action="store_true",
+        help=(
+            "Only run the retrieval-only ranking metrics (recall@k / nDCG@k) "
+            "for every backend; skip the end-to-end classification/routing run."
+        ),
+    )
+    parser.add_argument(
+        "--no-retrieval-metrics",
+        action="store_true",
+        help="Skip the retrieval-only ranking section in a normal run.",
     )
     return parser.parse_args(argv)
 
@@ -210,10 +281,76 @@ def _compute_metrics(records: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Retrieval-only evaluation (both backends, per email)
+# ---------------------------------------------------------------------------
+async def _retrieve_ids(entries: list[dict], backend: str, top_k: int) -> list[list[str]]:
+    """Return the ranked policy ids each backend retrieves for every email.
+
+    The query pairs the email body with its GROUND-TRUTH intent (not the
+    classifier's prediction), so retrieval quality is measured independently of
+    classification. Switches the backend and resets the factory singleton so the
+    right retriever is built.
+    """
+    settings.RETRIEVAL_BACKEND = backend
+    retriever_module._retriever_singleton = None
+    retriever_module._retriever_backend = None
+    retriever = get_retriever()
+
+    ranked: list[list[str]] = []
+    for entry in entries:
+        try:
+            chunks = await retriever.retrieve(
+                entry.get("body", ""), entry.get("ground_truth_intent", ""), top_k=top_k
+            )
+            ranked.append([c.policy_id for c in chunks])
+        except Exception:  # noqa: BLE001 - degrade to empty retrieval
+            ranked.append([])
+    return ranked
+
+
+async def _evaluate_retrieval(entries: list[dict]) -> dict:
+    """Compute recall@k / nDCG@k for each backend, side-by-side.
+
+    Emails whose ``relevant_chunk_id`` is null/absent (the KB genuinely has no
+    relevant policy) are excluded from scoring and reported separately, so the
+    absolute numbers stay meaningful rather than being dragged down by
+    unanswerable queries.
+    """
+    labeled = [e for e in entries if e.get("relevant_chunk_id")]
+    excluded = [e.get("id") for e in entries if not e.get("relevant_chunk_id")]
+    top_k = max(_RETRIEVAL_KS)
+
+    backends: dict[str, dict] = {}
+    for backend in _RETRIEVAL_BACKENDS:
+        try:
+            ranked = await _retrieve_ids(labeled, backend, top_k)
+            scored = [
+                (e["relevant_chunk_id"], ids) for e, ids in zip(labeled, ranked)
+            ]
+            backends[backend] = score_retrieval(scored, _RETRIEVAL_KS)
+        except Exception as exc:  # noqa: BLE001 - a backend may be unavailable
+            backends[backend] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    return {
+        "ks": list(_RETRIEVAL_KS),
+        "query_intent_source": "ground_truth_intent",
+        "scored_emails": len(labeled),
+        "excluded_no_gold": excluded,
+        "backends": backends,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Report assembly + output
 # ---------------------------------------------------------------------------
-def _build_report(records: list[dict], metrics: dict, backend: str, top_k: int) -> dict:
-    return {
+def _build_report(
+    records: list[dict],
+    metrics: dict,
+    backend: str,
+    top_k: int,
+    retrieval_metrics: dict | None = None,
+) -> dict:
+    report = {
         "run_id": str(uuid.uuid4()),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "config": {
@@ -221,7 +358,8 @@ def _build_report(records: list[dict], metrics: dict, backend: str, top_k: int) 
             "top_k": top_k,
             "confidence_threshold": settings.FAQ_CONFIDENCE_THRESHOLD,
         },
-        "summary": {
+        # End-to-end pipeline quality (classification + routing + hit-rate).
+        "end_to_end_metrics": {
             "total_emails": len(records),
             "classification_macro_f1": metrics["classification_macro_f1"],
             "classification_accuracy": metrics["classification_accuracy"],
@@ -232,6 +370,41 @@ def _build_report(records: list[dict], metrics: dict, backend: str, top_k: int) 
         "confusion_matrix": metrics["confusion_matrix"],
         "per_email": records,
     }
+    # "summary" kept as an alias of end_to_end_metrics for backward compatibility
+    # with existing report consumers (Phase 4B report shape).
+    report["summary"] = report["end_to_end_metrics"]
+    # Retrieval-only ranking quality lives in its own top-level section so it is
+    # never blended into the end-to-end numbers above.
+    if retrieval_metrics is not None:
+        report["retrieval_metrics"] = retrieval_metrics
+    return report
+
+
+def _print_retrieval_metrics(retrieval: dict | None) -> None:
+    """Print the retrieval-only recall@k / nDCG@k comparison, if present."""
+    if not retrieval:
+        return
+    ks = retrieval["ks"]
+    print("Retrieval-only ranking (query = body + ground-truth intent)")
+    print(
+        f"  Scored emails   : {retrieval['scored_emails']}"
+        + (
+            f" (excluded {len(retrieval['excluded_no_gold'])} with no gold chunk)"
+            if retrieval["excluded_no_gold"]
+            else ""
+        )
+    )
+    header = "  " + "backend".ljust(8) + "".join(f"  R@{k}   N@{k} " for k in ks)
+    print(header)
+    for backend, m in retrieval["backends"].items():
+        if "error" in m:
+            print(f"  {backend.ljust(8)}  (unavailable: {m['error']})")
+            continue
+        cells = "".join(
+            f"  {m[f'recall@{k}']:.3f} {m[f'ndcg@{k}']:.3f}" for k in ks
+        )
+        print(f"  {backend.ljust(8)}{cells}")
+    print()
 
 
 def _print_summary(report: dict, metrics: dict, output_path: Path) -> None:
@@ -257,9 +430,10 @@ def _print_summary(report: dict, metrics: dict, output_path: Path) -> None:
     print(f"  FAQ correct     : {faq['correct']}/{faq['total']}")
     print(f"  Review correct  : {rev['correct']}/{rev['total']}")
     print()
-    print("Retrieval")
+    print("Retrieval (end-to-end hit-rate)")
     print(f"  Hit rate        : {s['retrieval_hit_rate'] * 100:.1f}%")
     print()
+    _print_retrieval_metrics(report.get("retrieval_metrics"))
     print("Per-intent F1:")
     width = max((len(k) for k in report["per_intent"]), default=0)
     for intent in sorted(report["per_intent"]):
@@ -297,11 +471,42 @@ def main(argv: list[str] | None = None) -> dict:
     if args.verbose:
         print(f"Running eval over {len(entries)} emails (backend={args.retrieval}, top_k={args.top_k})...")
 
+    # --- retrieval-only mode: skip the end-to-end run entirely -------------
+    if args.retrieval_only:
+        retrieval_metrics = asyncio.run(_evaluate_retrieval(entries))
+        report = {
+            "run_id": str(uuid.uuid4()),
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "mode": "retrieval_only",
+            "config": {"top_k": max(_RETRIEVAL_KS)},
+            "retrieval_metrics": retrieval_metrics,
+        }
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as fh:
+            json.dump(report, fh, indent=2)
+        line = "=" * 32
+        print(line)
+        print("ConfMail Retrieval-Only Eval")
+        print(line)
+        _print_retrieval_metrics(retrieval_metrics)
+        print(f"Report saved -> {output_path}")
+        print(line)
+        return report
+
+    # --- normal end-to-end run --------------------------------------------
     records = asyncio.run(
         _run_pipeline(entries, args.top_k, args.retrieval, args.verbose)
     )
     metrics = _compute_metrics(records)
-    report = _build_report(records, metrics, args.retrieval, args.top_k)
+
+    # Retrieval-only ranking metrics run AFTER the e2e pass because they switch
+    # the backend singleton per backend; the e2e config still reports args.retrieval.
+    retrieval_metrics = (
+        None if args.no_retrieval_metrics else asyncio.run(_evaluate_retrieval(entries))
+    )
+    report = _build_report(
+        records, metrics, args.retrieval, args.top_k, retrieval_metrics
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as fh:

@@ -1,6 +1,7 @@
 [
   {
     "id": "eval_001",
+    "relevant_chunk_id": "policy_002",
     "subject": "When is the full paper submission deadline?",
     "body": "Hello, could you confirm the exact full paper submission deadline and the timezone? I want to make sure I upload before the cutoff. Is it Anywhere on Earth?",
     "sender": "first.author@univ.edu",
@@ -11,6 +12,7 @@
   },
   {
     "id": "eval_002",
+    "relevant_chunk_id": "policy_004",
     "subject": "Abstract registration deadline question",
     "body": "Do I need to register an abstract before submitting the full paper, and what is the abstract deadline relative to the paper deadline?",
     "sender": "grad.student@univ.edu",
@@ -21,6 +23,7 @@
   },
   {
     "id": "eval_003",
+    "relevant_chunk_id": "policy_006",
     "subject": "Camera-ready deadline for accepted paper",
     "body": "Our paper was accepted. When is the camera-ready deadline and what happens if we miss it for the proceedings?",
     "sender": "corresponding@lab.org",
@@ -31,6 +34,7 @@
   },
   {
     "id": "eval_004",
+    "relevant_chunk_id": "policy_005",
     "subject": "Rebuttal period dates",
     "body": "How long is the author response window after reviews are released? I want to plan the rebuttal with my co-authors.",
     "sender": "phd.candidate@univ.edu",
@@ -41,6 +45,7 @@
   },
   {
     "id": "eval_005",
+    "relevant_chunk_id": "policy_003",
     "subject": "Requesting a deadline extension",
     "body": "Given the unusually tight timeline this year, would the chairs consider an extension to the submission deadline? Several colleagues feel the current cutoff is unfair.",
     "sender": "senior.researcher@univ.edu",
@@ -51,6 +56,7 @@
   },
   {
     "id": "eval_006",
+    "relevant_chunk_id": "policy_008",
     "subject": "Page limit for the main track",
     "body": "What is the page limit for main track submissions, and do the references count toward that page limit?",
     "sender": "author1@univ.edu",
@@ -61,6 +67,7 @@
   },
   {
     "id": "eval_007",
+    "relevant_chunk_id": "policy_009",
     "subject": "Which LaTeX template should we use?",
     "body": "Is there an official template for this year? Can we reuse last year's LaTeX style file or will that be desk-rejected?",
     "sender": "author2@univ.edu",
@@ -71,6 +78,7 @@
   },
   {
     "id": "eval_008",
+    "relevant_chunk_id": "policy_011",
     "subject": "Anonymization for double-blind review",
     "body": "For the double-blind submission, how should we handle citations to our own prior work so the paper stays anonymized?",
     "sender": "author3@univ.edu",
@@ -81,6 +89,7 @@
   },
   {
     "id": "eval_009",
+    "relevant_chunk_id": "policy_012",
     "subject": "Supplementary material size limit",
     "body": "Is there a size limit for supplementary material, and what file formats are accepted for the supplement?",
     "sender": "author4@univ.edu",
@@ -91,6 +100,7 @@
   },
   {
     "id": "eval_010",
+    "relevant_chunk_id": "policy_014",
     "subject": "Question about our figures",
     "body": "A reviewer mentioned our figures were hard to read. We used color heavily — are there requirements about grayscale legibility or figure formatting we may have missed?",
     "sender": "author5@univ.edu",
@@ -101,6 +111,7 @@
   },
   {
     "id": "eval_011",
+    "relevant_chunk_id": "policy_042",
     "subject": "Registration fee question",
     "body": "Is there a fee to submit a paper, and when do registration fees apply? Does at least one author need to register for the proceedings?",
     "sender": "student@univ.edu",
@@ -111,6 +122,7 @@
   },
   {
     "id": "eval_012",
+    "relevant_chunk_id": "policy_043",
     "subject": "Virtual attendance possible?",
     "body": "If our paper is accepted but we cannot travel, can we present virtually and still be included in the proceedings?",
     "sender": "intl.author@univ.edu",
@@ -121,6 +133,7 @@
   },
   {
     "id": "eval_013",
+    "relevant_chunk_id": "policy_045",
     "subject": "Workshop vs main track",
     "body": "If our paper is not accepted to the main track, can we still submit it to a workshop? Do workshops have their own deadlines?",
     "sender": "author6@univ.edu",
@@ -131,6 +144,7 @@
   },
   {
     "id": "eval_014",
+    "relevant_chunk_id": "policy_044",
     "subject": "How many papers can I co-author?",
     "body": "Is there a limit on how many papers I can co-author this year, and do co-authors have reviewing obligations?",
     "sender": "prolific.author@univ.edu",
@@ -141,6 +155,7 @@
   },
   {
     "id": "eval_015",
+    "relevant_chunk_id": "policy_042",
     "subject": "First-time submitter — general process",
     "body": "This is my first time submitting here. Could you point me to general information about registration and inclusion in the proceedings? I'm a bit lost.",
     "sender": "newcomer@univ.edu",
@@ -151,6 +166,7 @@
   },
   {
     "id": "eval_016",
+    "relevant_chunk_id": "policy_015",
     "subject": "Too many papers assigned to review",
     "body": "I have been assigned far more papers than expected for review. The review load is unmanageable — can my area chair rebalance my assignment?",
     "sender": "reviewer.a@univ.edu",
@@ -161,6 +177,7 @@
   },
   {
     "id": "eval_017",
+    "relevant_chunk_id": "policy_021",
     "subject": "Cannot see my assigned papers",
     "body": "I received a reviewer assignment notification but cannot access the assigned papers in the system. My reviewer account seems linked correctly.",
     "sender": "reviewer.b@univ.edu",
@@ -171,6 +188,7 @@
   },
   {
     "id": "eval_018",
+    "relevant_chunk_id": "policy_019",
     "subject": "Need to decline some review assignments",
     "body": "Due to a family emergency I cannot complete two of my review assignments. How do I notify the area chair so the papers can be reassigned?",
     "sender": "reviewer.c@univ.edu",
@@ -181,6 +199,7 @@
   },
   {
     "id": "eval_019",
+    "relevant_chunk_id": "policy_015",
     "subject": "Paper assigned outside my expertise",
     "body": "One of the papers in my assignment is far outside my expertise area. Should the area chair reassign it to a better-matched reviewer?",
     "sender": "reviewer.d@univ.edu",
@@ -191,6 +210,7 @@
   },
   {
     "id": "eval_020",
+    "relevant_chunk_id": "policy_016",
     "subject": "Possible conflict on an assigned paper",
     "body": "I think one of my assigned papers is by a recent collaborator. I'm worried about a conflict of interest as a reviewer — what should I do about this assignment?",
     "sender": "reviewer.e@univ.edu",
@@ -201,6 +221,7 @@
   },
   {
     "id": "eval_021",
+    "relevant_chunk_id": "policy_030",
     "subject": "Added as a co-author without my consent",
     "body": "I discovered I was added as a co-author on a submission without my knowledge or consent. This affects the authorship of the paper and I want it corrected.",
     "sender": "wronged.author@univ.edu",
@@ -211,6 +232,7 @@
   },
   {
     "id": "eval_022",
+    "relevant_chunk_id": "policy_031",
     "subject": "Dispute over author order",
     "body": "My co-authors and I disagree about the author order on our submission. The authorship order was changed without full agreement. How is this handled?",
     "sender": "coauthor.x@univ.edu",
@@ -221,6 +243,7 @@
   },
   {
     "id": "eval_023",
+    "relevant_chunk_id": "policy_032",
     "subject": "Please remove me from the author list",
     "body": "I no longer wish to be on this paper. Please remove me from the author list; I did not consent to the final version being submitted.",
     "sender": "departing.author@univ.edu",
@@ -231,6 +254,7 @@
   },
   {
     "id": "eval_024",
+    "relevant_chunk_id": "policy_032",
     "subject": "Missing co-author was omitted",
     "body": "A contributor who did substantial work was accidentally omitted from the author list. We need to add the author back before camera-ready with everyone's consent.",
     "sender": "lead.author@univ.edu",
@@ -241,6 +265,7 @@
   },
   {
     "id": "eval_025",
+    "relevant_chunk_id": "policy_034",
     "subject": "Pressure to add a senior name",
     "body": "My advisor insists on being listed as an author although they did not contribute intellectually to this work. I'm uncomfortable — is this honorary authorship acceptable?",
     "sender": "junior.author@univ.edu",
@@ -251,6 +276,7 @@
   },
   {
     "id": "eval_026",
+    "relevant_chunk_id": "policy_022",
     "subject": "Reporting suspected plagiarism",
     "body": "I believe a submission has copied text and figures from a published paper without attribution. I want to report this possible plagiarism with evidence.",
     "sender": "concerned.reviewer@univ.edu",
@@ -261,6 +287,7 @@
   },
   {
     "id": "eval_027",
+    "relevant_chunk_id": "policy_025",
     "subject": "Possible dual submission",
     "body": "I think the same paper is under concurrent review at another venue. Isn't this a dual submission violation that should be investigated?",
     "sender": "tipster@univ.edu",
@@ -271,6 +298,7 @@
   },
   {
     "id": "eval_028",
+    "relevant_chunk_id": "policy_024",
     "subject": "Human subjects approval not disclosed",
     "body": "A submission uses human subjects data but does not mention IRB approval or consent procedures. Should this be flagged for ethics review?",
     "sender": "ethics.minded@univ.edu",
@@ -281,6 +309,7 @@
   },
   {
     "id": "eval_029",
+    "relevant_chunk_id": "policy_026",
     "subject": "Reviewer may have breached confidentiality",
     "body": "A preprint appeared that seems to exploit an unpublished method from a paper under review. This looks like a confidentiality breach and a serious ethics issue.",
     "sender": "worried.author@univ.edu",
@@ -291,6 +320,7 @@
   },
   {
     "id": "eval_030",
+    "relevant_chunk_id": "policy_027",
     "subject": "Review seems biased by hidden conflict",
     "body": "One review of our paper feels hostile and may reflect an undisclosed competitive conflict. I'd like the integrity of the process examined, not just the score.",
     "sender": "author.appeal@univ.edu",
@@ -301,6 +331,7 @@
   },
   {
     "id": "eval_031",
+    "relevant_chunk_id": "policy_036",
     "subject": "Withdraw our submission",
     "body": "We would like to withdraw our submission before decisions are released. The submission number is 412. Please confirm the withdrawal.",
     "sender": "author.withdraw@univ.edu",
@@ -311,6 +342,7 @@
   },
   {
     "id": "eval_032",
+    "relevant_chunk_id": "policy_037",
     "subject": "Withdrawal after acceptance due to patent",
     "body": "Because of a pending patent conflict we must withdraw our paper even though it was accepted. How do we process a withdrawal after acceptance?",
     "sender": "industry.author@corp.com",
@@ -321,6 +353,7 @@
   },
   {
     "id": "eval_033",
+    "relevant_chunk_id": "policy_040",
     "subject": "Data deletion after withdrawal",
     "body": "After we withdraw, can we request deletion of our uploaded files and datasets from the conference servers per our institution's data governance?",
     "sender": "data.steward@univ.edu",
@@ -331,6 +364,7 @@
   },
   {
     "id": "eval_034",
+    "relevant_chunk_id": "policy_038",
     "subject": "Withdraw one of two overlapping submissions",
     "body": "We have two overlapping submissions and want to withdraw one to comply with the rules. Submission 88 should be withdrawn; 89 should remain.",
     "sender": "author.overlap@univ.edu",
@@ -341,6 +375,7 @@
   },
   {
     "id": "eval_035",
+    "relevant_chunk_id": "policy_036",
     "subject": "Need to pull our paper over an integrity concern",
     "body": "We discovered an issue with a result in our paper and feel we must retract it. We want to withdraw the submission rather than risk an integrity problem.",
     "sender": "honest.author@univ.edu",
@@ -351,6 +386,7 @@
   },
   {
     "id": "eval_036",
+    "relevant_chunk_id": "policy_021",
     "subject": "Cannot log into the submission system",
     "body": "I can't log in to the submission portal — my password reset email never arrives and I get an error. My account access seems broken.",
     "sender": "locked.out@univ.edu",
@@ -361,6 +397,7 @@
   },
   {
     "id": "eval_037",
+    "relevant_chunk_id": null,
     "subject": "Upload error on final PDF",
     "body": "The submission system throws an error every time I try to upload our PDF. The upload fails at 90%. Is the submission system having issues?",
     "sender": "frustrated@univ.edu",
@@ -371,6 +408,7 @@
   },
   {
     "id": "eval_038",
+    "relevant_chunk_id": "policy_021",
     "subject": "Portal shows the wrong title",
     "body": "The submission system is displaying the wrong title for our paper and I can't edit it. Who in support can fix this system glitch?",
     "sender": "author.bug@univ.edu",
@@ -381,6 +419,7 @@
   },
   {
     "id": "eval_039",
+    "relevant_chunk_id": null,
     "subject": "Uploaded file is missing",
     "body": "After submitting, one of our uploaded files is missing from the system. The supplementary upload appears to have failed silently.",
     "sender": "author.files@univ.edu",
@@ -391,12 +430,211 @@
   },
   {
     "id": "eval_040",
+    "relevant_chunk_id": "policy_003",
     "subject": "System crashed right before the deadline",
     "body": "The submission system went down with an error in the final hour before the deadline and I could not upload. This portal failure cost us the cutoff — please help.",
     "sender": "panicked.author@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
     "relevant_policy_keywords": ["system", "upload"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_041",
+    "relevant_chunk_id": "policy_001",
+    "subject": "Deadline for registration and abstract",
+    "body": "Could you clarify the abstract deadline? I also want to know whether registration needs to happen before that date so I don't miss anything.",
+    "sender": "planner.author@univ.edu",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["abstract", "deadline", "registration"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_042",
+    "relevant_chunk_id": "policy_006",
+    "subject": "Timing for camera-ready formatting",
+    "body": "For the camera-ready version, when is it due and do the formatting requirements change from the original submission version?",
+    "sender": "accepted.author@univ.edu",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["camera-ready", "deadline"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_058",
+    "relevant_chunk_id": "policy_005",
+    "subject": "Rebuttal deadline and reviewer response",
+    "body": "When exactly does the rebuttal window close, and do reviewers have to respond to our rebuttal before that deadline?",
+    "sender": "rebuttal.author@univ.edu",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["rebuttal", "deadline", "response"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_043",
+    "relevant_chunk_id": "policy_008",
+    "subject": "Page limit before the deadline",
+    "body": "Is the page limit strict? I'm racing the deadline and need to know if the references count toward the page limit or not.",
+    "sender": "tight.author@univ.edu",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["page limit", "references"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_044",
+    "relevant_chunk_id": "policy_009",
+    "subject": "Template question for a virtual poster",
+    "body": "Is there a specific template we must use for the paper, and does presenting virtually change any formatting we should apply?",
+    "sender": "virtual.author@univ.edu",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["template", "formatting"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_045",
+    "relevant_chunk_id": "policy_045",
+    "subject": "Workshop deadline and fees",
+    "body": "Do the workshops have their own registration fees, and are their deadlines different from the main track deadline?",
+    "sender": "workshop.curious@univ.edu",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["workshop", "fee", "deadline"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_046",
+    "relevant_chunk_id": "policy_043",
+    "subject": "Supplementary material for virtual attendees",
+    "body": "If we attend the conference virtually, can we still present, and is there any registration fee difference for virtual attendance?",
+    "sender": "remote.author@univ.edu",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["virtual", "attend", "fee"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_057",
+    "relevant_chunk_id": "policy_044",
+    "subject": "Do co-authors have to review?",
+    "body": "As a co-author on several papers, am I required to serve as a reviewer, and how are those reviewing duties decided?",
+    "sender": "busy.coauthor@univ.edu",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "relevant_policy_keywords": ["co-author", "reviewing"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_047",
+    "relevant_chunk_id": "policy_016",
+    "subject": "Conflict on a paper I was assigned to review",
+    "body": "I was assigned a paper by a close collaborator. Is this a conflict of interest I should report, or should I simply ask for a reassignment of the review?",
+    "sender": "reviewer.f@univ.edu",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["conflict", "reviewer", "reassign"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_048",
+    "relevant_chunk_id": "policy_021",
+    "subject": "Cannot access papers assigned for review",
+    "body": "The system will not show the papers assigned to me for review. Is this an access bug in the portal or a problem with my reviewer assignment itself?",
+    "sender": "reviewer.g@univ.edu",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["access", "reviewer", "assignment"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_049",
+    "relevant_chunk_id": "policy_030",
+    "subject": "Co-author added without consent - is this misconduct?",
+    "body": "A colleague added themselves to our author list without consent. Is this an authorship issue to sort out among us, or should I report it as ethics misconduct?",
+    "sender": "upset.author@univ.edu",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["author list", "authorship", "consent"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_050",
+    "relevant_chunk_id": "policy_032",
+    "subject": "Remove me from the paper before it is withdrawn",
+    "body": "I want to be removed from the author list on this submission. If that cannot be done, I would rather we withdraw the submission entirely.",
+    "sender": "exiting.author@univ.edu",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["remove me", "author list"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_051",
+    "relevant_chunk_id": "policy_036",
+    "subject": "Withdraw due to a possible integrity problem",
+    "body": "We found a potential integrity issue in our results and want to withdraw the paper. Should we also report this separately as an ethics concern?",
+    "sender": "careful.author@univ.edu",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["withdraw", "submission"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_052",
+    "relevant_chunk_id": "policy_036",
+    "subject": "Withdraw failed in the system",
+    "body": "I tried to withdraw our submission but the system threw an error and it still shows as active. How do I actually complete the withdrawal?",
+    "sender": "stuck.author@univ.edu",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["withdraw", "withdrawal", "submission"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_053",
+    "relevant_chunk_id": "policy_027",
+    "subject": "Biased review from an undisclosed conflict?",
+    "body": "One of the reviewers assigned to our paper gave a hostile review that seems to reflect an undisclosed competitive conflict. Is this a review assignment matter or an ethics concern?",
+    "sender": "aggrieved.author@univ.edu",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["conflict", "bias", "undisclosed"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_054",
+    "relevant_chunk_id": "policy_022",
+    "subject": "Uncited reuse of text - formatting or plagiarism?",
+    "body": "A reviewer flagged that we reused text from our prior paper without citation. Is this just a references and citation formatting fix, or a plagiarism issue we must address?",
+    "sender": "worried.reuse@univ.edu",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["plagiarism", "attribution"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_055",
+    "relevant_chunk_id": "policy_003",
+    "subject": "Portal outage right at the deadline",
+    "body": "The submission portal was down with an error near the deadline and I could not upload. Will there be an extension, and who fixes the system issue?",
+    "sender": "outage.author@univ.edu",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["portal", "system", "error"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_056",
+    "relevant_chunk_id": "policy_010",
+    "subject": "PDF upload rejected for formatting",
+    "body": "The system keeps rejecting our PDF upload with a formatting error about embedded fonts. Is this a template formatting problem on our side or a system bug in the portal?",
+    "sender": "upload.author@univ.edu",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": ["upload", "system", "error"],
     "difficulty": "hard"
   }
 ]

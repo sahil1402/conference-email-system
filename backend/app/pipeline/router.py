@@ -65,7 +65,15 @@ class EmailRouter:
         """Pick a lane from the classification and the retrieved grounding."""
         threshold = settings.FAQ_CONFIDENCE_THRESHOLD
         intent = classification.intent
-        confidence = classification.confidence
+        # Prefer the calibrated confidence when the classifier attached one
+        # (calibration enabled + a fitted artifact exists); otherwise use the
+        # raw score. This changes only WHICH confidence value is compared — the
+        # threshold logic below is untouched.
+        confidence = (
+            classification.calibrated_confidence
+            if classification.calibrated_confidence is not None
+            else classification.confidence
+        )
         chunk_count = len(retrieved_chunks)
 
         # RL strategy: delegate the lane choice to the learning bandit. It keeps

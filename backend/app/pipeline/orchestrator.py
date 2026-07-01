@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.tracing import PipelineTracer
 from app.models.enums import EmailStatus
 from app.pipeline.classifier import ClassificationResult, IntentClassifier
 from app.pipeline.drafter import DraftResponse, ResponseDrafter
@@ -71,23 +72,71 @@ class EmailPipeline:
         subject = email_data.get("subject", "")
         body = email_data.get("body", "")
 
+        # Per-email tracer: buffers a record per stage and flushes them once the
+        # email is persisted (its id is unknown until then). Additive only — it
+        # never alters stage inputs/outputs.
+        tracer = PipelineTracer()
+        query = body[:_RETRIEVAL_QUERY_CHARS]
+
         # --- classify → retrieve → route (fatal on failure) ---------------
         try:
-            classification = await self.classifier.classify(body, subject)
-            retrieved_chunks = await self.retriever.retrieve(
-                body[:_RETRIEVAL_QUERY_CHARS],
-                classification.intent,
-                top_k=settings.MAX_RETRIEVED_CHUNKS,
-            )
-            routing = self.router.route(classification, retrieved_chunks)
+            with tracer.stage(
+                "classifier",
+                {"subject_length": len(subject), "body_length": len(body)},
+            ) as st:
+                classification = await self.classifier.classify(body, subject)
+                st.output_summary = {
+                    "intent": classification.intent,
+                    "confidence": round(float(classification.confidence), 4),
+                    "method": classification.method,
+                }
+                # Surface both confidences in the trace when calibration is active.
+                if classification.calibrated_confidence is not None:
+                    st.output_summary["raw_confidence"] = round(
+                        float(classification.raw_confidence), 4
+                    )
+                    st.output_summary["calibrated_confidence"] = round(
+                        float(classification.calibrated_confidence), 4
+                    )
+
+            with tracer.stage("retriever", {"query": query}) as st:
+                retrieved_chunks = await self.retriever.retrieve(
+                    query,
+                    classification.intent,
+                    top_k=settings.MAX_RETRIEVED_CHUNKS,
+                )
+                st.output_summary = {
+                    "chunk_ids": [c.policy_id for c in retrieved_chunks],
+                    "scores": [round(float(c.score), 4) for c in retrieved_chunks],
+                    "backend": settings.RETRIEVAL_BACKEND,
+                }
+
+            with tracer.stage(
+                "router",
+                {
+                    "confidence": round(float(classification.confidence), 4),
+                    "intent": classification.intent,
+                },
+            ) as st:
+                routing = self.router.route(classification, retrieved_chunks)
+                st.output_summary = {
+                    "lane": routing.lane,
+                    "reason": routing.reason,
+                }
         except Exception:
             logger.exception("Pipeline failed before drafting; aborting.")
             raise
 
         # --- draft (non-fatal: failure downgrades status) -----------------
-        draft = await self.drafter.draft(
-            email_data, classification, retrieved_chunks, routing
-        )
+        with tracer.stage("drafter", {"lane": routing.lane}) as st:
+            draft = await self.drafter.draft(
+                email_data, classification, retrieved_chunks, routing
+            )
+            st.output_summary = {
+                "draft_length": len(draft.draft_text),
+                "provider": draft.generation_metadata.get("provider", self.drafter.provider),
+                "model_used": draft.model_used,
+            }
         status = "draft_failed" if draft.generation_metadata.get("error") else "complete"
 
         # --- persist the email with its pipeline outputs ------------------
@@ -103,6 +152,9 @@ class EmailPipeline:
         }
         email = await self.email_repo.create_email(db, record)
         email_id = str(email.id)
+
+        # Now that the id exists, write the buffered per-stage trace records.
+        tracer.flush(email_id)
 
         # --- audit each stage --------------------------------------------
         await self.audit_repo.log_action(
