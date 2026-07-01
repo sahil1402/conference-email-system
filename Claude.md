@@ -592,3 +592,40 @@ State persists across restarts in backend/models/rl_router_state.json.
   plain `pip` (not `--break-system-packages`); `sentence-transformers` was already present.
 - **Verification**: full suite 42/42; live `curl /api/v1/retrieval/info` →
   `{"backend":"bm25","document_count":45,"model_name":null,"index_built":true}`.
+
+---
+
+## Phase 4B — Eval Harness [COMPLETE]
+- Ground truth dataset: data/eval/ground_truth.json (40 emails, all intents covered)
+- Eval script: scripts/run_eval.py
+  - CLI: --retrieval bm25|faiss, --top-k, --output, --ground-truth, --verbose
+  - Metrics: classification precision/recall/F1 per intent, routing accuracy, retrieval hit-rate
+  - Output: structured JSON report saved to reports/
+- Tests: tests/test_eval_harness.py (5 tests)
+- scikit-learn added to dependencies
+- BM25 eval runs without DB; FAISS eval warns if DB is empty
+- Next: Phase 4C — PDF progress document update (Phase 3 + Phase 4 sections)
+
+### Baseline results (BM25, top_k=3, keyword classifier, rule_based router)
+- Classification accuracy 95.0%, macro F1 0.950 (misses: eval_004 rebuttal→general_inquiry, eval_030 hard ethics→review)
+- Routing accuracy 77.5% (human_review 25/25; FAQ 6/15 — keyword classifier confidence often
+  falls below the 0.65 FAQ threshold, so genuine FAQ emails route to human_review; a concrete
+  motivator for the trainable classifier / threshold tuning)
+- Retrieval hit-rate 97.5% (BM25 grounding strong)
+
+### Notes / deviations from the original plan (resolved during implementation)
+- **Dataset location**: placed at project-root `data/eval/ground_truth.json` (consistent with
+  existing `data/emails` + `data/knowledge_base`; there is no `backend/data/`). The script and
+  tests anchor to the project root via `Path(__file__)`, so paths are cwd-independent — the
+  plan's literal `backend/data/eval/...` would have split the data dir.
+- **Intent names**: used the real enum values (`formatting_requirements`, not the plan's sample
+  "formatting_guidelines"); all 40 labels validated against `VALID_INTENTS`.
+- **Component-level eval**: runs classifier + retriever + router directly (not the orchestrator),
+  so no DB writes. The script never imports `app.db`; BM25 + keyword classifier need no DB. FAISS
+  loads policies via its own session inside the retriever and warns (stderr) if the index is empty.
+- **Reports dir**: `backend/reports/` (created on first run; anchored to the script). `--output`
+  relative paths resolve under backend/.
+- **Windows console**: summary uses ASCII (`->`, `-`) not `→`/`—`, which crash on cp1252 stdout.
+- **scikit-learn**: already a dependency (added in Phase 3A) — no new install needed.
+- **Verification**: eval smoke run processes all 40 emails, EXIT=0; `tests/test_eval_harness.py`
+  5/5; full suite 47/47.

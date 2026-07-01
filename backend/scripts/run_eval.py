@@ -242,7 +242,7 @@ def _print_summary(report: dict, metrics: dict, output_path: Path) -> None:
 
     line = "=" * 32
     print(line)
-    print(f"ConfMail Eval Harness — Run {report['run_id'][:8]}")
+    print(f"ConfMail Eval Harness - Run {report['run_id'][:8]}")
     print(line)
     print(f"Retrieval backend : {cfg['retrieval_backend']}")
     print(f"Confidence threshold: {cfg['confidence_threshold']}")
@@ -265,7 +265,7 @@ def _print_summary(report: dict, metrics: dict, output_path: Path) -> None:
     for intent in sorted(report["per_intent"]):
         print(f"  {intent.ljust(width)} : {report['per_intent'][intent]['f1']:.3f}")
     print()
-    print(f"Report saved → {output_path}")
+    print(f"Report saved -> {output_path}")
     print(line)
 
 

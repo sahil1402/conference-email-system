@@ -1,0 +1,642 @@
+{
+  "run_id": "9e69fec5-f317-459d-8b48-c6561ac57a1a",
+  "timestamp": "2026-06-30T17:43:26",
+  "config": {
+    "retrieval_backend": "bm25",
+    "top_k": 3,
+    "confidence_threshold": 0.65
+  },
+  "summary": {
+    "total_emails": 40,
+    "classification_macro_f1": 0.9495,
+    "classification_accuracy": 0.95,
+    "routing_accuracy": 0.775,
+    "retrieval_hit_rate": 0.975
+  },
+  "per_intent": {
+    "authorship_dispute": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 5
+    },
+    "ethics_concern": {
+      "precision": 1.0,
+      "recall": 0.8,
+      "f1": 0.8889,
+      "support": 5
+    },
+    "formatting_requirements": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 5
+    },
+    "general_inquiry": {
+      "precision": 0.8333,
+      "recall": 1.0,
+      "f1": 0.9091,
+      "support": 5
+    },
+    "review_assignment": {
+      "precision": 0.8333,
+      "recall": 1.0,
+      "f1": 0.9091,
+      "support": 5
+    },
+    "submission_deadline": {
+      "precision": 1.0,
+      "recall": 0.8,
+      "f1": 0.8889,
+      "support": 5
+    },
+    "submission_withdrawal": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 5
+    },
+    "technical_issue": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 5
+    }
+  },
+  "confusion_matrix": {
+    "labels": [
+      "authorship_dispute",
+      "ethics_concern",
+      "formatting_requirements",
+      "general_inquiry",
+      "review_assignment",
+      "submission_deadline",
+      "submission_withdrawal",
+      "technical_issue"
+    ],
+    "matrix": [
+      [
+        5,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        4,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        5,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        5,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        1,
+        0,
+        4,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        5,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        5
+      ]
+    ]
+  },
+  "per_email": [
+    {
+      "id": "eval_001",
+      "predicted_intent": "submission_deadline",
+      "ground_truth_intent": "submission_deadline",
+      "correct_intent": true,
+      "predicted_lane": "faq",
+      "ground_truth_lane": "faq",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_002",
+      "predicted_intent": "submission_deadline",
+      "ground_truth_intent": "submission_deadline",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.5,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_003",
+      "predicted_intent": "submission_deadline",
+      "ground_truth_intent": "submission_deadline",
+      "correct_intent": true,
+      "predicted_lane": "faq",
+      "ground_truth_lane": "faq",
+      "correct_lane": true,
+      "confidence": 0.8,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_004",
+      "predicted_intent": "general_inquiry",
+      "ground_truth_intent": "submission_deadline",
+      "correct_intent": false,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.05,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_005",
+      "predicted_intent": "submission_deadline",
+      "ground_truth_intent": "submission_deadline",
+      "correct_intent": true,
+      "predicted_lane": "faq",
+      "ground_truth_lane": "faq",
+      "correct_lane": true,
+      "confidence": 0.8,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    },
+    {
+      "id": "eval_006",
+      "predicted_intent": "formatting_requirements",
+      "ground_truth_intent": "formatting_requirements",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.5,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_007",
+      "predicted_intent": "formatting_requirements",
+      "ground_truth_intent": "formatting_requirements",
+      "correct_intent": true,
+      "predicted_lane": "faq",
+      "ground_truth_lane": "faq",
+      "correct_lane": true,
+      "confidence": 0.8,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_008",
+      "predicted_intent": "formatting_requirements",
+      "ground_truth_intent": "formatting_requirements",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.6,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_009",
+      "predicted_intent": "formatting_requirements",
+      "ground_truth_intent": "formatting_requirements",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.5,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_010",
+      "predicted_intent": "formatting_requirements",
+      "ground_truth_intent": "formatting_requirements",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.25,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    },
+    {
+      "id": "eval_011",
+      "predicted_intent": "general_inquiry",
+      "ground_truth_intent": "general_inquiry",
+      "correct_intent": true,
+      "predicted_lane": "faq",
+      "ground_truth_lane": "faq",
+      "correct_lane": true,
+      "confidence": 0.8,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_012",
+      "predicted_intent": "general_inquiry",
+      "ground_truth_intent": "general_inquiry",
+      "correct_intent": true,
+      "predicted_lane": "faq",
+      "ground_truth_lane": "faq",
+      "correct_lane": true,
+      "confidence": 0.9,
+      "retrieval_hit": false,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_013",
+      "predicted_intent": "general_inquiry",
+      "ground_truth_intent": "general_inquiry",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.3,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_014",
+      "predicted_intent": "general_inquiry",
+      "ground_truth_intent": "general_inquiry",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.6,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_015",
+      "predicted_intent": "general_inquiry",
+      "ground_truth_intent": "general_inquiry",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "faq",
+      "correct_lane": false,
+      "confidence": 0.6,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    },
+    {
+      "id": "eval_016",
+      "predicted_intent": "review_assignment",
+      "ground_truth_intent": "review_assignment",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_017",
+      "predicted_intent": "review_assignment",
+      "ground_truth_intent": "review_assignment",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_018",
+      "predicted_intent": "review_assignment",
+      "ground_truth_intent": "review_assignment",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_019",
+      "predicted_intent": "review_assignment",
+      "ground_truth_intent": "review_assignment",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_020",
+      "predicted_intent": "review_assignment",
+      "ground_truth_intent": "review_assignment",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    },
+    {
+      "id": "eval_021",
+      "predicted_intent": "authorship_dispute",
+      "ground_truth_intent": "authorship_dispute",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.7,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_022",
+      "predicted_intent": "authorship_dispute",
+      "ground_truth_intent": "authorship_dispute",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.5,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_023",
+      "predicted_intent": "authorship_dispute",
+      "ground_truth_intent": "authorship_dispute",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.6,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_024",
+      "predicted_intent": "authorship_dispute",
+      "ground_truth_intent": "authorship_dispute",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.4,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_025",
+      "predicted_intent": "authorship_dispute",
+      "ground_truth_intent": "authorship_dispute",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.2,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    },
+    {
+      "id": "eval_026",
+      "predicted_intent": "ethics_concern",
+      "ground_truth_intent": "ethics_concern",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.9,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_027",
+      "predicted_intent": "ethics_concern",
+      "ground_truth_intent": "ethics_concern",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.5,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_028",
+      "predicted_intent": "ethics_concern",
+      "ground_truth_intent": "ethics_concern",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.9,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_029",
+      "predicted_intent": "ethics_concern",
+      "ground_truth_intent": "ethics_concern",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.8,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_030",
+      "predicted_intent": "review_assignment",
+      "ground_truth_intent": "ethics_concern",
+      "correct_intent": false,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.3,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    },
+    {
+      "id": "eval_031",
+      "predicted_intent": "submission_withdrawal",
+      "ground_truth_intent": "submission_withdrawal",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.5,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_032",
+      "predicted_intent": "submission_withdrawal",
+      "ground_truth_intent": "submission_withdrawal",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.9,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_033",
+      "predicted_intent": "submission_withdrawal",
+      "ground_truth_intent": "submission_withdrawal",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.7,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_034",
+      "predicted_intent": "submission_withdrawal",
+      "ground_truth_intent": "submission_withdrawal",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.3,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_035",
+      "predicted_intent": "submission_withdrawal",
+      "ground_truth_intent": "submission_withdrawal",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.6,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    },
+    {
+      "id": "eval_036",
+      "predicted_intent": "technical_issue",
+      "ground_truth_intent": "technical_issue",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_037",
+      "predicted_intent": "technical_issue",
+      "ground_truth_intent": "technical_issue",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_038",
+      "predicted_intent": "technical_issue",
+      "ground_truth_intent": "technical_issue",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.9,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_039",
+      "predicted_intent": "technical_issue",
+      "ground_truth_intent": "technical_issue",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.7,
+      "retrieval_hit": true,
+      "difficulty": "easy"
+    },
+    {
+      "id": "eval_040",
+      "predicted_intent": "technical_issue",
+      "ground_truth_intent": "technical_issue",
+      "correct_intent": true,
+      "predicted_lane": "human_review",
+      "ground_truth_lane": "human_review",
+      "correct_lane": true,
+      "confidence": 0.95,
+      "retrieval_hit": true,
+      "difficulty": "hard"
+    }
+  ]
+}
