@@ -24,6 +24,7 @@ from app.db.models import AuditLog, Email
 from app.pipeline.orchestrator import EmailPipeline
 from app.pipeline.rl_router import get_rl_router
 from app.repositories.audit_repository import AuditRepository
+from app.repositories.chair_repository import ChairRepository
 from app.repositories.email_repository import EmailRepository
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ router = APIRouter(prefix="/emails", tags=["emails"])
 
 email_repo = EmailRepository()
 audit_repo = AuditRepository()
+chair_repo = ChairRepository()
 
 
 def _record_rl_feedback(email: Email, lane: str | None, outcome: str) -> None:
@@ -104,6 +106,12 @@ class RerouteRequest(BaseModel):
     new_lane: str
 
 
+class ReassignChairRequest(BaseModel):
+    reassigned_by: str
+    new_chair_id: int
+    reason: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
@@ -117,6 +125,7 @@ def _email_to_dict(email: Email) -> dict:
         "body": email.body,
         "status": email.status,
         "received_at": email.received_at.isoformat() if email.received_at else None,
+        "assigned_chair_id": email.assigned_chair_id,
         "classification": email.classification,
         "routing": email.routing,
         "draft": email.draft,
@@ -357,5 +366,51 @@ async def reroute_email(
     # A reroute involves no draft edit, so only the low-confidence signal applies.
     await _record_flag_events(
         db, email_id, payload.rerouted_by, existing.classification, was_edited=False
+    )
+    return _email_to_dict(updated)
+
+
+@router.patch("/{email_id}/reassign-chair")
+async def reassign_chair(
+    email_id: str, payload: ReassignChairRequest, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Reassign a human-review email to a different chair (Phase 6A).
+
+    Updates ``assigned_chair_id`` and writes a ``chair_reassigned`` audit entry
+    through the EXISTING audit mechanism (no new table). The entry captures the
+    original + new chair ids and the intent/confidence recorded at assignment
+    time (read off the email's stored classification) — the training signal a
+    learned chair-routing strategy will later consume to learn from human
+    corrections.
+    """
+    existing = await email_repo.get_email_by_id(db, email_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+    # The target chair must exist (a reassignment can target an inactive chair —
+    # that's a deliberate human override — but not a nonexistent one).
+    target = await chair_repo.get_chair_by_id(db, payload.new_chair_id)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Chair {payload.new_chair_id} not found",
+        )
+
+    original_chair_id = existing.assigned_chair_id
+    classification = existing.classification or {}
+    updated = await email_repo.assign_chair(db, email_id, payload.new_chair_id)
+    await audit_repo.log_action(
+        db, email_id, "chair_reassigned", payload.reassigned_by,
+        {
+            "original_chair_id": original_chair_id,
+            "new_chair_id": payload.new_chair_id,
+            "reason": payload.reason,
+            # Intent + confidence AT ASSIGNMENT TIME (from the stored
+            # classification) — the signal a reroute is a correction against.
+            "intent": classification.get("intent"),
+            "confidence": classification.get("confidence"),
+        },
     )
     return _email_to_dict(updated)

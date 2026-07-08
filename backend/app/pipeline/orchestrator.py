@@ -18,14 +18,16 @@ import time
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chair_router import ChairAssignment, ChairInfo, get_chair_router
 from app.core.config import settings
 from app.core.tracing import PipelineTracer
 from app.models.enums import EmailStatus
 from app.pipeline.classifier import ClassificationResult, IntentClassifier
 from app.pipeline.drafter import DraftResponse, ResponseDrafter
 from app.pipeline.retriever import RetrievedChunk, get_retriever
-from app.pipeline.router import EmailRouter, RoutingDecision
+from app.pipeline.router import LANE_HUMAN_REVIEW, EmailRouter, RoutingDecision
 from app.repositories.audit_repository import AuditRepository
+from app.repositories.chair_repository import ChairRepository
 from app.repositories.email_repository import EmailRepository
 
 logger = logging.getLogger(__name__)
@@ -60,9 +62,51 @@ class EmailPipeline:
         self.classifier = IntentClassifier(strategy=settings.CLASSIFIER_BACKEND)
         self.retriever = get_retriever()
         self.router = EmailRouter(strategy=settings.ROUTING_STRATEGY)
+        # The SECOND routing decision (Phase 6A): which chair a human_review
+        # email goes to. Independent of the lane router above and swappable via
+        # its own flag.
+        self.chair_router = get_chair_router(settings.CHAIR_ROUTING_STRATEGY)
         self.drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
         self.email_repo = EmailRepository()
+        self.chair_repo = ChairRepository()
         self.audit_repo = AuditRepository()
+
+    async def _assign_chair(
+        self,
+        db: AsyncSession,
+        classification: ClassificationResult,
+        routing: RoutingDecision,
+    ) -> ChairAssignment | None:
+        """Pick a chair for a human-review email. Best-effort — never raises.
+
+        Runs ONLY when the lane router chose human_review (FAQ-lane emails are
+        auto-replied and never assigned to a chair). Fetches the active chair
+        roster via the repository, projects it onto DB-free ``ChairInfo`` objects,
+        and delegates the decision to the swappable strategy. A failure here (no
+        chairs, DB hiccup) leaves the email unassigned rather than breaking the
+        pipeline — chair assignment is additive to the core classify→route→draft
+        flow.
+        """
+        if routing.lane != LANE_HUMAN_REVIEW:
+            return None
+        try:
+            chairs = await self.chair_repo.get_active_chairs(db)
+            if not chairs:
+                return None
+            candidates = [
+                ChairInfo(
+                    id=c.id,
+                    name=c.name,
+                    role_title=c.role_title,
+                    areas=list(c.areas or []),
+                    active=c.active,
+                )
+                for c in chairs
+            ]
+            return self.chair_router.assign(classification, candidates)
+        except Exception:  # noqa: BLE001 - assignment must not break the pipeline
+            logger.warning("Chair assignment failed; leaving email unassigned.", exc_info=True)
+            return None
 
     async def process_email(
         self, email_data: dict, db: AsyncSession
@@ -139,6 +183,12 @@ class EmailPipeline:
             }
         status = "draft_failed" if draft.generation_metadata.get("error") else "complete"
 
+        # --- chair assignment (the second routing decision) ---------------
+        # Human-review only; returns None for FAQ-lane emails. Kept out of the
+        # tracer stages (the trace contract is exactly classify→retrieve→route→
+        # draft) and best-effort so it never breaks the core flow.
+        chair_assignment = await self._assign_chair(db, classification, routing)
+
         # --- persist the email with its pipeline outputs ------------------
         record = {
             "sender": email_data.get("from") or email_data.get("sender") or "unknown@unknown",
@@ -149,6 +199,9 @@ class EmailPipeline:
             "classification": classification.model_dump(),
             "routing": routing.model_dump(),
             "draft": draft.model_dump(),
+            "assigned_chair_id": (
+                chair_assignment.chair_id if chair_assignment else None
+            ),
         }
         email = await self.email_repo.create_email(db, record)
         email_id = str(email.id)
@@ -169,6 +222,23 @@ class EmailPipeline:
             db, email_id, "routed", "pipeline",
             {"lane": routing.lane, "override_reason": routing.override_reason},
         )
+        # Record the chair assignment (human-review only) — captures the intent +
+        # confidence at assignment time, which is exactly the signal a later
+        # reroute compares against (Phase 6A step 3 / future training data).
+        if chair_assignment and chair_assignment.chair_id is not None:
+            await self.audit_repo.log_action(
+                db, email_id, "chair_assigned", "pipeline",
+                {
+                    "chair_id": chair_assignment.chair_id,
+                    "chair_name": chair_assignment.chair_name,
+                    "intent": classification.intent,
+                    "confidence": classification.confidence,
+                    "is_fallback": chair_assignment.is_fallback,
+                    "matched_area": chair_assignment.matched_area,
+                    "strategy": chair_assignment.strategy,
+                    "reason": chair_assignment.reason,
+                },
+            )
         await self.audit_repo.log_action(
             db, email_id, "drafted", "pipeline",
             {"model_used": draft.model_used, "status": status},

@@ -1,0 +1,192 @@
+[
+  {
+    "id": "mc_001",
+    "from": "author1@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Request to withdraw our submission",
+    "body": "We need to withdraw our submission from the conference. Please confirm the process to retract the paper and delete our submission from the system.",
+    "timestamp": "2026-07-01T09:00:00Z",
+    "expected_intent": "submission_withdrawal",
+    "expected_chair": "Program Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_002",
+    "from": "reviewer1@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Conflict of interest on a review assignment",
+    "body": "I was assigned a paper to review but I have a conflict of interest with one of the authors. Could you reassign this review? My reviewer load is also higher than expected.",
+    "timestamp": "2026-07-01T09:05:00Z",
+    "expected_intent": "review_assignment",
+    "expected_chair": "Program Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_003",
+    "from": "author2@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Cannot log in to the submission portal",
+    "body": "The submission system keeps giving an error and I cannot log in to the portal. The upload failed and I think there is a bug. Can you help?",
+    "timestamp": "2026-07-01T09:10:00Z",
+    "expected_intent": "technical_issue",
+    "expected_chair": "Program Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_004",
+    "from": "author3@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Confirming the full paper submission deadline",
+    "body": "Could you confirm the exact full paper submission deadline and whether it is anchored to Anywhere on Earth? We are coordinating across time zones.",
+    "timestamp": "2026-07-01T09:15:00Z",
+    "expected_intent": "submission_deadline",
+    "expected_chair": "Program Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_005",
+    "from": "concerned1@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Reporting an ethics violation",
+    "body": "I want to report a serious ethics concern: I believe there is plagiarism and research misconduct in an accepted paper. This is a potential violation of the ethics policy.",
+    "timestamp": "2026-07-01T09:20:00Z",
+    "expected_intent": "ethics_concern",
+    "expected_chair": "Diversity & Ethics Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_006",
+    "from": "student1@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Author added without my consent",
+    "body": "A co-author was added to our paper without my consent and the author order was changed. I want to dispute this authorship decision and have my contribution recognized.",
+    "timestamp": "2026-07-01T09:25:00Z",
+    "expected_intent": "authorship_dispute",
+    "expected_chair": "Diversity & Ethics Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_007",
+    "from": "concerned2@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Possible dual submission and data fabrication",
+    "body": "I am writing to raise an ethics concern about a possible dual submission and fabricated results. I believe this is misconduct that breaches the confidentiality and ethics rules.",
+    "timestamp": "2026-07-01T09:30:00Z",
+    "expected_intent": "ethics_concern",
+    "expected_chair": "Diversity & Ethics Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_008",
+    "from": "attendee1@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Question about registration and fees",
+    "body": "I have a general inquiry about registration. What is the registration fee, and is there a discount for students who want to attend the workshop?",
+    "timestamp": "2026-07-01T09:35:00Z",
+    "expected_intent": "general_inquiry",
+    "expected_chair": "Local Arrangements Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_009",
+    "from": "attendee2@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "First time attending - proceedings question",
+    "body": "This is my first time attending the conference. How many workshops can I attend, and will the proceedings be available to those who present?",
+    "timestamp": "2026-07-01T09:40:00Z",
+    "expected_intent": "general_inquiry",
+    "expected_chair": "Local Arrangements Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_010",
+    "from": "attendee3@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Virtual attendance options",
+    "body": "Is there a virtual option to attend the conference this year? I have a general inquiry about whether remote participants can still register and attend the workshop sessions.",
+    "timestamp": "2026-07-01T09:45:00Z",
+    "expected_intent": "general_inquiry",
+    "expected_chair": "Local Arrangements Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_011",
+    "from": "partnerships@acme.com",
+    "to": "chairs@conf.org",
+    "subject": "Interested in becoming a sponsor",
+    "body": "Our company would like to explore sponsorship opportunities. Could you send the sponsor prospectus and the available sponsorship tiers? We are interested in a gold sponsor package.",
+    "timestamp": "2026-07-01T09:50:00Z",
+    "expected_intent": "sponsorship",
+    "expected_chair": "Publicity/Sponsorship Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_012",
+    "from": "comms@ml-lab.edu",
+    "to": "chairs@conf.org",
+    "subject": "Promoting the conference on social media",
+    "body": "I run our lab's social media accounts and would like to help promote the conference. Could you share the official hashtag and promotional graphics? We are happy to amplify the call for participation.",
+    "timestamp": "2026-07-01T09:55:00Z",
+    "expected_intent": "publicity",
+    "expected_chair": "Publicity/Sponsorship Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_013",
+    "from": "jdoe@technews.com",
+    "to": "chairs@conf.org",
+    "subject": "Press pass request for coverage",
+    "body": "I am a journalist and would like to request a press pass for the conference. Could you point me to your media accreditation process and let me know whether a media kit is available?",
+    "timestamp": "2026-07-01T10:00:00Z",
+    "expected_intent": "media_inquiry",
+    "expected_chair": "Publicity/Sponsorship Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_014",
+    "from": "sales@devtools.io",
+    "to": "chairs@conf.org",
+    "subject": "Exhibitor booth availability",
+    "body": "We are a software vendor and would like to reserve an exhibitor booth. Please share the sponsorship package details and whether in-kind contributions count toward a sponsorship level.",
+    "timestamp": "2026-07-01T10:05:00Z",
+    "expected_intent": "sponsorship",
+    "expected_chair": "Publicity/Sponsorship Chair",
+    "ambiguous": false
+  },
+  {
+    "id": "mc_015",
+    "from": "author4@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Authorship concern that may also be misconduct",
+    "body": "My advisor was added to the author list without consent, and I also suspect the contribution claims are fabricated, which feels like an ethics violation. I am not sure whom to contact.",
+    "timestamp": "2026-07-01T10:10:00Z",
+    "expected_intent": null,
+    "expected_chair": "Diversity & Ethics Chair",
+    "ambiguous": true,
+    "note": "Borderline authorship_dispute vs ethics_concern — both are owned by the Diversity & Ethics Chair, so either classification lands on the same chair; a likely reroute candidate for a human."
+  },
+  {
+    "id": "mc_016",
+    "from": "author5@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "Formatting error or a system bug?",
+    "body": "The portal rejected our PDF upload with a formatting error about the template and margins. Is this a formatting requirements problem on our side or a bug in the submission system?",
+    "timestamp": "2026-07-01T10:15:00Z",
+    "expected_intent": null,
+    "expected_chair": "Program Chair",
+    "ambiguous": true,
+    "note": "Borderline formatting_requirements vs technical_issue — both are owned by the Program Chair."
+  },
+  {
+    "id": "mc_017",
+    "from": "attendee4@univ.edu",
+    "to": "chairs@conf.org",
+    "subject": "A quick question",
+    "body": "Hello, I have a quick question about the event and was not sure who to ask. Could someone point me in the right direction?",
+    "timestamp": "2026-07-01T10:20:00Z",
+    "expected_intent": null,
+    "expected_chair": "Local Arrangements Chair",
+    "ambiguous": true,
+    "note": "Low-signal message — no strong keywords, so the classifier defaults to general_inquiry, which the Local Arrangements Chair owns. Under the fully-active roster this is where unclear messages land; a human may reroute to the General Chair."
+  }
+]

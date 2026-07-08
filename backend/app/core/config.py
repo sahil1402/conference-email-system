@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # Reciprocal Rank Fusion over both. Default stays "bm25".
     RETRIEVAL_BACKEND: Literal["bm25", "faiss", "fusion"] = "bm25"
     ROUTING_STRATEGY: Literal["rule_based", "rl"] = "rule_based"
+    # Chair router backend (Phase 6A): the SECOND routing decision — which chair
+    # a human_review email is assigned to, distinct from the lane decision above.
+    # "intent_mapping" matches the classified intent against each active chair's
+    # areas (rule-based). The Literal is the swap seam: adding "learned"/"rl"
+    # later is a one-line widening + a factory branch, with callers unchanged.
+    CHAIR_ROUTING_STRATEGY: Literal["intent_mapping"] = "intent_mapping"
     # Classifier backend. "keyword" → dependency-free baseline; "trainable" →
     # sentence-embedding + LogisticRegression model (auto-falls back to keyword
     # until a model is trained). Default stays "keyword".

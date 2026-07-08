@@ -73,6 +73,28 @@ class EmailRepository:
         await db.refresh(email)
         return email
 
+    async def assign_chair(
+        self, db: AsyncSession, email_id: str, chair_id: int | None
+    ) -> Email | None:
+        """Set an email's ``assigned_chair_id`` (a chair (re)assignment).
+
+        Kept separate from ``update_email_status`` because a chair reassignment
+        is not a lifecycle-status change — the email stays in the human-review
+        lane, only its owning chair changes. Returns ``None`` if the email is
+        absent or the id is non-numeric.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(select(Email).where(Email.id == pk))
+        email = result.scalar_one_or_none()
+        if email is None:
+            return None
+        email.assigned_chair_id = chair_id
+        await db.commit()
+        await db.refresh(email)
+        return email
+
     # --- reads ------------------------------------------------------------
     async def get_email_by_id(
         self, db: AsyncSession, email_id: str
