@@ -7,7 +7,7 @@ into their own tables later without changing the Pydantic contracts.
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, JSON, DateTime, Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -41,6 +41,46 @@ class Email(Base):
     classification: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     routing: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Which chair a human-review email is assigned to (Phase 6A). Nullable:
+    # FAQ-lane emails are never assigned, and the column stays empty until the
+    # chair router runs. FK is nullable so deleting a chair does not cascade-
+    # delete its emails (SET NULL semantics are enforced at the app layer).
+    assigned_chair_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chairs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class Chair(Base):
+    """A conference chair who can be assigned human-review emails (Phase 6A).
+
+    ``areas`` is a JSON list of intent/topic strings the chair owns; the chair
+    router matches a classified email's intent against these. A chair with an
+    empty ``areas`` list acts as the catch-all fallback (the General Chair),
+    receiving anything no other active chair claims. ``active`` gates a chair
+    out of routing without deleting the row (and its assignment history).
+    """
+
+    __tablename__ = "chairs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    role_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    # List of intent/topic strings this chair handles (empty = fallback).
+    areas: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

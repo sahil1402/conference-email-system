@@ -27,6 +27,14 @@ VALID_INTENTS = [
     "submission_withdrawal",
     "ethics_concern",
     "technical_issue",
+    # Phase 6A: conference-operations intents. These give the
+    # Publicity/Sponsorship Chair a genuine auto-routing path (before, no intent
+    # the classifier emitted mapped to that chair — a coverage gap). They are
+    # neither FAQ-eligible nor sensitive, so the router escalates them to human
+    # review, where the chair router assigns them.
+    "sponsorship",
+    "publicity",
+    "media_inquiry",
 ]
 
 # Keyword cues per intent, chosen for recall on the toy dataset's vocabulary.
@@ -71,6 +79,29 @@ KEYWORD_RULES: dict[str, list[str]] = {
         "upload", "error", "cannot log in", "can't log in", "login",
         "password reset", "portal", "system", "failed", "broken", "bug",
         "wrong title", "missing file", "submission system",
+    ],
+    # --- Phase 6A conference-operations intents -----------------------------
+    # Cues are deliberately distinctive (domain terms / multi-word phrases) so
+    # they don't collide with the eight submission-content intents above under
+    # substring matching. Bare "press"/"media" are intentionally NOT used —
+    # they would match unrelated words like "Pressure".
+    "sponsorship": [
+        "sponsor", "sponsorship", "sponsorship package", "sponsorship tier",
+        "sponsor prospectus", "prospectus", "become a sponsor",
+        "sponsorship opportunit", "gold sponsor", "exhibitor", "exhibit booth",
+        "booth", "in-kind", "vendor", "financial support",
+    ],
+    "publicity": [
+        "publicity", "publiciz", "promote", "promotion", "promotional",
+        "social media", "hashtag", "advertise", "advertising", "newsletter",
+        "mailing list", "cross-promote", "amplify", "spread the word",
+        "call for participation",
+    ],
+    "media_inquiry": [
+        "journalist", "reporter", "press release", "press pass",
+        "press credential", "press badge", "press inquiry", "media inquiry",
+        "media accreditation", "media kit", "media pass", "media contact",
+        "news coverage", "embargo", "interview request", "member of the press",
     ],
 }
 

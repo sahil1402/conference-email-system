@@ -7,7 +7,10 @@
     "sender": "first.author@univ.edu",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["deadline", "anywhere on earth"],
+    "relevant_policy_keywords": [
+      "deadline",
+      "anywhere on earth"
+    ],
     "difficulty": "easy"
   },
   {
@@ -18,7 +21,10 @@
     "sender": "grad.student@univ.edu",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["abstract", "deadline"],
+    "relevant_policy_keywords": [
+      "abstract",
+      "deadline"
+    ],
     "difficulty": "easy"
   },
   {
@@ -29,7 +35,10 @@
     "sender": "corresponding@lab.org",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["camera-ready", "proceedings"],
+    "relevant_policy_keywords": [
+      "camera-ready",
+      "proceedings"
+    ],
     "difficulty": "easy"
   },
   {
@@ -40,7 +49,10 @@
     "sender": "phd.candidate@univ.edu",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["rebuttal", "response"],
+    "relevant_policy_keywords": [
+      "rebuttal",
+      "response"
+    ],
     "difficulty": "easy"
   },
   {
@@ -51,7 +63,10 @@
     "sender": "senior.researcher@univ.edu",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["extension", "deadline"],
+    "relevant_policy_keywords": [
+      "extension",
+      "deadline"
+    ],
     "difficulty": "hard"
   },
   {
@@ -62,7 +77,10 @@
     "sender": "author1@univ.edu",
     "ground_truth_intent": "formatting_requirements",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["page", "references"],
+    "relevant_policy_keywords": [
+      "page",
+      "references"
+    ],
     "difficulty": "easy"
   },
   {
@@ -73,7 +91,10 @@
     "sender": "author2@univ.edu",
     "ground_truth_intent": "formatting_requirements",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["template", "latex"],
+    "relevant_policy_keywords": [
+      "template",
+      "latex"
+    ],
     "difficulty": "easy"
   },
   {
@@ -84,7 +105,10 @@
     "sender": "author3@univ.edu",
     "ground_truth_intent": "formatting_requirements",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["anonymized", "double-blind"],
+    "relevant_policy_keywords": [
+      "anonymized",
+      "double-blind"
+    ],
     "difficulty": "easy"
   },
   {
@@ -95,7 +119,10 @@
     "sender": "author4@univ.edu",
     "ground_truth_intent": "formatting_requirements",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["supplementary", "size"],
+    "relevant_policy_keywords": [
+      "supplementary",
+      "size"
+    ],
     "difficulty": "easy"
   },
   {
@@ -106,7 +133,10 @@
     "sender": "author5@univ.edu",
     "ground_truth_intent": "formatting_requirements",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["figures", "grayscale"],
+    "relevant_policy_keywords": [
+      "figures",
+      "grayscale"
+    ],
     "difficulty": "hard"
   },
   {
@@ -117,7 +147,10 @@
     "sender": "student@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["registration", "fee"],
+    "relevant_policy_keywords": [
+      "registration",
+      "fee"
+    ],
     "difficulty": "easy"
   },
   {
@@ -128,7 +161,10 @@
     "sender": "intl.author@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["virtual", "presentation"],
+    "relevant_policy_keywords": [
+      "virtual",
+      "presentation"
+    ],
     "difficulty": "easy"
   },
   {
@@ -139,7 +175,10 @@
     "sender": "author6@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["workshop", "deadline"],
+    "relevant_policy_keywords": [
+      "workshop",
+      "deadline"
+    ],
     "difficulty": "easy"
   },
   {
@@ -150,7 +189,10 @@
     "sender": "prolific.author@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["co-author", "reviewing"],
+    "relevant_policy_keywords": [
+      "co-author",
+      "reviewing"
+    ],
     "difficulty": "easy"
   },
   {
@@ -161,7 +203,10 @@
     "sender": "newcomer@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["registration", "proceedings"],
+    "relevant_policy_keywords": [
+      "registration",
+      "proceedings"
+    ],
     "difficulty": "hard"
   },
   {
@@ -172,7 +217,10 @@
     "sender": "reviewer.a@univ.edu",
     "ground_truth_intent": "review_assignment",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["reviewer", "load"],
+    "relevant_policy_keywords": [
+      "reviewer",
+      "load"
+    ],
     "difficulty": "easy"
   },
   {
@@ -183,7 +231,10 @@
     "sender": "reviewer.b@univ.edu",
     "ground_truth_intent": "review_assignment",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["access", "reviewer"],
+    "relevant_policy_keywords": [
+      "access",
+      "reviewer"
+    ],
     "difficulty": "easy"
   },
   {
@@ -194,7 +245,10 @@
     "sender": "reviewer.c@univ.edu",
     "ground_truth_intent": "review_assignment",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["reassign", "area chair"],
+    "relevant_policy_keywords": [
+      "reassign",
+      "area chair"
+    ],
     "difficulty": "easy"
   },
   {
@@ -205,7 +259,10 @@
     "sender": "reviewer.d@univ.edu",
     "ground_truth_intent": "review_assignment",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["expertise", "reviewer"],
+    "relevant_policy_keywords": [
+      "expertise",
+      "reviewer"
+    ],
     "difficulty": "easy"
   },
   {
@@ -216,7 +273,10 @@
     "sender": "reviewer.e@univ.edu",
     "ground_truth_intent": "review_assignment",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["conflict", "reviewer"],
+    "relevant_policy_keywords": [
+      "conflict",
+      "reviewer"
+    ],
     "difficulty": "hard"
   },
   {
@@ -227,7 +287,10 @@
     "sender": "wronged.author@univ.edu",
     "ground_truth_intent": "authorship_dispute",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["authorship", "consent"],
+    "relevant_policy_keywords": [
+      "authorship",
+      "consent"
+    ],
     "difficulty": "easy"
   },
   {
@@ -238,7 +301,10 @@
     "sender": "coauthor.x@univ.edu",
     "ground_truth_intent": "authorship_dispute",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["authorship", "order"],
+    "relevant_policy_keywords": [
+      "authorship",
+      "order"
+    ],
     "difficulty": "easy"
   },
   {
@@ -249,7 +315,10 @@
     "sender": "departing.author@univ.edu",
     "ground_truth_intent": "authorship_dispute",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["author", "consent"],
+    "relevant_policy_keywords": [
+      "author",
+      "consent"
+    ],
     "difficulty": "easy"
   },
   {
@@ -260,7 +329,10 @@
     "sender": "lead.author@univ.edu",
     "ground_truth_intent": "authorship_dispute",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["author", "consent"],
+    "relevant_policy_keywords": [
+      "author",
+      "consent"
+    ],
     "difficulty": "easy"
   },
   {
@@ -271,7 +343,10 @@
     "sender": "junior.author@univ.edu",
     "ground_truth_intent": "authorship_dispute",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["authorship", "contribution"],
+    "relevant_policy_keywords": [
+      "authorship",
+      "contribution"
+    ],
     "difficulty": "hard"
   },
   {
@@ -282,7 +357,10 @@
     "sender": "concerned.reviewer@univ.edu",
     "ground_truth_intent": "ethics_concern",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["plagiarism", "attribution"],
+    "relevant_policy_keywords": [
+      "plagiarism",
+      "attribution"
+    ],
     "difficulty": "easy"
   },
   {
@@ -293,7 +371,10 @@
     "sender": "tipster@univ.edu",
     "ground_truth_intent": "ethics_concern",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["dual submission", "concurrent"],
+    "relevant_policy_keywords": [
+      "dual submission",
+      "concurrent"
+    ],
     "difficulty": "easy"
   },
   {
@@ -304,7 +385,10 @@
     "sender": "ethics.minded@univ.edu",
     "ground_truth_intent": "ethics_concern",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["irb", "human subjects"],
+    "relevant_policy_keywords": [
+      "irb",
+      "human subjects"
+    ],
     "difficulty": "easy"
   },
   {
@@ -315,7 +399,10 @@
     "sender": "worried.author@univ.edu",
     "ground_truth_intent": "ethics_concern",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["confidentiality", "breach"],
+    "relevant_policy_keywords": [
+      "confidentiality",
+      "breach"
+    ],
     "difficulty": "easy"
   },
   {
@@ -326,7 +413,10 @@
     "sender": "author.appeal@univ.edu",
     "ground_truth_intent": "ethics_concern",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["conflict", "bias"],
+    "relevant_policy_keywords": [
+      "conflict",
+      "bias"
+    ],
     "difficulty": "hard"
   },
   {
@@ -337,7 +427,10 @@
     "sender": "author.withdraw@univ.edu",
     "ground_truth_intent": "submission_withdrawal",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["withdraw", "submission"],
+    "relevant_policy_keywords": [
+      "withdraw",
+      "submission"
+    ],
     "difficulty": "easy"
   },
   {
@@ -348,7 +441,10 @@
     "sender": "industry.author@corp.com",
     "ground_truth_intent": "submission_withdrawal",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["withdrawal", "after acceptance"],
+    "relevant_policy_keywords": [
+      "withdrawal",
+      "after acceptance"
+    ],
     "difficulty": "easy"
   },
   {
@@ -359,7 +455,10 @@
     "sender": "data.steward@univ.edu",
     "ground_truth_intent": "submission_withdrawal",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["withdrawal", "deletion"],
+    "relevant_policy_keywords": [
+      "withdrawal",
+      "deletion"
+    ],
     "difficulty": "easy"
   },
   {
@@ -370,7 +469,10 @@
     "sender": "author.overlap@univ.edu",
     "ground_truth_intent": "submission_withdrawal",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["withdraw", "overlap"],
+    "relevant_policy_keywords": [
+      "withdraw",
+      "overlap"
+    ],
     "difficulty": "easy"
   },
   {
@@ -381,7 +483,10 @@
     "sender": "honest.author@univ.edu",
     "ground_truth_intent": "submission_withdrawal",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["withdraw", "withdrawal"],
+    "relevant_policy_keywords": [
+      "withdraw",
+      "withdrawal"
+    ],
     "difficulty": "hard"
   },
   {
@@ -392,7 +497,10 @@
     "sender": "locked.out@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["access", "account"],
+    "relevant_policy_keywords": [
+      "access",
+      "account"
+    ],
     "difficulty": "easy"
   },
   {
@@ -403,7 +511,10 @@
     "sender": "frustrated@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["upload", "system"],
+    "relevant_policy_keywords": [
+      "upload",
+      "system"
+    ],
     "difficulty": "easy"
   },
   {
@@ -414,7 +525,10 @@
     "sender": "author.bug@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["system", "support"],
+    "relevant_policy_keywords": [
+      "system",
+      "support"
+    ],
     "difficulty": "easy"
   },
   {
@@ -425,7 +539,10 @@
     "sender": "author.files@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["upload", "files"],
+    "relevant_policy_keywords": [
+      "upload",
+      "files"
+    ],
     "difficulty": "easy"
   },
   {
@@ -436,7 +553,10 @@
     "sender": "panicked.author@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["system", "upload"],
+    "relevant_policy_keywords": [
+      "system",
+      "upload"
+    ],
     "difficulty": "hard"
   },
   {
@@ -447,7 +567,11 @@
     "sender": "planner.author@univ.edu",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["abstract", "deadline", "registration"],
+    "relevant_policy_keywords": [
+      "abstract",
+      "deadline",
+      "registration"
+    ],
     "difficulty": "hard"
   },
   {
@@ -458,7 +582,10 @@
     "sender": "accepted.author@univ.edu",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["camera-ready", "deadline"],
+    "relevant_policy_keywords": [
+      "camera-ready",
+      "deadline"
+    ],
     "difficulty": "hard"
   },
   {
@@ -469,7 +596,11 @@
     "sender": "rebuttal.author@univ.edu",
     "ground_truth_intent": "submission_deadline",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["rebuttal", "deadline", "response"],
+    "relevant_policy_keywords": [
+      "rebuttal",
+      "deadline",
+      "response"
+    ],
     "difficulty": "hard"
   },
   {
@@ -480,7 +611,10 @@
     "sender": "tight.author@univ.edu",
     "ground_truth_intent": "formatting_requirements",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["page limit", "references"],
+    "relevant_policy_keywords": [
+      "page limit",
+      "references"
+    ],
     "difficulty": "hard"
   },
   {
@@ -491,7 +625,10 @@
     "sender": "virtual.author@univ.edu",
     "ground_truth_intent": "formatting_requirements",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["template", "formatting"],
+    "relevant_policy_keywords": [
+      "template",
+      "formatting"
+    ],
     "difficulty": "hard"
   },
   {
@@ -502,7 +639,11 @@
     "sender": "workshop.curious@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["workshop", "fee", "deadline"],
+    "relevant_policy_keywords": [
+      "workshop",
+      "fee",
+      "deadline"
+    ],
     "difficulty": "hard"
   },
   {
@@ -513,7 +654,11 @@
     "sender": "remote.author@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["virtual", "attend", "fee"],
+    "relevant_policy_keywords": [
+      "virtual",
+      "attend",
+      "fee"
+    ],
     "difficulty": "hard"
   },
   {
@@ -524,7 +669,10 @@
     "sender": "busy.coauthor@univ.edu",
     "ground_truth_intent": "general_inquiry",
     "ground_truth_lane": "faq",
-    "relevant_policy_keywords": ["co-author", "reviewing"],
+    "relevant_policy_keywords": [
+      "co-author",
+      "reviewing"
+    ],
     "difficulty": "hard"
   },
   {
@@ -535,7 +683,11 @@
     "sender": "reviewer.f@univ.edu",
     "ground_truth_intent": "review_assignment",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["conflict", "reviewer", "reassign"],
+    "relevant_policy_keywords": [
+      "conflict",
+      "reviewer",
+      "reassign"
+    ],
     "difficulty": "hard"
   },
   {
@@ -546,7 +698,11 @@
     "sender": "reviewer.g@univ.edu",
     "ground_truth_intent": "review_assignment",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["access", "reviewer", "assignment"],
+    "relevant_policy_keywords": [
+      "access",
+      "reviewer",
+      "assignment"
+    ],
     "difficulty": "hard"
   },
   {
@@ -557,7 +713,11 @@
     "sender": "upset.author@univ.edu",
     "ground_truth_intent": "authorship_dispute",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["author list", "authorship", "consent"],
+    "relevant_policy_keywords": [
+      "author list",
+      "authorship",
+      "consent"
+    ],
     "difficulty": "hard"
   },
   {
@@ -568,7 +728,10 @@
     "sender": "exiting.author@univ.edu",
     "ground_truth_intent": "authorship_dispute",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["remove me", "author list"],
+    "relevant_policy_keywords": [
+      "remove me",
+      "author list"
+    ],
     "difficulty": "hard"
   },
   {
@@ -579,7 +742,10 @@
     "sender": "careful.author@univ.edu",
     "ground_truth_intent": "submission_withdrawal",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["withdraw", "submission"],
+    "relevant_policy_keywords": [
+      "withdraw",
+      "submission"
+    ],
     "difficulty": "hard"
   },
   {
@@ -590,7 +756,11 @@
     "sender": "stuck.author@univ.edu",
     "ground_truth_intent": "submission_withdrawal",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["withdraw", "withdrawal", "submission"],
+    "relevant_policy_keywords": [
+      "withdraw",
+      "withdrawal",
+      "submission"
+    ],
     "difficulty": "hard"
   },
   {
@@ -601,7 +771,11 @@
     "sender": "aggrieved.author@univ.edu",
     "ground_truth_intent": "ethics_concern",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["conflict", "bias", "undisclosed"],
+    "relevant_policy_keywords": [
+      "conflict",
+      "bias",
+      "undisclosed"
+    ],
     "difficulty": "hard"
   },
   {
@@ -612,7 +786,10 @@
     "sender": "worried.reuse@univ.edu",
     "ground_truth_intent": "ethics_concern",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["plagiarism", "attribution"],
+    "relevant_policy_keywords": [
+      "plagiarism",
+      "attribution"
+    ],
     "difficulty": "hard"
   },
   {
@@ -623,7 +800,11 @@
     "sender": "outage.author@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["portal", "system", "error"],
+    "relevant_policy_keywords": [
+      "portal",
+      "system",
+      "error"
+    ],
     "difficulty": "hard"
   },
   {
@@ -634,7 +815,110 @@
     "sender": "upload.author@univ.edu",
     "ground_truth_intent": "technical_issue",
     "ground_truth_lane": "human_review",
-    "relevant_policy_keywords": ["upload", "system", "error"],
+    "relevant_policy_keywords": [
+      "upload",
+      "system",
+      "error"
+    ],
     "difficulty": "hard"
+  },
+  {
+    "id": "eval_059",
+    "relevant_chunk_id": null,
+    "subject": "Interested in becoming a conference sponsor",
+    "body": "Our company would like to explore sponsorship opportunities for this year's conference. Could you send the sponsor prospectus and outline the available sponsorship tiers? We are particularly interested in a gold sponsor package and possibly an exhibit booth in the venue.",
+    "sender": "partnerships@acmecorp.com",
+    "ground_truth_intent": "sponsorship",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "easy"
+  },
+  {
+    "id": "eval_060",
+    "relevant_chunk_id": null,
+    "subject": "Exhibitor booth availability and pricing",
+    "body": "We are a software vendor and would like to reserve an exhibitor booth in the exhibition hall. Please share the sponsorship package details and let us know whether in-kind contributions are accepted toward a sponsorship level.",
+    "sender": "sales@devtools.io",
+    "ground_truth_intent": "sponsorship",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "easy"
+  },
+  {
+    "id": "eval_061",
+    "relevant_chunk_id": null,
+    "subject": "Financial support for the student program",
+    "body": "Our foundation is interested in providing financial support as a sponsor of the conference, specifically to fund the student program. Who handles sponsorship agreements, and what recognition do sponsors receive?",
+    "sender": "grants@foundation.org",
+    "ground_truth_intent": "sponsorship",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_062",
+    "relevant_chunk_id": null,
+    "subject": "Promoting the conference on social media",
+    "body": "I run our lab's social media accounts and would like to help promote the conference. Could you share the official hashtag and any promotional graphics we can post? We are happy to amplify the call for participation to our followers.",
+    "sender": "comms@ml-lab.edu",
+    "ground_truth_intent": "publicity",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "easy"
+  },
+  {
+    "id": "eval_063",
+    "relevant_chunk_id": null,
+    "subject": "Adding the event to our newsletter",
+    "body": "Our professional society would like to publicize the conference in our monthly newsletter and to our mailing list. Please send publicity materials and confirm that we may advertise the event to our members.",
+    "sender": "editor@society.org",
+    "ground_truth_intent": "publicity",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "easy"
+  },
+  {
+    "id": "eval_064",
+    "relevant_chunk_id": null,
+    "subject": "Cross-promotion with our research blog",
+    "body": "We would like to cross-promote the conference through our research blog and social media channels. Could you provide a short promotional blurb and the official hashtag so we can help spread the word to a wider audience?",
+    "sender": "blog@researchhub.net",
+    "ground_truth_intent": "publicity",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_065",
+    "relevant_chunk_id": null,
+    "subject": "Press pass request for conference coverage",
+    "body": "I am a journalist covering artificial intelligence research and would like to request a press pass for the conference. Could you point me to your media accreditation process and let me know whether a media kit is available?",
+    "sender": "jdoe@technews.com",
+    "ground_truth_intent": "media_inquiry",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "easy"
+  },
+  {
+    "id": "eval_066",
+    "relevant_chunk_id": null,
+    "subject": "Interview request with the program committee",
+    "body": "I am a reporter writing a feature on the conference. I would like to submit an interview request with a member of the program committee and ask about your policy on embargo of news coverage for accepted papers.",
+    "sender": "features@sciencedaily.com",
+    "ground_truth_intent": "media_inquiry",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "hard"
+  },
+  {
+    "id": "eval_067",
+    "relevant_chunk_id": null,
+    "subject": "Media inquiry about the conference",
+    "body": "Our news desk has a media inquiry regarding this year's conference. We are preparing a press release and would like official participation figures and a media contact for follow-up questions.",
+    "sender": "desk@wirenews.com",
+    "ground_truth_intent": "media_inquiry",
+    "ground_truth_lane": "human_review",
+    "relevant_policy_keywords": [],
+    "difficulty": "easy"
   }
 ]

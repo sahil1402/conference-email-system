@@ -31,6 +31,9 @@ _OPENINGS: dict[str, str] = {
     "submission_withdrawal": "Thank you for your message about withdrawing a submission.",
     "ethics_concern": "Thank you for bringing this concern to our attention.",
     "technical_issue": "Thank you for reporting this technical issue.",
+    "sponsorship": "Thank you for your interest in sponsoring the conference.",
+    "publicity": "Thank you for helping promote the conference.",
+    "media_inquiry": "Thank you for your media inquiry about the conference.",
 }
 
 _DEFAULT_OPENING = "Thank you for contacting the program committee."

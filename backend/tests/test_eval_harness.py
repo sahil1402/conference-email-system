@@ -41,8 +41,9 @@ def eval_report(tmp_path_factory) -> dict:
 # ---------------------------------------------------------------------------
 def test_ground_truth_loads():
     entries = _load_ground_truth()
-    # 40 original + 18 Phase 5A boundary cases.
-    assert len(entries) == 58
+    # 40 original + 18 Phase 5A boundary cases + 9 Phase 6A operations-intent
+    # emails (sponsorship / publicity / media_inquiry, 3 each).
+    assert len(entries) == 67
     required = {"id", "subject", "body", "ground_truth_intent", "ground_truth_lane"}
     assert all(required <= set(e) for e in entries)
     assert all(e["ground_truth_lane"] in ("faq", "human_review") for e in entries)
