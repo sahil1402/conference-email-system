@@ -69,6 +69,27 @@ export function laneBadgeVariant(lane: EmailLane): BadgeVariant {
   return lane === "faq" ? "faq" : "review";
 }
 
+/**
+ * A small, curated palette for color-coding chairs (Phase 6A). Deterministic by
+ * chair id so the same chair keeps its color across the badge, the queue, and
+ * the analytics charts. Mid-brightness hues on a translucent background read
+ * clearly on the dark surface tokens.
+ */
+const CHAIR_PALETTE: { color: string; bg: string }[] = [
+  { color: "#818cf8", bg: "rgba(129, 140, 248, 0.15)" }, // indigo
+  { color: "#34d399", bg: "rgba(52, 211, 153, 0.15)" }, // emerald
+  { color: "#fbbf24", bg: "rgba(251, 191, 36, 0.15)" }, // amber
+  { color: "#f472b6", bg: "rgba(244, 114, 182, 0.15)" }, // pink
+  { color: "#22d3ee", bg: "rgba(34, 211, 238, 0.15)" }, // cyan
+  { color: "#a78bfa", bg: "rgba(167, 139, 250, 0.15)" }, // violet
+];
+
+/** Deterministic {color, bg} for a chair id (cycles through the palette). */
+export function chairColor(chairId: number): { color: string; bg: string } {
+  const len = CHAIR_PALETTE.length;
+  return CHAIR_PALETTE[(((chairId - 1) % len) + len) % len];
+}
+
 /** "DRAFT_GENERATED" → "Draft Generated", "approved" → "Approved". */
 export function statusLabel(status: string): string {
   return status

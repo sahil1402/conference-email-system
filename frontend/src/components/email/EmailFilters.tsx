@@ -3,6 +3,7 @@
 import { Search } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type { Chair } from "@/types";
 
 type LaneFilter = "all" | "faq" | "human_review";
 
@@ -13,6 +14,11 @@ interface EmailFiltersProps {
   onLaneChange: (v: LaneFilter) => void;
   statusFilter: "all" | "PENDING" | "DRAFT_GENERATED" | "APPROVED";
   onStatusChange: (v: string) => void;
+  /** Chair roster for the assigned-chair filter (Phase 6A). */
+  chairs: Chair[];
+  /** "all" | "unassigned" | chair id (as a string). */
+  chairFilter: string;
+  onChairChange: (v: string) => void;
 }
 
 const LANE_OPTIONS: { value: LaneFilter; label: string }[] = [
@@ -36,6 +42,9 @@ export function EmailFilters({
   onLaneChange,
   statusFilter,
   onStatusChange,
+  chairs,
+  chairFilter,
+  onChairChange,
 }: EmailFiltersProps) {
   return (
     <div className="flex flex-col gap-3">
@@ -107,6 +116,35 @@ export function EmailFilters({
             style={{ backgroundColor: "var(--surface)" }}
           >
             {label}
+          </option>
+        ))}
+      </select>
+
+      {/* Assigned-chair dropdown (Phase 6A) */}
+      <select
+        value={chairFilter}
+        onChange={(e) => onChairChange(e.target.value)}
+        aria-label="Filter by assigned chair"
+        className="w-full rounded-lg border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+        style={{
+          backgroundColor: "var(--surface)",
+          borderColor: "var(--border)",
+          color: "var(--text-primary)",
+        }}
+      >
+        <option value="all" style={{ backgroundColor: "var(--surface)" }}>
+          All chairs
+        </option>
+        <option value="unassigned" style={{ backgroundColor: "var(--surface)" }}>
+          Unassigned
+        </option>
+        {chairs.map((chair) => (
+          <option
+            key={chair.id}
+            value={String(chair.id)}
+            style={{ backgroundColor: "var(--surface)" }}
+          >
+            {chair.name}
           </option>
         ))}
       </select>

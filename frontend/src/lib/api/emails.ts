@@ -6,6 +6,7 @@ import type {
   EmailQueueResponse,
   IngestRequest,
   PipelineResult,
+  ReassignChairRequest,
   RerouteRequest,
 } from "@/types";
 
@@ -43,6 +44,18 @@ export async function rerouteEmail(
 ): Promise<Email> {
   const { data: email } = await apiClient.patch<Email>(
     `/emails/${id}/reroute`,
+    data
+  );
+  return email;
+}
+
+/** PATCH /emails/{id}/reassign-chair — assign an email to a different chair (Phase 6A). */
+export async function reassignChair(
+  id: number,
+  data: ReassignChairRequest
+): Promise<Email> {
+  const { data: email } = await apiClient.patch<Email>(
+    `/emails/${id}/reassign-chair`,
     data
   );
   return email;

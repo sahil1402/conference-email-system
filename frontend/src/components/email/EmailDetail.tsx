@@ -1,14 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, FileText, Send, CornerUpRight, Zap, GitCompare } from "lucide-react";
+import {
+  ChevronDown,
+  FileText,
+  Send,
+  CornerUpRight,
+  Zap,
+  GitCompare,
+  Users,
+  Check,
+} from "lucide-react";
 
 import {
   Badge,
+  ChairBadge,
   ConfidenceBar,
   DiffLegend,
   DiffView,
   EmptyState,
+  ErrorBanner,
   LoadingSpinner,
 } from "@/components/ui";
 import { hasMeaningfulDiff } from "@/lib/diff";
@@ -21,14 +32,22 @@ import {
   statusLabel,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Email, RetrievedChunk } from "@/types";
+import type { ApiError, Chair, Email, RetrievedChunk } from "@/types";
 
 interface EmailDetailProps {
   email: Email;
   onApprove: (finalText?: string) => void;
   onReroute: (reason: string) => void;
+  /**
+   * Reassign this email to a chair (Phase 6A). Returns a promise so the pane can
+   * show inline success / error feedback scoped to this email.
+   */
+  onReassignChair: (chairId: number, reason: string) => Promise<unknown>;
   isApproving: boolean;
   isRerouting: boolean;
+  isReassigning: boolean;
+  /** The chair roster for the reassignment picker + name resolution. */
+  chairs: Chair[];
 }
 
 /**
@@ -40,8 +59,11 @@ export function EmailDetail({
   email,
   onApprove,
   onReroute,
+  onReassignChair,
   isApproving,
   isRerouting,
+  isReassigning,
+  chairs,
 }: EmailDetailProps) {
   const lane = email.routing?.lane ?? null;
   const classification = email.classification;
@@ -52,13 +74,44 @@ export function EmailDetail({
   const [rerouteReason, setRerouteReason] = useState("");
   const [showDiff, setShowDiff] = useState(false);
 
+  // Chair reassignment state (Phase 6A).
+  const chairsById = new Map(chairs.map((c) => [c.id, c]));
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignReason, setReassignReason] = useState("");
+  const [reassignError, setReassignError] = useState<string | null>(null);
+  // Optimistic: the chair we just reassigned to, shown immediately before the
+  // queue refetch lands. Null until a successful reassignment this session.
+  const [reassignedTo, setReassignedTo] = useState<number | null>(null);
+
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const rerouteInputRef = useRef<HTMLInputElement | null>(null);
+  const chairSelectRef = useRef<HTMLSelectElement | null>(null);
 
   // The original AI/template draft (before any chair edit) to diff against.
   const originalDraft = draft?.original_draft_text ?? draft?.draft_text ?? "";
   const draftChanged = hasMeaningfulDiff(originalDraft, editedDraft);
   const canAct = lane === "human_review";
+
+  // Current assignment (optimistic value wins until the refetch confirms it).
+  const currentChairId = reassignedTo ?? email.assigned_chair_id;
+  const currentChairName =
+    currentChairId != null ? chairsById.get(currentChairId)?.name ?? null : null;
+  const [pickedChairId, setPickedChairId] = useState<number | null>(
+    email.assigned_chair_id ?? chairs.find((c) => c.active)?.id ?? null
+  );
+
+  async function handleReassign() {
+    if (pickedChairId == null) return;
+    setReassignError(null);
+    try {
+      await onReassignChair(pickedChairId, reassignReason.trim());
+      setReassignedTo(pickedChairId);
+      setReassignReason("");
+      setReassignOpen(false);
+    } catch (err) {
+      setReassignError((err as ApiError)?.detail ?? "Reassignment failed.");
+    }
+  }
 
   // Keyboard shortcuts, scoped to the review pane (this component only mounts
   // when an email is open). A = approve, E = edit (focus draft), R = reroute.
@@ -86,6 +139,10 @@ export function EmailDetail({
         e.preventDefault();
         setRerouteOpen(true);
         requestAnimationFrame(() => rerouteInputRef.current?.focus());
+      } else if (key === "c" && canAct) {
+        e.preventDefault();
+        setReassignOpen(true);
+        requestAnimationFrame(() => chairSelectRef.current?.focus());
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -120,6 +177,9 @@ export function EmailDetail({
               <Badge variant={laneBadgeVariant(lane)} size="sm">
                 {laneLabel(lane)}
               </Badge>
+            )}
+            {lane === "human_review" && (
+              <ChairBadge chairId={currentChairId} chairName={currentChairName} />
             )}
           </div>
         </header>
@@ -169,6 +229,22 @@ export function EmailDetail({
             </p>
           )}
         </Collapsible>
+
+        {/* ROUTING RATIONALE (why this chair) — human-review only */}
+        {canAct && (
+          <Collapsible
+            title="Routing Rationale"
+            icon={<Users className="h-4 w-4" />}
+            defaultOpen
+          >
+            <RoutingRationale
+              chairId={currentChairId}
+              chair={currentChairId != null ? chairsById.get(currentChairId) : undefined}
+              chairName={currentChairName}
+              intent={classification?.intent ?? null}
+            />
+          </Collapsible>
+        )}
 
         {/* POLICY CITATIONS */}
         <Collapsible title="Policy Citations" defaultOpen>
@@ -290,6 +366,20 @@ export function EmailDetail({
 
               <button
                 type="button"
+                disabled={isReassigning}
+                onClick={() => setReassignOpen((v) => !v)}
+                className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-raised)] disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  borderColor: "var(--border)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <Users className="h-4 w-4" />
+                Reassign chair
+              </button>
+
+              <button
+                type="button"
                 disabled={isRerouting}
                 onClick={() => setRerouteOpen((v) => !v)}
                 className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-raised)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -310,9 +400,89 @@ export function EmailDetail({
               >
                 <Kbd>A</Kbd> approve
                 <Kbd>E</Kbd> edit
+                <Kbd>C</Kbd> reassign
                 <Kbd>R</Kbd> reroute
               </div>
             </div>
+
+            {/* Success confirmation after a reassignment (inline, no toast infra). */}
+            {reassignedTo != null && !reassignOpen && (
+              <div
+                className="flex items-center gap-2 text-xs"
+                style={{ color: "var(--success)" }}
+              >
+                <Check className="h-3.5 w-3.5" />
+                Assigned to {currentChairName ?? `Chair #${currentChairId}`}.
+              </div>
+            )}
+
+            {/* Inline chair-reassignment form (no modal — keeps context visible) */}
+            {reassignOpen && (
+              <div
+                className="flex flex-col gap-2 rounded-lg border p-3"
+                style={{
+                  borderColor: "var(--border)",
+                  backgroundColor: "var(--surface-raised)",
+                }}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <select
+                    ref={chairSelectRef}
+                    value={pickedChairId ?? ""}
+                    onChange={(e) => setPickedChairId(Number(e.target.value))}
+                    aria-label="Assign to chair"
+                    className="rounded-md border px-3 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] sm:w-64"
+                    style={{
+                      backgroundColor: "var(--surface)",
+                      borderColor: "var(--border)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {chairs.map((chair) => (
+                      <option
+                        key={chair.id}
+                        value={chair.id}
+                        style={{ backgroundColor: "var(--surface)" }}
+                      >
+                        {chair.name}
+                        {chair.active ? "" : " (inactive)"}
+                        {chair.id === email.assigned_chair_id ? " · current" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={reassignReason}
+                    onChange={(e) => setReassignReason(e.target.value)}
+                    placeholder="Reason (optional)…"
+                    className="flex-1 rounded-md border px-3 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+                    style={{
+                      backgroundColor: "var(--surface)",
+                      borderColor: "var(--border)",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={
+                      isReassigning ||
+                      pickedChairId == null ||
+                      pickedChairId === email.assigned_chair_id
+                    }
+                    onClick={handleReassign}
+                    className="inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{
+                      backgroundColor: "var(--accent)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {isReassigning && <LoadingSpinner size="sm" />}
+                    Assign
+                  </button>
+                </div>
+                {reassignError && <ErrorBanner message={reassignError} />}
+              </div>
+            )}
 
             {/* Inline reroute form (no modal — keeps context visible) */}
             {rerouteOpen && (
@@ -428,6 +598,96 @@ function Collapsible({
         </div>
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Routing rationale — why this chair was assigned (Phase 6A)
+// ---------------------------------------------------------------------------
+
+/**
+ * Explains the chair assignment by reconstructing the intent_mapping rule
+ * client-side from the chair's `areas` + the classified intent. Three honest
+ * cases: the intent falls under the chair's areas (a real match); the chair is
+ * the empty-areas catch-all (fallback — stated explicitly, never implying a
+ * false match); or the chair owns neither, which can only result from a manual
+ * reassignment.
+ */
+function RoutingRationale({
+  chairId,
+  chair,
+  chairName,
+  intent,
+}: {
+  chairId: number | null;
+  chair: Chair | undefined;
+  chairName: string | null;
+  intent: string | null;
+}) {
+  if (chairId == null) {
+    return (
+      <p className="pt-1 text-sm" style={{ color: "var(--text-muted)" }}>
+        Not yet assigned to a chair.
+      </p>
+    );
+  }
+
+  const owns = intent != null && !!chair && chair.areas.includes(intent);
+  const isFallback = !!chair && chair.areas.length === 0;
+  const intentLabel = intent ? formatIntentLabel(intent) : "an unknown intent";
+
+  let rationale: string;
+  if (!chair) {
+    rationale = `Assigned to chair #${chairId}, which is not in the current roster.`;
+  } else if (owns) {
+    rationale = `Intent “${intentLabel}” falls under this chair's areas, so the router assigned it here.`;
+  } else if (isFallback) {
+    rationale = `No chair owns intent “${intentLabel}”, so it was routed to the catch-all fallback chair (which has no assigned areas).`;
+  } else {
+    rationale = `This chair does not own intent “${intentLabel}” — it was assigned by a manual reassignment, not an area match.`;
+  }
+
+  return (
+    <div className="space-y-3 pt-1">
+      <div className="flex items-center justify-between text-sm">
+        <span style={{ color: "var(--text-secondary)" }}>Assigned to</span>
+        <ChairBadge chairId={chairId} chairName={chairName} />
+      </div>
+      {intent && (
+        <div className="flex items-center justify-between text-sm">
+          <span style={{ color: "var(--text-secondary)" }}>Intent</span>
+          <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+            {intentLabel}
+          </span>
+        </div>
+      )}
+      <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+        {rationale}
+      </p>
+
+      {chair && chair.areas.length > 0 ? (
+        <div className="space-y-1.5">
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Areas this chair owns{owns ? " (matched area highlighted)" : ""}:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {chair.areas.map((area) => (
+              <Badge
+                key={area}
+                variant={area === intent ? "faq" : "neutral"}
+                size="sm"
+              >
+                {formatIntentLabel(area)}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      ) : chair ? (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Catch-all fallback — this chair has no specific areas.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

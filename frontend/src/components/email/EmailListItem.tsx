@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, ConfidenceBar } from "@/components/ui";
+import { Badge, ChairBadge, ConfidenceBar } from "@/components/ui";
 import {
   initials,
   laneBadgeVariant,
@@ -13,6 +13,8 @@ interface EmailListItemProps {
   email: Email;
   isSelected: boolean;
   onClick: () => void;
+  /** Resolved name of the email's assigned chair (Phase 6A), if known. */
+  chairName?: string | null;
 }
 
 /** A single row in the queue list. */
@@ -20,6 +22,7 @@ export function EmailListItem({
   email,
   isSelected,
   onClick,
+  chairName,
 }: EmailListItemProps) {
   const lane = email.routing?.lane ?? null;
   const confidence = email.classification?.confidence;
@@ -78,6 +81,10 @@ export function EmailListItem({
           <Badge variant={laneBadgeVariant(lane)} size="sm">
             {laneLabel(lane)}
           </Badge>
+        )}
+        {/* Assigned chair — only meaningful for human-review emails. */}
+        {lane === "human_review" && (
+          <ChairBadge chairId={email.assigned_chair_id} chairName={chairName} />
         )}
         {typeof confidence === "number" && (
           <span className="w-[60px]">

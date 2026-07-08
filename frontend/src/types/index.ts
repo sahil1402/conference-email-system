@@ -40,7 +40,7 @@ export type EmailStatus =
   | "approved"
   | "rerouted";
 
-/** The 8 intent labels the classifier can emit (classifier.py: VALID_INTENTS). */
+/** The 11 intent labels the classifier can emit (classifier.py: VALID_INTENTS). */
 export type IntentLabel =
   | "submission_deadline"
   | "formatting_requirements"
@@ -49,7 +49,11 @@ export type IntentLabel =
   | "authorship_dispute"
   | "submission_withdrawal"
   | "ethics_concern"
-  | "technical_issue";
+  | "technical_issue"
+  // Phase 6A conference-operations intents.
+  | "sponsorship"
+  | "publicity"
+  | "media_inquiry";
 
 // ---------------------------------------------------------------------------
 // Pipeline result sub-objects (as stored in the emails JSON columns)
@@ -109,6 +113,35 @@ export interface PipelineResult {
 }
 
 // ---------------------------------------------------------------------------
+// Chairs — db/models.py::Chair (Phase 6A multi-chair routing)
+// ---------------------------------------------------------------------------
+
+/**
+ * A conference chair a human-review email can be assigned to.
+ * `areas` is the list of intent/topic strings the chair owns; an empty `areas`
+ * marks the catch-all fallback chair (the General Chair).
+ */
+export interface Chair {
+  id: number;
+  name: string;
+  role_title: string;
+  areas: string[];
+  active: boolean;
+}
+
+/**
+ * A `chair_reassigned` audit event, projected for analytics. `original_chair_id`
+ * is the chair the email was moved away from (the router's / prior pick),
+ * `new_chair_id` where it landed. Either may be null.
+ */
+export interface ReassignmentEvent {
+  email_id: number;
+  original_chair_id: number | null;
+  new_chair_id: number | null;
+  at: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Persisted record — emails.py::_email_to_dict
 // ---------------------------------------------------------------------------
 
@@ -121,6 +154,12 @@ export interface Email {
   status: EmailStatus;
   /** ISO 8601 datetime, or null if unset. */
   received_at: string | null;
+  /**
+   * The chair this human-review email is assigned to (Phase 6A), or null when
+   * unassigned (FAQ-lane emails are never assigned; also null before the chair
+   * router runs). Resolve the name via the chairs roster.
+   */
+  assigned_chair_id: number | null;
   classification: ClassificationResult | null;
   routing: RoutingResult | null;
   draft: DraftResult | null;
@@ -267,6 +306,13 @@ export interface RerouteRequest {
   rerouted_by: string;
   reason: string;
   new_lane: EmailLane;
+}
+
+/** ReassignChairRequest — PATCH /emails/{id}/reassign-chair (Phase 6A). */
+export interface ReassignChairRequest {
+  reassigned_by: string;
+  new_chair_id: number;
+  reason?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { Activity, Zap, BarChart2, Clock } from "lucide-react";
+import { Activity, Zap, BarChart2, Clock, Users } from "lucide-react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -28,8 +28,9 @@ import {
   useActiveLearningCandidates,
 } from "@/hooks/useAnalytics";
 import { useEmailQueue } from "@/hooks/useEmailQueue";
+import { useChairs, useReassignmentEvents } from "@/hooks/useChairs";
 import { Badge, StatCard, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
-import { formatIntentLabel } from "@/lib/format";
+import { chairColor, formatIntentLabel } from "@/lib/format";
 import type { ActiveLearningCandidate, CalibrationBucket } from "@/types";
 
 // Chart-only hex palette. recharts writes these into SVG fill/stroke attributes,
@@ -64,6 +65,8 @@ export default function AnalyticsPage() {
   const { emails, isLoading: eLoading, isError: eError } = useEmailQueue();
   const { calibration } = useCalibration();
   const { candidates } = useActiveLearningCandidates();
+  const { chairs } = useChairs();
+  const { events: reassignEvents } = useReassignmentEvents();
 
   const isError = aError || eError;
   const isLoading = (aLoading || eLoading) && !summary;
@@ -104,6 +107,52 @@ export default function AnalyticsPage() {
     }
     return bands;
   }, [emails]);
+
+  // Email volume per chair (current ownership, from the loaded queue). Shows
+  // every chair — including idle ones — so the roster is visible; colored to
+  // match the chair badges elsewhere.
+  const chairVolumeData = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const email of emails) {
+      if (email.assigned_chair_id != null) {
+        counts.set(
+          email.assigned_chair_id,
+          (counts.get(email.assigned_chair_id) ?? 0) + 1
+        );
+      }
+    }
+    return chairs
+      .map((c) => ({
+        label: c.name,
+        count: counts.get(c.id) ?? 0,
+        color: chairColor(c.id).color,
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [emails, chairs]);
+  const chairVolumeTotal = chairVolumeData.reduce((s, d) => s + d.count, 0);
+
+  // Reassignments grouped by the chair each email was moved AWAY from — a
+  // preview of where the router's picks get corrected most often (NOT a trained
+  // model metric).
+  const reassignByChairData = useMemo(() => {
+    const counts = new Map<number, number>();
+    let unassigned = 0;
+    for (const ev of reassignEvents) {
+      if (ev.original_chair_id == null) unassigned += 1;
+      else counts.set(ev.original_chair_id, (counts.get(ev.original_chair_id) ?? 0) + 1);
+    }
+    const rows = chairs
+      .map((c) => ({
+        label: c.name,
+        count: counts.get(c.id) ?? 0,
+        color: chairColor(c.id).color,
+      }))
+      .filter((r) => r.count > 0);
+    if (unassigned > 0) {
+      rows.push({ label: "Unassigned", count: unassigned, color: C.axis });
+    }
+    return rows.sort((a, b) => b.count - a.count);
+  }, [reassignEvents, chairs]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-8 py-10">
@@ -299,6 +348,44 @@ export default function AnalyticsPage() {
               </div>
             )}
           </Panel>
+
+          {/* SECTION D2 — Chair routing (Phase 6B) */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* Email volume per chair */}
+            <Panel title="Email Volume per Chair">
+              <p className="mb-3 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Human-review emails currently assigned to each chair.
+              </p>
+              {chairVolumeTotal === 0 ? (
+                <EmptyState
+                  icon={<Users className="h-5 w-5" />}
+                  title="No chair assignments yet"
+                  description="Human-review emails are assigned to a chair as the pipeline processes them."
+                />
+              ) : (
+                <ChairBarChart data={chairVolumeData} />
+              )}
+            </Panel>
+
+            {/* Reassignment frequency per chair */}
+            <Panel title="Reassignments by Chair">
+              <p className="mb-3 text-xs" style={{ color: "var(--text-secondary)" }}>
+                How often emails were moved <em>away from</em> each chair — a plain
+                count of manual corrections to the router&apos;s picks. A preview of
+                where the rule-based router is overridden most; not a trained-model
+                metric.
+              </p>
+              {reassignByChairData.length === 0 ? (
+                <EmptyState
+                  icon={<Users className="h-5 w-5" />}
+                  title="No reassignments yet"
+                  description="When a chair hands an email to a different chair, it appears here."
+                />
+              ) : (
+                <ChairBarChart data={reassignByChairData} />
+              )}
+            </Panel>
+          </div>
 
           {/* SECTION F — Calibration reliability diagram (Phase 5B/5E) */}
           <Panel title="Classifier Calibration Reliability">
@@ -533,6 +620,48 @@ function CalibrationDiagram({
       >
         {calibration.caveat}
       </p>
+    </div>
+  );
+}
+
+/** Horizontal bar chart for per-chair series (each bar keyed to its chair color). */
+function ChairBarChart({
+  data,
+}: {
+  data: { label: string; count: number; color: string }[];
+}) {
+  return (
+    <div className="h-[300px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={data}
+          layout="vertical"
+          margin={{ top: 4, right: 16, bottom: 4, left: 8 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke={C.grid} horizontal={false} />
+          <XAxis
+            type="number"
+            allowDecimals={false}
+            tick={{ fill: C.axis, fontSize: 12 }}
+            axisLine={{ stroke: C.grid }}
+            tickLine={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="label"
+            width={160}
+            tick={{ fill: C.axis, fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} {...TOOLTIP_STYLE} />
+          <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+            {data.map((d) => (
+              <Cell key={d.label} fill={d.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

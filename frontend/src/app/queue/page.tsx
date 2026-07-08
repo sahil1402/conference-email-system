@@ -5,7 +5,12 @@ import { Inbox, SearchX } from "lucide-react";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
-import { useApproveEmail, useRerouteEmail } from "@/hooks/useEmailActions";
+import {
+  useApproveEmail,
+  useRerouteEmail,
+  useReassignChair,
+} from "@/hooks/useEmailActions";
+import { useChairs } from "@/hooks/useChairs";
 import {
   EmailListItem,
   EmailDetail,
@@ -26,11 +31,15 @@ export default function QueuePage() {
   const { status: streamStatus } = useEmailQueueStream();
   const { mutate: approve, isPending: isApproving } = useApproveEmail();
   const { mutate: reroute, isPending: isRerouting } = useRerouteEmail();
+  const { mutateAsync: reassignChairAsync, isPending: isReassigning } =
+    useReassignChair();
+  const { chairs, byId: chairsById } = useChairs();
 
   const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [laneFilter, setLaneFilter] = useState<LaneFilter>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [chairFilter, setChairFilter] = useState<string>("all");
 
   const filteredEmails = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -45,9 +54,14 @@ export default function QueuePage() {
       if (statusFilter !== "all" && email.status !== statusFilter) {
         return false;
       }
+      if (chairFilter === "unassigned") {
+        if (email.assigned_chair_id != null) return false;
+      } else if (chairFilter !== "all") {
+        if (email.assigned_chair_id !== Number(chairFilter)) return false;
+      }
       return true;
     });
-  }, [emails, search, laneFilter, statusFilter]);
+  }, [emails, search, laneFilter, statusFilter, chairFilter]);
 
   const selectedEmail =
     selectedEmailId == null
@@ -85,6 +99,9 @@ export default function QueuePage() {
             onLaneChange={setLaneFilter}
             statusFilter={statusFilter as "all" | "PENDING" | "DRAFT_GENERATED" | "APPROVED"}
             onStatusChange={setStatusFilter}
+            chairs={chairs}
+            chairFilter={chairFilter}
+            onChairChange={setChairFilter}
           />
         </div>
 
@@ -117,6 +134,11 @@ export default function QueuePage() {
                     email={email}
                     isSelected={email.id === selectedEmailId}
                     onClick={() => setSelectedEmailId(email.id)}
+                    chairName={
+                      email.assigned_chair_id != null
+                        ? chairsById.get(email.assigned_chair_id)?.name ?? null
+                        : null
+                    }
                   />
                 </li>
               ))}
@@ -133,6 +155,8 @@ export default function QueuePage() {
             email={selectedEmail}
             isApproving={isApproving}
             isRerouting={isRerouting}
+            isReassigning={isReassigning}
+            chairs={chairs}
             onApprove={(finalText) =>
               approve({
                 id: selectedEmail.id,
@@ -143,6 +167,12 @@ export default function QueuePage() {
               reroute({
                 id: selectedEmail.id,
                 data: { rerouted_by: "chair", reason, new_lane: "faq" },
+              })
+            }
+            onReassignChair={(chairId, reason) =>
+              reassignChairAsync({
+                id: selectedEmail.id,
+                data: { reassigned_by: "chair", new_chair_id: chairId, reason },
               })
             }
           />

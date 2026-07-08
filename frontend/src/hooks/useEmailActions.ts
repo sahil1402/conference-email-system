@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { approveEmail, ingestEmail, rerouteEmail } from "@/lib/api";
+import { approveEmail, ingestEmail, reassignChair, rerouteEmail } from "@/lib/api";
 import type {
   ApiError,
   ApproveRequest,
   IngestRequest,
   PipelineResult,
+  ReassignChairRequest,
   RerouteRequest,
 } from "@/types";
 
@@ -34,6 +35,16 @@ export function useRerouteEmail() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: RerouteRequest }) =>
       rerouteEmail(id, data),
+    onSuccess: invalidate,
+  });
+}
+
+/** Reassign an email to a different chair (Phase 6A). */
+export function useReassignChair() {
+  const invalidate = useInvalidateEmailQueries();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: ReassignChairRequest }) =>
+      reassignChair(id, data),
     onSuccess: invalidate,
   });
 }
