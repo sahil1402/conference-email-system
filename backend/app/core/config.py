@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     DRAFTER_MAX_TOKENS: int = 500
     # Model the drafter calls when MODEL_PROVIDER == "anthropic_api". Never
     # hardcode a model id in source — read it from here so it stays swappable.
-    DRAFT_MODEL: str = "claude-opus-4-8"
+    DRAFT_MODEL: str = "claude-sonnet-5"
 
     # --- Local model provider (OpenAI-compatible, e.g. Ollama) ------------
     # Used only when MODEL_PROVIDER == "local". Base URL of the OpenAI-style
