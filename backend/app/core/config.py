@@ -25,17 +25,21 @@ class Settings(BaseSettings):
     )
 
     # --- Swappable architecture flags -------------------------------------
-    # Drafter backend. "anthropic_api"/"anthropic" → hosted Anthropic API;
-    # "local" → OpenAI-compatible local endpoint (e.g. Ollama); "fallback" →
-    # deterministic no-network draft. Both anthropic spellings are accepted so
-    # the historical default ("anthropic_api") and the shorter "anthropic" work.
-    MODEL_PROVIDER: Literal["anthropic_api", "anthropic", "local", "fallback"] = (
-        "anthropic_api"
-    )
+    # Drafter backend. "anthropic_api"/"anthropic" → hosted API; "local" →
+    # OpenAI-compatible local endpoint (e.g. self-hosted inference server);
+    # "template" → zero-dependency drafter that fills a response template from
+    # retrieved policy text with no model call (safest offline fallback);
+    # "fallback" → deterministic no-network stub. Both anthropic spellings are
+    # accepted so the historical default ("anthropic_api") and the shorter
+    # "anthropic" both work.
+    MODEL_PROVIDER: Literal[
+        "anthropic_api", "anthropic", "local", "template", "fallback"
+    ] = "anthropic_api"
     CONFIDENCE_THRESHOLD: float = 0.75
     # Retriever backend: "bm25" → keyword BM25 over the KB (default); "faiss" →
-    # dense sentence-embedding retrieval (FAISS IndexFlatIP, cosine).
-    RETRIEVAL_BACKEND: Literal["bm25", "faiss"] = "bm25"
+    # dense sentence-embedding retrieval (FAISS IndexFlatIP, cosine); "fusion" →
+    # Reciprocal Rank Fusion over both. Default stays "bm25".
+    RETRIEVAL_BACKEND: Literal["bm25", "faiss", "fusion"] = "bm25"
     ROUTING_STRATEGY: Literal["rule_based", "rl"] = "rule_based"
     # Classifier backend. "keyword" → dependency-free baseline; "trainable" →
     # sentence-embedding + LogisticRegression model (auto-falls back to keyword

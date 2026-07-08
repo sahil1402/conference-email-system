@@ -13,6 +13,7 @@ the declarative base). Callers pass plain ``metadata`` here; it is stored on
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.events import get_event_broker
 from app.db.models import AuditLog
 
 
@@ -22,6 +23,23 @@ def _coerce_id(email_id: str) -> int | None:
         return int(email_id)
     except (TypeError, ValueError):
         return None
+
+
+def _publish_audit_event(entry: AuditLog) -> None:
+    """Push a lifecycle event to SSE subscribers (best-effort, never raises).
+
+    Every audit write is a meaningful state change (created / classified /
+    routed / drafted / approved / rerouted), so this is the single seam the
+    live queue stream listens on.
+    """
+    get_event_broker().publish(
+        {
+            "email_id": str(entry.email_id),
+            "action": entry.action,
+            "actor": entry.actor,
+            "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+        }
+    )
 
 
 class AuditRepository:
@@ -53,6 +71,7 @@ class AuditRepository:
         db.add(entry)
         await db.commit()
         await db.refresh(entry)
+        _publish_audit_event(entry)
         return entry
 
     async def get_audit_trail(
@@ -182,4 +201,5 @@ class AuditRepository:
         db.add(entry)
         await db.commit()
         await db.refresh(entry)
+        _publish_audit_event(entry)
         return entry

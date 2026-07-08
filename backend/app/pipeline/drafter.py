@@ -140,6 +140,10 @@ class ResponseDrafter:
         routing,
     ) -> DraftResponse:
         """Generate a grounded draft via the configured provider, or fall back."""
+        # The template provider makes no model call, so it skips prompt assembly.
+        if self.provider == "template":
+            return self._draft_template(email, classification, retrieved_chunks, routing)
+
         user_prompt = _build_user_prompt(
             email, classification, retrieved_chunks, routing
         )
@@ -152,6 +156,24 @@ class ResponseDrafter:
         return _fallback(
             "Draft unavailable — model provider set to fallback.", routing
         )
+
+    def _draft_template(
+        self, email: dict, classification, retrieved_chunks: list, routing
+    ) -> DraftResponse:
+        """Fill a response template from retrieved policy chunks — zero model call.
+
+        Delegates to ``TemplateDrafter`` (imported lazily to avoid an import
+        cycle: template_drafter imports DraftResponse from this module). The
+        lane is stamped into the returned metadata for parity with the other
+        providers. Fully offline; never raises.
+        """
+        from app.pipeline.template_drafter import TemplateDrafter
+
+        response = TemplateDrafter().draft(
+            email, classification.intent, retrieved_chunks
+        )
+        response.generation_metadata.setdefault("lane", routing.lane)
+        return response
 
     async def _draft_anthropic(self, user_prompt: str, routing) -> DraftResponse:
         """Draft via the hosted Anthropic API, falling back on missing key/error."""

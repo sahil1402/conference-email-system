@@ -50,8 +50,9 @@ _REPORTS_DIR = _BACKEND_DIR / "reports"
 
 # Cutoffs for the retrieval-only ranking metrics (recall@k / nDCG@k).
 _RETRIEVAL_KS = (1, 3, 5)
-# Backends compared side-by-side in the retrieval-only section.
-_RETRIEVAL_BACKENDS = ("bm25", "faiss")
+# Backends compared side-by-side in the retrieval-only section (Phase 5C adds
+# fusion = Reciprocal Rank Fusion over bm25 + faiss).
+_RETRIEVAL_BACKENDS = ("bm25", "faiss", "fusion")
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ConfMail pipeline evaluation harness.")
     parser.add_argument(
         "--retrieval",
-        choices=["bm25", "faiss"],
+        choices=["bm25", "faiss", "fusion"],
         default=settings.RETRIEVAL_BACKEND,
         help="Retrieval backend (default: RETRIEVAL_BACKEND env / config).",
     )
@@ -320,16 +321,25 @@ async def _evaluate_retrieval(entries: list[dict]) -> dict:
     excluded = [e.get("id") for e in entries if not e.get("relevant_chunk_id")]
     top_k = max(_RETRIEVAL_KS)
 
+    # Switching backends mutates the global RETRIEVAL_BACKEND + factory singleton;
+    # restore both afterwards so this eval never leaks state into the caller.
+    original_backend = settings.RETRIEVAL_BACKEND
+
     backends: dict[str, dict] = {}
-    for backend in _RETRIEVAL_BACKENDS:
-        try:
-            ranked = await _retrieve_ids(labeled, backend, top_k)
-            scored = [
-                (e["relevant_chunk_id"], ids) for e, ids in zip(labeled, ranked)
-            ]
-            backends[backend] = score_retrieval(scored, _RETRIEVAL_KS)
-        except Exception as exc:  # noqa: BLE001 - a backend may be unavailable
-            backends[backend] = {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        for backend in _RETRIEVAL_BACKENDS:
+            try:
+                ranked = await _retrieve_ids(labeled, backend, top_k)
+                scored = [
+                    (e["relevant_chunk_id"], ids) for e, ids in zip(labeled, ranked)
+                ]
+                backends[backend] = score_retrieval(scored, _RETRIEVAL_KS)
+            except Exception as exc:  # noqa: BLE001 - a backend may be unavailable
+                backends[backend] = {"error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        settings.RETRIEVAL_BACKEND = original_backend
+        retriever_module._retriever_singleton = None
+        retriever_module._retriever_backend = None
 
     return {
         "ks": list(_RETRIEVAL_KS),

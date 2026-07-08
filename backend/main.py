@@ -87,6 +87,15 @@ async def model_health() -> dict:
     # Normalize the historical "anthropic_api" spelling to the badge's enum.
     provider = "anthropic" if settings.MODEL_PROVIDER == "anthropic_api" else settings.MODEL_PROVIDER
 
+    # The template provider has no external dependency, so it is always healthy.
+    if provider == "template":
+        return {
+            "provider": "template",
+            "local_model_url": None,
+            "local_model_name": None,
+            "status": "healthy",
+        }
+
     if provider != "local":
         return {
             "provider": provider,

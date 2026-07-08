@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Inbox, SearchX } from "lucide-react";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
+import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
 import { useApproveEmail, useRerouteEmail } from "@/hooks/useEmailActions";
 import {
   EmailListItem,
@@ -14,6 +15,7 @@ import {
   Badge,
   EmptyState,
   ErrorBanner,
+  LiveStatusDot,
   LoadingSpinner,
 } from "@/components/ui";
 
@@ -21,6 +23,7 @@ type LaneFilter = "all" | "faq" | "human_review";
 
 export default function QueuePage() {
   const { emails, isLoading, isError, refetch } = useEmailQueue();
+  const { status: streamStatus } = useEmailQueueStream();
   const { mutate: approve, isPending: isApproving } = useApproveEmail();
   const { mutate: reroute, isPending: isRerouting } = useRerouteEmail();
 
@@ -71,6 +74,9 @@ export default function QueuePage() {
             <Badge variant="neutral" size="sm">
               {filteredEmails.length}
             </Badge>
+            <span className="ml-auto">
+              <LiveStatusDot status={streamStatus} />
+            </span>
           </div>
           <EmailFilters
             search={search}

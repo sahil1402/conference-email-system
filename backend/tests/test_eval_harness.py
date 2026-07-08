@@ -73,7 +73,7 @@ def test_eval_produces_valid_report(eval_report):
     # end_to_end_metrics and retrieval_metrics are separate, non-blended sections.
     assert eval_report["end_to_end_metrics"] == summary
     rm = eval_report["retrieval_metrics"]
-    assert set(rm["backends"]) == {"bm25", "faiss"}
+    assert set(rm["backends"]) == {"bm25", "faiss", "fusion"}
     for k in (1, 3, 5):
         assert 0.0 <= rm["backends"]["bm25"][f"recall@{k}"] <= 1.0
         assert 0.0 <= rm["backends"]["bm25"][f"ndcg@{k}"] <= 1.0

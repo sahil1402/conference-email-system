@@ -14,6 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.database import get_db
+from app.pipeline.calibration import (
+    backend_key,
+    brier_score,
+    collect_calibration_pairs,
+    expected_calibration_error,
+    get_calibrator,
+    reliability_table,
+)
 from app.pipeline.rl_router import get_rl_router
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
@@ -102,6 +110,71 @@ async def rl_stats() -> dict:
     if settings.ROUTING_STRATEGY != "rl":
         return {"routing_strategy": "rule_based", "stats": {}}
     return {"routing_strategy": "rl", "stats": get_rl_router().get_stats()}
+
+
+# Visible caveat that must reach the UI (not just a tooltip): these numbers are
+# computed on the same 58-email set the calibrator was fit on (Phase 5B).
+_CALIBRATION_CAVEAT = (
+    "Based on the 58-email evaluation set. The calibrator was fit on this same "
+    "set, so these numbers are an in-sample upper bound, not held-out performance."
+)
+
+
+def _reliability_rows(scores: list[float], labels: list[int]) -> list[dict]:
+    """Reliability-table rows shaped for the chart: bucket, n, mean_confidence,
+    accuracy, and the signed gap (accuracy − mean_confidence)."""
+    return [
+        {
+            "bucket": row["bucket"],
+            "n": row["count"],
+            "mean_confidence": row["mean_confidence"],
+            "accuracy": row["accuracy"],
+            "gap": round(row["accuracy"] - row["mean_confidence"], 4),
+        }
+        for row in reliability_table(scores, labels)
+    ]
+
+
+@router.get("/calibration")
+async def calibration_report() -> dict:
+    """Reliability data for the calibration diagram (raw, plus calibrated if fit).
+
+    Runs the active classifier over the ground-truth eval set to get
+    (raw_confidence, was_correct) pairs, then returns decile reliability tables.
+    When a fitted calibrator artifact exists for the backend it also returns the
+    calibrated series; otherwise ``calibrated_available`` is false and the
+    calibrated fields are null (no error).
+    """
+    backend = settings.CLASSIFIER_BACKEND
+    key = backend_key(backend)
+
+    raw_scores, labels, _ = await collect_calibration_pairs(backend)
+
+    metrics = {
+        "brier_raw": round(brier_score(raw_scores, labels), 4),
+        "ece_raw": round(expected_calibration_error(raw_scores, labels), 4),
+    }
+
+    calibrator = get_calibrator(key)
+    calibrated_rows = None
+    if calibrator is not None:
+        calibrated_scores = [calibrator.calibrate(s) for s in raw_scores]
+        calibrated_rows = _reliability_rows(calibrated_scores, labels)
+        metrics["brier_calibrated"] = round(brier_score(calibrated_scores, labels), 4)
+        metrics["ece_calibrated"] = round(
+            expected_calibration_error(calibrated_scores, labels), 4
+        )
+
+    return {
+        "backend": key,
+        "eval_set_size": len(raw_scores),
+        "calibration_enabled": settings.CALIBRATION_ENABLED,
+        "calibrated_available": calibrator is not None,
+        "raw": _reliability_rows(raw_scores, labels),
+        "calibrated": calibrated_rows,
+        "metrics": metrics,
+        "caveat": _CALIBRATION_CAVEAT,
+    }
 
 
 @router.get("/recent-activity")

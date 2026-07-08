@@ -7,12 +7,16 @@ No SQLAlchemy is touched directly here — all persistence goes through the
 repositories, all processing through EmailPipeline.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import asyncio
+import json
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import logging
-
+from app.core.events import get_event_broker
 from app.core.tracing import read_traces
 from app.db.database import get_db
 from app.db.models import AuditLog, Email
@@ -146,6 +150,53 @@ async def get_queue(
         "total": total,
         "page_info": {"limit": limit, "offset": offset},
     }
+
+
+# Seconds between SSE heartbeat comments when no events are flowing — keeps the
+# connection (and any intermediary proxies) from idling out, and lets the client
+# notice a dropped connection promptly.
+_SSE_HEARTBEAT_SECONDS = 15.0
+
+
+@router.get("/stream")
+async def stream_emails(request: Request) -> StreamingResponse:
+    """Server-Sent Events stream of email lifecycle changes.
+
+    Emits one ``data:`` event per audit-logged state change (created,
+    classified/routed, drafted, approved, rerouted) so the review queue can
+    update live instead of waiting for its 15s poll. A heartbeat comment is sent
+    when idle. One-directional and in-process — no WebSocket, no broker.
+    """
+    broker = get_event_broker()
+    queue = broker.add_subscriber()
+
+    async def event_generator():
+        # Opening comment so the client's onopen fires immediately.
+        yield ": connected\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(
+                        queue.get(), timeout=_SSE_HEARTBEAT_SECONDS
+                    )
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    # No events for a while — send a heartbeat comment.
+                    yield ": ping\n\n"
+        finally:
+            broker.remove_subscriber(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disable proxy buffering (e.g. nginx)
+        },
+    )
 
 
 @router.get("/{email_id}")

@@ -32,6 +32,17 @@ async def retrieval_info() -> dict:
             "index_built": retriever.index_built,
         }
 
+    if backend == "fusion":
+        # Fusion wraps a BM25 + FAISS pair; report the dense side's model/index
+        # and the (shared) document count from the BM25 corpus.
+        return {
+            "backend": "fusion",
+            "document_count": retriever.document_count,
+            "model_name": retriever.faiss.model_name,
+            "index_built": retriever.faiss.index_built,
+            "rrf_k": retriever.rrf_k,
+        }
+
     # BM25 (default).
     return {
         "backend": "bm25",

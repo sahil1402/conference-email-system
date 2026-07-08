@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { getAnalyticsSummary } from "@/lib/api";
+import { getAnalyticsSummary, getCalibration } from "@/lib/api";
 
 /** Subscribe to the analytics summary (polls every 30s). */
 export function useAnalytics() {
@@ -11,4 +11,14 @@ export function useAnalytics() {
   });
 
   return { summary: data, isLoading, isError };
+}
+
+/** Fetch the calibration reliability report (static-ish; no polling needed). */
+export function useCalibration() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["calibration"],
+    queryFn: getCalibration,
+  });
+
+  return { calibration: data, isLoading, isError };
 }

@@ -134,7 +134,8 @@ def get_retriever():
 
     ``RETRIEVAL_BACKEND == "bm25"`` → ``PolicyRetriever`` (BM25, unchanged).
     ``RETRIEVAL_BACKEND == "faiss"`` → ``FAISSRetriever`` (dense vectors).
-    Anything else raises ``ValueError``. Both expose the same async
+    ``RETRIEVAL_BACKEND == "fusion"`` → ``FusionRetriever`` (RRF over both).
+    Anything else raises ``ValueError``. All expose the same async
     ``retrieve(query, intent, top_k) -> list[RetrievedChunk]`` contract.
     """
     global _retriever_singleton, _retriever_backend
@@ -151,9 +152,19 @@ def get_retriever():
         from app.pipeline.faiss_retriever import FAISSRetriever
 
         _retriever_singleton = FAISSRetriever(model_name=settings.FAISS_MODEL_NAME)
+    elif backend == "fusion":
+        # Fusion reuses one BM25 + one FAISS instance (no duplicate embedder).
+        # Both imported lazily so dense deps load only when fusion is selected.
+        from app.pipeline.faiss_retriever import FAISSRetriever
+        from app.pipeline.fusion_retriever import FusionRetriever
+
+        _retriever_singleton = FusionRetriever(
+            bm25_retriever=PolicyRetriever(backend="bm25"),
+            faiss_retriever=FAISSRetriever(model_name=settings.FAISS_MODEL_NAME),
+        )
     else:
         raise ValueError(
-            f"Unknown RETRIEVAL_BACKEND {backend!r}; expected 'bm25' or 'faiss'."
+            f"Unknown RETRIEVAL_BACKEND {backend!r}; expected 'bm25', 'faiss', or 'fusion'."
         )
 
     _retriever_backend = backend

@@ -9,16 +9,22 @@ import {
   Cell,
   BarChart,
   Bar,
+  ScatterChart,
+  Scatter,
+  ZAxis,
+  ReferenceLine,
+  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
 } from "recharts";
 
-import { useAnalytics } from "@/hooks/useAnalytics";
+import { useAnalytics, useCalibration } from "@/hooks/useAnalytics";
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { StatCard, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { formatIntentLabel } from "@/lib/format";
+import type { CalibrationBucket } from "@/types";
 
 // Chart-only hex palette. recharts writes these into SVG fill/stroke attributes,
 // which do NOT resolve CSS variables — so these mirror the globals.css tokens.
@@ -50,6 +56,7 @@ const TOOLTIP_STYLE = {
 export default function AnalyticsPage() {
   const { summary, isLoading: aLoading, isError: aError } = useAnalytics();
   const { emails, isLoading: eLoading, isError: eError } = useEmailQueue();
+  const { calibration } = useCalibration();
 
   const isError = aError || eError;
   const isLoading = (aLoading || eLoading) && !summary;
@@ -285,8 +292,167 @@ export default function AnalyticsPage() {
               </div>
             )}
           </Panel>
+
+          {/* SECTION F — Calibration reliability diagram (Phase 5B/5E) */}
+          <Panel title="Classifier Calibration Reliability">
+            <CalibrationDiagram calibration={calibration} />
+          </Panel>
         </div>
       )}
+    </div>
+  );
+}
+
+function CalibrationTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: { payload: CalibrationBucket }[];
+}) {
+  if (!active || !payload?.length) return null;
+  const b = payload[0].payload;
+  return (
+    <div
+      style={{
+        backgroundColor: C.surface,
+        border: `1px solid ${C.grid}`,
+        borderRadius: 8,
+        color: C.text,
+        fontSize: 12,
+        padding: "8px 10px",
+      }}
+    >
+      <div style={{ color: C.axis }}>bucket {b.bucket}</div>
+      <div>mean confidence: {b.mean_confidence.toFixed(3)}</div>
+      <div>actual accuracy: {b.accuracy.toFixed(3)}</div>
+      <div>gap: {b.gap >= 0 ? "+" : ""}{b.gap.toFixed(3)}</div>
+      <div style={{ color: C.axis }}>n = {b.n} email{b.n === 1 ? "" : "s"}</div>
+    </div>
+  );
+}
+
+function CalibrationDiagram({
+  calibration,
+}: {
+  calibration:
+    | {
+        eval_set_size: number;
+        calibrated_available: boolean;
+        raw: CalibrationBucket[];
+        calibrated: CalibrationBucket[] | null;
+        metrics: {
+          brier_raw: number;
+          ece_raw: number;
+          brier_calibrated?: number;
+          ece_calibrated?: number;
+        };
+        caveat: string;
+      }
+    | undefined;
+}) {
+  if (!calibration) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <LoadingSpinner size="md" />
+      </div>
+    );
+  }
+  if (calibration.raw.length === 0) {
+    return <ChartEmpty />;
+  }
+
+  const { metrics } = calibration;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+        Each point is a confidence decile: x = the classifier&apos;s mean confidence,
+        y = the emails&apos; actual accuracy. Points on the dashed diagonal are
+        perfectly calibrated; points above it mean the classifier is
+        under-confident (the Phase 5B finding). Point size reflects the bucket
+        sample size (n).
+      </p>
+
+      <div className="h-[340px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
+            <XAxis
+              type="number"
+              dataKey="mean_confidence"
+              name="Mean confidence"
+              domain={[0, 1]}
+              ticks={[0, 0.2, 0.4, 0.6, 0.8, 1]}
+              tick={{ fill: C.axis, fontSize: 11 }}
+              axisLine={{ stroke: C.grid }}
+              tickLine={false}
+              label={{ value: "Mean confidence", position: "bottom", fill: C.axis, fontSize: 11 }}
+            />
+            <YAxis
+              type="number"
+              dataKey="accuracy"
+              name="Accuracy"
+              domain={[0, 1]}
+              ticks={[0, 0.2, 0.4, 0.6, 0.8, 1]}
+              tick={{ fill: C.axis, fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              label={{ value: "Accuracy", angle: -90, position: "insideLeft", fill: C.axis, fontSize: 11 }}
+            />
+            <ZAxis type="number" dataKey="n" range={[50, 320]} name="n" />
+            {/* Perfect-calibration reference (y = x). */}
+            <ReferenceLine
+              segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]}
+              stroke={C.axis}
+              strokeDasharray="4 4"
+            />
+            <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<CalibrationTooltip />} />
+            <Legend wrapperStyle={{ fontSize: 12, color: C.text }} />
+            <Scatter name="Raw confidence" data={calibration.raw} fill={C.review} fillOpacity={0.85} />
+            {calibration.calibrated_available && calibration.calibrated && (
+              <Scatter
+                name="Calibrated"
+                data={calibration.calibrated}
+                fill={C.green}
+                fillOpacity={0.85}
+              />
+            )}
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Metrics row */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+        <span>
+          ECE: <span style={{ color: C.review }}>{metrics.ece_raw.toFixed(3)} raw</span>
+          {metrics.ece_calibrated != null && (
+            <> → <span style={{ color: C.green }}>{metrics.ece_calibrated.toFixed(3)} calibrated</span></>
+          )}
+        </span>
+        <span>
+          Brier: <span style={{ color: C.review }}>{metrics.brier_raw.toFixed(3)} raw</span>
+          {metrics.brier_calibrated != null && (
+            <> → <span style={{ color: C.green }}>{metrics.brier_calibrated.toFixed(3)} calibrated</span></>
+          )}
+        </span>
+      </div>
+
+      {!calibration.calibrated_available && (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Calibrated series unavailable — no calibrator has been fitted yet (run
+          the calibration training step to populate it).
+        </p>
+      )}
+
+      {/* Visible in-sample caveat (not buried in a tooltip). */}
+      <p
+        className="rounded-md px-3 py-2 text-xs"
+        style={{
+          color: "var(--text-secondary)",
+          backgroundColor: "rgba(245,158,11,0.08)",
+          border: "1px solid rgba(245,158,11,0.25)",
+        }}
+      >
+        {calibration.caveat}
+      </p>
     </div>
   );
 }

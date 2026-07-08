@@ -155,6 +155,37 @@ export interface AnalyticsSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Calibration reliability — analytics.py::calibration_report
+// ---------------------------------------------------------------------------
+
+/** One decile bucket of the reliability table. */
+export interface CalibrationBucket {
+  bucket: string;
+  n: number;
+  mean_confidence: number;
+  accuracy: number;
+  /** accuracy − mean_confidence (positive = under-confident). */
+  gap: number;
+}
+
+/** GET /analytics/calibration response. */
+export interface CalibrationReport {
+  backend: string;
+  eval_set_size: number;
+  calibration_enabled: boolean;
+  calibrated_available: boolean;
+  raw: CalibrationBucket[];
+  calibrated: CalibrationBucket[] | null;
+  metrics: {
+    brier_raw: number;
+    ece_raw: number;
+    brier_calibrated?: number;
+    ece_calibrated?: number;
+  };
+  caveat: string;
+}
+
+// ---------------------------------------------------------------------------
 // Audit trail
 // ---------------------------------------------------------------------------
 
