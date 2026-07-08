@@ -244,16 +244,47 @@ async def get_email_trace(
 async def approve_email(
     email_id: str, payload: ApproveRequest, db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Approve an email's draft (optionally with chair-edited final text)."""
-    updated = await email_repo.update_email_status(db, email_id, "approved")
-    if updated is None:
+    """Approve an email's draft, preserving the diff when the chair edited it.
+
+    When ``final_text`` differs from the current draft, the original AI/template
+    draft is preserved (``draft.original_draft_text``), the edited text becomes
+    the new ``draft.draft_text``, and the audit entry captures BOTH full texts so
+    the diff can be reconstructed later (Phase 5G active-learning signal).
+    Approving unchanged text is NOT recorded as an edit (identical ≠ an edit).
+    """
+    existing = await email_repo.get_email_by_id(db, email_id)
+    if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Email {email_id} not found",
         )
+
+    draft = dict(existing.draft or {})
+    current_text = draft.get("draft_text", "") or ""
+    # The true original is the first AI/template draft — preserved across edits.
+    original_text = draft.get("original_draft_text") or current_text
+    final_text = payload.final_text
+    edited = final_text is not None and final_text.strip() != current_text.strip()
+
+    updates: dict = {}
+    details: dict = {"edited": edited}
+    if edited:
+        draft["original_draft_text"] = original_text
+        draft["draft_text"] = final_text
+        draft["is_edited"] = True
+        draft["edited_by"] = payload.approved_by
+        updates["draft"] = draft
+        # Keep BOTH full texts so the diff is reconstructable (never lose either).
+        details["original_draft"] = original_text
+        details["edited_draft"] = final_text
+    elif final_text is not None:
+        details["final_text"] = final_text
+
+    updated = await email_repo.update_email_status(
+        db, email_id, "approved", updates
+    )
     await audit_repo.log_action(
-        db, email_id, "approved", payload.approved_by,
-        {"final_text": payload.final_text},
+        db, email_id, "approved", payload.approved_by, details
     )
     # The approved lane was the right call → reward that (intent, lane) arm.
     _record_rl_feedback(updated, (updated.routing or {}).get("lane"), "approved")

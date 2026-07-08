@@ -1,9 +1,17 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { ChevronDown, FileText, Send, CornerUpRight, Zap } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, FileText, Send, CornerUpRight, Zap, GitCompare } from "lucide-react";
 
-import { Badge, ConfidenceBar, EmptyState, LoadingSpinner } from "@/components/ui";
+import {
+  Badge,
+  ConfidenceBar,
+  DiffLegend,
+  DiffView,
+  EmptyState,
+  LoadingSpinner,
+} from "@/components/ui";
+import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
   formatIntentLabel,
@@ -42,6 +50,47 @@ export function EmailDetail({
   const [editedDraft, setEditedDraft] = useState(draft?.draft_text ?? "");
   const [rerouteOpen, setRerouteOpen] = useState(false);
   const [rerouteReason, setRerouteReason] = useState("");
+  const [showDiff, setShowDiff] = useState(false);
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const rerouteInputRef = useRef<HTMLInputElement | null>(null);
+
+  // The original AI/template draft (before any chair edit) to diff against.
+  const originalDraft = draft?.original_draft_text ?? draft?.draft_text ?? "";
+  const draftChanged = hasMeaningfulDiff(originalDraft, editedDraft);
+  const canAct = lane === "human_review";
+
+  // Keyboard shortcuts, scoped to the review pane (this component only mounts
+  // when an email is open). A = approve, E = edit (focus draft), R = reroute.
+  // They never fire while focus is in a text field, so typing is never hijacked.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) {
+        return; // don't hijack typing
+      }
+      const key = e.key.toLowerCase();
+      if (key === "a" && canAct && !isApproving) {
+        e.preventDefault();
+        onApprove(editedDraft);
+      } else if (key === "e") {
+        const el = textareaRef.current;
+        if (el) {
+          e.preventDefault();
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      } else if (key === "r" && canAct) {
+        e.preventDefault();
+        setRerouteOpen(true);
+        requestAnimationFrame(() => rerouteInputRef.current?.focus());
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canAct, isApproving, editedDraft, onApprove]);
 
   return (
     <div className="flex h-full flex-col">
@@ -134,6 +183,7 @@ export function EmailDetail({
           {draft ? (
             <div className="space-y-2 pt-1">
               <textarea
+                ref={textareaRef}
                 value={editedDraft}
                 onChange={(e) => setEditedDraft(e.target.value)}
                 rows={8}
@@ -145,12 +195,44 @@ export function EmailDetail({
                   color: "var(--text-primary)",
                 }}
               />
-              <div
-                className="text-right text-xs tabular-nums"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {editedDraft.length} characters
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  disabled={!draftChanged}
+                  onClick={() => setShowDiff((v) => !v)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ color: "var(--accent)" }}
+                  title={
+                    draftChanged
+                      ? "Compare your edit against the original draft"
+                      : "No changes to the original draft yet"
+                  }
+                >
+                  <GitCompare className="h-3.5 w-3.5" />
+                  {showDiff ? "Hide changes" : "Show changes"}
+                </button>
+                <span
+                  className="text-xs tabular-nums"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {editedDraft.length} characters
+                </span>
               </div>
+
+              {showDiff && draftChanged && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span
+                      className="text-xs font-medium"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      Original vs. your edit
+                    </span>
+                    <DiffLegend />
+                  </div>
+                  <DiffView original={originalDraft} edited={editedDraft} />
+                </div>
+              )}
             </div>
           ) : (
             <EmptyState
@@ -219,6 +301,17 @@ export function EmailDetail({
                 <CornerUpRight className="h-4 w-4" />
                 Reroute to FAQ
               </button>
+
+              {/* Keyboard shortcut hint (inactive while typing in a field). */}
+              <div
+                className="ml-auto hidden items-center gap-2 text-xs sm:flex"
+                style={{ color: "var(--text-muted)" }}
+                title="Shortcuts work when an email is open and you're not typing in a field"
+              >
+                <Kbd>A</Kbd> approve
+                <Kbd>E</Kbd> edit
+                <Kbd>R</Kbd> reroute
+              </div>
             </div>
 
             {/* Inline reroute form (no modal — keeps context visible) */}
@@ -231,6 +324,7 @@ export function EmailDetail({
                 }}
               >
                 <input
+                  ref={rerouteInputRef}
                   type="text"
                   value={rerouteReason}
                   onChange={(e) => setRerouteReason(e.target.value)}
@@ -261,6 +355,25 @@ export function EmailDetail({
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard-shortcut key cap
+// ---------------------------------------------------------------------------
+
+function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd
+      className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border px-1 font-mono text-[11px]"
+      style={{
+        backgroundColor: "var(--surface-raised)",
+        borderColor: "var(--border)",
+        color: "var(--text-secondary)",
+      }}
+    >
+      {children}
+    </kbd>
   );
 }
 

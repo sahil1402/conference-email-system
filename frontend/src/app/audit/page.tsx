@@ -4,9 +4,25 @@ import { useMemo, useState } from "react";
 import { Search, ScrollText } from "lucide-react";
 
 import { useAudit } from "@/hooks/useAudit";
-import { EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import {
+  DiffLegend,
+  DiffView,
+  EmptyState,
+  ErrorBanner,
+  LoadingSpinner,
+} from "@/components/ui";
 import { statusLabel, timeAgo } from "@/lib/format";
 import type { AuditEntry } from "@/types";
+
+/** Extract original/edited draft texts from an "approved with edits" entry. */
+function editDiff(entry: AuditEntry): { original: string; edited: string } | null {
+  const d = entry.details;
+  if (entry.action.toLowerCase() !== "approved" || d.edited !== true) return null;
+  const original = d.original_draft;
+  const edited = d.edited_draft;
+  if (typeof original !== "string" || typeof edited !== "string") return null;
+  return { original, edited };
+}
 
 /** Dot color by action type. */
 function actionColor(action: string): string {
@@ -102,6 +118,7 @@ export default function AuditPage() {
 
 function TimelineRow({ entry, isLast }: { entry: AuditEntry; isLast: boolean }) {
   const [open, setOpen] = useState(false);
+  const diff = editDiff(entry);
   const hasDetails = Object.keys(entry.details).length > 0;
 
   return (
@@ -142,11 +159,20 @@ function TimelineRow({ entry, isLast }: { entry: AuditEntry; isLast: boolean }) 
             {timeAgo(entry.created_at)}
           </span>
         </div>
-        <div className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-          Email #{entry.email_id} · Actor: {entry.actor}
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+          <span>Email #{entry.email_id} · Actor: {entry.actor}</span>
+          {diff && (
+            <span
+              className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ backgroundColor: "rgba(245,158,11,0.15)", color: "var(--warning)" }}
+            >
+              edited before sending
+            </span>
+          )}
         </div>
 
-        {hasDetails && (
+        {/* Chair-edit diff: collapsed by default, expandable (Phase 5F). */}
+        {diff ? (
           <div className="mt-2">
             <button
               type="button"
@@ -154,22 +180,41 @@ function TimelineRow({ entry, isLast }: { entry: AuditEntry; isLast: boolean }) 
               className="text-xs font-medium transition-opacity hover:opacity-80"
               style={{ color: "var(--accent)" }}
             >
-              {open ? "Hide details" : "Show details ›"}
+              {open ? "Hide changes" : "View changes ›"}
             </button>
             {open && (
-              <pre
-                className="mt-2 overflow-x-auto rounded-md p-3 text-xs leading-relaxed"
-                style={{
-                  backgroundColor: "var(--surface)",
-                  color: "var(--text-secondary)",
-                  fontFamily:
-                    'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace',
-                }}
-              >
-                {JSON.stringify(entry.details, null, 2)}
-              </pre>
+              <div className="mt-2 space-y-2">
+                <DiffLegend />
+                <DiffView original={diff.original} edited={diff.edited} />
+              </div>
             )}
           </div>
+        ) : (
+          hasDetails && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="text-xs font-medium transition-opacity hover:opacity-80"
+                style={{ color: "var(--accent)" }}
+              >
+                {open ? "Hide details" : "Show details ›"}
+              </button>
+              {open && (
+                <pre
+                  className="mt-2 overflow-x-auto rounded-md p-3 text-xs leading-relaxed"
+                  style={{
+                    backgroundColor: "var(--surface)",
+                    color: "var(--text-secondary)",
+                    fontFamily:
+                      'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace',
+                  }}
+                >
+                  {JSON.stringify(entry.details, null, 2)}
+                </pre>
+              )}
+            </div>
+          )
         )}
       </div>
     </li>

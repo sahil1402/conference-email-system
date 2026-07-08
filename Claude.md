@@ -176,9 +176,16 @@ Two frontend-facing features (backend + Next.js), both additive; no pipeline/def
 - **Calibration reliability diagram**: GET /api/v1/analytics/calibration — runs the active classifier over the eval set → per-decile rows {bucket, n, mean_confidence, accuracy, gap} for raw, plus calibrated when a fitted artifact exists (else calibrated_available:false / calibrated:null, no error) + Brier/ECE (raw & calibrated) + in-sample caveat string. Frontend: recharts ScatterChart on /analytics (mean_confidence x vs accuracy y, dashed y=x reference line, raw [amber] + calibrated [green] series, ZAxis sizes points by n, custom tooltip shows bucket/gap/n). In-sample caveat rendered as a VISIBLE amber callout under the chart (not a tooltip). useCalibration hook + getCalibration + CalibrationReport/CalibrationBucket types. tests/test_calibration_analytics.py (3, with/without artifact). Live endpoint confirms the 5B finding surfaces (ECE 0.160→0.036, Brier 0.180→0.139; 10 raw buckets, 2 calibrated after Platt compression).
 - Status: 94/94 backend tests passing (87 + 4 SSE + 3 calibration analytics); frontend tsc clean
 
+### Phase 5F — Chair-Edit Diff View + Keyboard Shortcuts — Complete
+Two review-queue UX features (backend + Next.js), both additive; no schema migration, no default changes:
+- **Chair-edit diff**: approve endpoint (app/api/v1/emails.py) now diff-aware — on approve with `final_text` differing from the current draft (whitespace-trimmed compare), it preserves the true original AI/template text in `draft.original_draft_text` (stable across repeat edits), sets `draft.draft_text`=edited + `is_edited`/`edited_by`, and writes an `approved` audit entry carrying BOTH full texts (`original_draft`+`edited_draft`, `edited:true`). Stored inside the existing `draft` JSON column (matches the JSON-column pattern → no migration). Approving unchanged/whitespace-only/no-final_text → `edited:false`, no diff, no draft mutation (identical ≠ an edit). tests/test_draft_diff.py (5). Frontend: lib/diff.ts (self-contained LCS word-level diff, no new dep), components/ui/DiffView.tsx (+DiffLegend; added=green, removed=red strikethrough); EmailDetail.tsx Show/Hide-changes toggle (original vs live edit, disabled until changed); audit page switched from /analytics/recent-activity → real /api/v1/audit (carries `details`), renders "edited before sending" tag + collapsed expandable diff for approved-with-edits entries.
+- **Keyboard shortcuts**: EmailDetail keydown listener scoped to the review pane (only mounted when an email is open) — A=approve (same onApprove(editedDraft) as the button, human_review only), E=edit (focus draft textarea, cursor to end), R=reroute (opens the same inline form + focuses reason). Never fires when focus is in an INPUT/TEXTAREA/contentEditable or with Ctrl/Cmd/Alt (typing never hijacked); wired to the same handlers, no duplicate logic. Visible key-cap hint (A/E/R) by the action buttons. Frontend-only; manual browser verification noted.
+- **5G hand-off**: the persisted diff (`details.edited` + both full texts on the `approved` audit entry) is exactly the signal Phase 5G active-learning flagging will consume to distinguish a meaningful chair rewrite from an as-is approval.
+- Status: 99/99 backend tests passing (94 + 5 diff); frontend tsc clean
+
 ---
 
-## Current Status — Phases 0–4 COMPLETE · Phase 5A–5E COMPLETE · 94/94 tests passing
+## Current Status — Phases 0–4 COMPLETE · Phase 5A–5F COMPLETE · 99/99 tests passing
 | Phase | Status | Summary |
 |---|---|---|
 | Phase 0 | Complete | Skeleton, config, DB, frontend shell |
@@ -191,13 +198,14 @@ Two frontend-facing features (backend + Next.js), both additive; no pipeline/def
 | Phase 5C | Complete | RRF fusion retriever (bm25+faiss, k=60) · three-way ablation: fusion between bm25 & faiss, does NOT beat faiss alone · default still bm25 — 80/80 tests |
 | Phase 5D | Complete | Template drafter (MODEL_PROVIDER=template, zero model call, verbatim-grounded) · fully bounded by retrieval quality, safest fallback · default still anthropic_api — 87/87 tests |
 | Phase 5E | Complete | Live queue via SSE (in-process EventBroker, /emails/stream, connection dot) · calibration reliability diagram on /analytics (raw vs calibrated, visible in-sample caveat) — 94/94 tests, tsc clean |
+| Phase 5F | Complete | Chair-edit diff (original preserved in draft JSON + both texts in audit, word-level diff in queue & audit page) · A/E/R keyboard shortcuts (scoped, typing-safe) — feeds 5G — 99/99 tests, tsc clean |
 
 ## Open Blockers (active)
 - **NCSA Delta GPU access pending** — the Phase 3D local drafter (MODEL_PROVIDER=local, Ollama on Delta) is implemented and unit-tested with mocks but NOT yet run on real GPU hardware; awaiting Delta access for live local-model validation.
 - **Synthetic dataset** — data/emails/toy_dataset.json (30) and data/eval/ground_truth.json (58) are hand-written synthetic emails; all eval baseline numbers (58-email set: classification 82.8% / retrieval hit-rate 96.5% / routing 74.1%) are on synthetic data, not real conference email traffic.
 
 ## Phase 5 — In Progress
-5A eval/observability ✅ done · 5B calibration ✅ done · 5C retrieval fusion ✅ done · 5D no-API drafter ✅ done · 5E live queue + calibration view ✅ done · 5F chair-edit diff + shortcuts · 5G active learning flag · 5H drafter adapter spec · 5I Docker/CI · 5J demo recording
+5A eval/observability ✅ done · 5B calibration ✅ done · 5C retrieval fusion ✅ done · 5D no-API drafter ✅ done · 5E live queue + calibration view ✅ done · 5F chair-edit diff + shortcuts ✅ done · 5G active learning flag · 5H drafter adapter spec · 5I Docker/CI · 5J demo recording
 
 ## Session Update Instructions
 At the end of EVERY session: (1) append/compress the phase entry under Phase History; (2) update the Current Status table; (3) run `type CLAUDE.md` to confirm the save; (4) report "CLAUDE.md updated — [phase] logged". Not optional — skipping it breaks project memory.

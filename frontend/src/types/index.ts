@@ -72,12 +72,16 @@ export interface RoutingResult {
   override_reason: string | null;
 }
 
-/** drafter.py::DraftResponse */
+/** drafter.py::DraftResponse (+ Phase 5F chair-edit provenance). */
 export interface DraftResult {
   draft_text: string;
   citations: string[];
   model_used: string;
   generation_metadata: Record<string, unknown>;
+  /** Set once a chair edits the draft (Phase 5F): the original AI/template text. */
+  original_draft_text?: string;
+  is_edited?: boolean;
+  edited_by?: string;
 }
 
 /** retriever.py::RetrievedChunk (returned inside the ingest PipelineResult). */

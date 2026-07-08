@@ -3,34 +3,41 @@ import apiClient from "./client";
 import type { AuditEntry } from "@/types";
 
 /**
- * Raw item shape from GET /analytics/recent-activity — the backend's only
- * cross-email audit feed (20 most recent actions). There is no GET /audit, and
- * this feed omits the row id and the metadata column.
+ * Raw item shape from GET /api/v1/audit (audit.py::AuditLogResponse) — the
+ * paginated audit feed, which unlike /analytics/recent-activity DOES carry the
+ * row id and the per-action ``details`` (needed for the chair-edit diff view).
  */
-interface RecentActivityItem {
-  email_id: string;
+interface AuditApiItem {
+  id: number;
+  email_id: number;
   action: string;
   actor: string;
-  timestamp: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+interface AuditApiPage {
+  items: AuditApiItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 /**
- * Fetch the audit feed and normalize it into AuditEntry[].
- *
- * Wired to /analytics/recent-activity because the backend exposes no /audit
- * route (see types.AuditEntry). `id` falls back to the feed index and `details`
- * is empty since recent-activity doesn't return per-action metadata.
+ * Fetch the audit feed (newest-first) and normalize it into AuditEntry[].
+ * Reads the real /audit route so ``details`` (e.g. an approved-with-edits diff)
+ * is available to the UI.
  */
 export async function getAuditLog(): Promise<AuditEntry[]> {
-  const { data } = await apiClient.get<RecentActivityItem[]>(
-    "/analytics/recent-activity"
-  );
-  return data.map((item, i) => ({
-    id: i,
-    email_id: Number(item.email_id),
+  const { data } = await apiClient.get<AuditApiPage>("/audit", {
+    params: { limit: 100 },
+  });
+  return data.items.map((item) => ({
+    id: item.id,
+    email_id: item.email_id,
     action: item.action,
     actor: item.actor,
-    details: {},
-    created_at: item.timestamp ?? "",
+    details: item.details ?? {},
+    created_at: item.created_at ?? "",
   }));
 }

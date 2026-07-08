@@ -6,3 +6,4 @@ export { EmptyState } from "./EmptyState";
 export { LoadingSpinner } from "./LoadingSpinner";
 export { ErrorBanner } from "./ErrorBanner";
 export { LiveStatusDot } from "./LiveStatusDot";
+export { DiffView, DiffLegend } from "./DiffView";

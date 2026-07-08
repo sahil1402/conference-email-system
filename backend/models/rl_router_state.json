@@ -1,4 +1,10 @@
 {
+  "submission_deadline": {
+    "human_review": {
+      "trials": 10,
+      "wins": 10
+    }
+  },
   "technical_issue": {
     "human_review": {
       "trials": 2,
