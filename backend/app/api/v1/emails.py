@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import get_event_broker
 from app.core.tracing import read_traces
 from app.db.database import get_db
+from app.pipeline.active_learning import build_flag_events
 from app.db.models import AuditLog, Email
 from app.pipeline.orchestrator import EmailPipeline
 from app.pipeline.rl_router import get_rl_router
@@ -45,6 +46,35 @@ def _record_rl_feedback(email: Email, lane: str | None, outcome: str) -> None:
             get_rl_router().record_feedback(intent=intent, action=lane, outcome=outcome)
     except Exception:  # noqa: BLE001 - feedback is best-effort
         logger.warning("RL feedback recording failed (%s).", outcome, exc_info=True)
+
+
+async def _record_flag_events(
+    db: AsyncSession,
+    email_id: str,
+    actor: str,
+    classification,
+    *,
+    was_edited: bool = False,
+    original_text: str = "",
+    edited_text: str = "",
+) -> None:
+    """Write active-learning candidate flags to the audit log (best-effort).
+
+    Each fired signal becomes its own audit entry with a distinct action type
+    (flagged_low_confidence / flagged_meaningful_edit) so the two stay separate.
+    Flags candidates for future human labeling only — no retraining is triggered.
+    """
+    try:
+        events = build_flag_events(
+            classification,
+            was_edited=was_edited,
+            original_text=original_text,
+            edited_text=edited_text,
+        )
+        for action, details in events:
+            await audit_repo.log_action(db, email_id, action, actor, details)
+    except Exception:  # noqa: BLE001 - flagging must never break the chair action
+        logger.warning("Active-learning flagging failed.", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +318,16 @@ async def approve_email(
     )
     # The approved lane was the right call → reward that (intent, lane) arm.
     _record_rl_feedback(updated, (updated.routing or {}).get("lane"), "approved")
+    # Flag active-learning candidates (near-miss confidence and/or a meaningful edit).
+    await _record_flag_events(
+        db,
+        email_id,
+        payload.approved_by,
+        existing.classification,
+        was_edited=edited,
+        original_text=original_text,
+        edited_text=final_text or "",
+    )
     return _email_to_dict(updated)
 
 
@@ -314,4 +354,8 @@ async def reroute_email(
     )
     # The original lane was wrong → penalize that (intent, lane) arm (no win).
     _record_rl_feedback(existing, original_lane, "rerouted")
+    # A reroute involves no draft edit, so only the low-confidence signal applies.
+    await _record_flag_events(
+        db, email_id, payload.rerouted_by, existing.classification, was_edited=False
+    )
     return _email_to_dict(updated)

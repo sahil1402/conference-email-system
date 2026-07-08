@@ -1,0 +1,49 @@
+# One-command local spin-up: `docker compose up --build`
+# → backend on http://localhost:8000, frontend on http://localhost:3000
+#
+# SQLite is the default persistence (per backend/app/core/config.py); no
+# Postgres service is included. To add Postgres later: add a `db` service
+# (image: postgres:16), then set DATABASE_URL=postgresql+asyncpg://... and
+# SYNC_DATABASE_URL=postgresql+psycopg2://... on the backend service (asyncpg +
+# psycopg2 are already backend dependencies) and add `depends_on: [db]`.
+
+services:
+  backend:
+    build:
+      # Context is the repo root so the image can include <root>/data, which the
+      # pipeline reads relative to the source tree. Dockerfile lives in backend/.
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Point SQLite at the mounted volume dir so data survives restarts. These
+      # override the config defaults (which write to the cwd). aiosqlite/psycopg2
+      # normalization happens in the app/alembic.
+      - DATABASE_URL=sqlite:///./dbdata/conference_email.db
+      - SYNC_DATABASE_URL=sqlite:///./dbdata/conference_email.db
+    # Optional local overrides (secrets, provider selection). Not required —
+    # with no .env the app runs on its safe defaults (keyword classifier, BM25
+    # retriever, no-key drafter fallback), which need zero external services.
+    env_file:
+      - path: backend/.env
+        required: false
+    volumes:
+      # Named volume for the SQLite file → persists across `docker compose down`.
+      - backend-db:/app/backend/dbdata
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time; must be browser-reachable
+        # (the host), so localhost — not the `backend` service name.
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  backend-db:

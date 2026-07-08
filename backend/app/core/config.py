@@ -61,6 +61,15 @@ class Settings(BaseSettings):
     FAQ_CONFIDENCE_THRESHOLD: float = 0.65
     # Max policy chunks the retriever returns as grounding context.
     MAX_RETRIEVED_CHUNKS: int = 3
+
+    # --- Active learning (Phase 5G) ---------------------------------------
+    # A chair-approved/rerouted email whose router-used confidence sat within
+    # this margin BELOW FAQ_CONFIDENCE_THRESHOLD is flagged as a near-miss
+    # candidate for future labeling (band = [threshold - margin, threshold)).
+    AL_CONFIDENCE_MARGIN: float = 0.15
+    # A chair edit is "meaningful" (flagged) when the word-level change ratio
+    # between the original and edited draft exceeds this (a typo fix stays below).
+    AL_EDIT_RATIO: float = 0.15
     # Sentence-transformers model used by the FAISS retriever (CPU). Only read
     # when RETRIEVAL_BACKEND == "faiss".
     FAISS_MODEL_NAME: str = "all-MiniLM-L6-v2"

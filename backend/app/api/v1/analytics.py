@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.database import get_db
+from app.pipeline.active_learning import FLAG_LOW_CONFIDENCE, FLAG_MEANINGFUL_EDIT
 from app.pipeline.calibration import (
     backend_key,
     brier_score,
@@ -175,6 +176,72 @@ async def calibration_report() -> dict:
         "metrics": metrics,
         "caveat": _CALIBRATION_CAVEAT,
     }
+
+
+@router.get("/active-learning-candidates")
+async def active_learning_candidates(db: AsyncSession = Depends(get_db)) -> dict:
+    """Emails flagged for a future human labeling pass (Phase 5G).
+
+    Aggregates the two distinct active-learning flags from the audit log —
+    ``flagged_low_confidence`` and ``flagged_meaningful_edit`` — grouped per
+    email, with each signal's numbers and the email subject. A review list only:
+    no retraining is triggered here.
+    """
+    low = await audit_repo.get_audit_logs(
+        db, action=FLAG_LOW_CONFIDENCE, limit=_ALL, offset=0
+    )
+    edits = await audit_repo.get_audit_logs(
+        db, action=FLAG_MEANINGFUL_EDIT, limit=_ALL, offset=0
+    )
+
+    # Group by email id, keeping the most recent flag of each kind.
+    candidates: dict[str, dict] = {}
+
+    def _slot(email_id: int) -> dict:
+        key = str(email_id)
+        if key not in candidates:
+            candidates[key] = {
+                "email_id": key,
+                "subject": None,
+                "reason": None,
+                "low_confidence": None,
+                "meaningful_edit": None,
+                "flagged_at": None,
+            }
+        return candidates[key]
+
+    def _stamp(slot: dict, ts) -> None:
+        iso = ts.isoformat() if ts else None
+        if iso and (slot["flagged_at"] is None or iso > slot["flagged_at"]):
+            slot["flagged_at"] = iso
+
+    for entry in low:
+        slot = _slot(entry.email_id)
+        slot["low_confidence"] = entry.extra_metadata or {}
+        _stamp(slot, entry.timestamp)
+    for entry in edits:
+        slot = _slot(entry.email_id)
+        slot["meaningful_edit"] = entry.extra_metadata or {}
+        _stamp(slot, entry.timestamp)
+
+    # Resolve reason + subject per candidate.
+    for key, slot in candidates.items():
+        has_low = slot["low_confidence"] is not None
+        has_edit = slot["meaningful_edit"] is not None
+        slot["reason"] = (
+            "both" if has_low and has_edit else "low_confidence" if has_low else "meaningful_edit"
+        )
+        email = await email_repo.get_email_by_id(db, key)
+        if email is not None:
+            slot["subject"] = email.subject
+
+    # Newest-flagged first.
+    items = sorted(
+        candidates.values(),
+        key=lambda c: c["flagged_at"] or "",
+        reverse=True,
+    )
+    return {"candidates": items, "total": len(items)}
 
 
 @router.get("/recent-activity")

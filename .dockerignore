@@ -1,0 +1,43 @@
+# Build context for the BACKEND image (context = repo root).
+# Keep: backend/ source, backend/models/ (small trained artifacts, needed at
+# runtime), and data/ (the dataset the pipeline reads). Exclude everything the
+# image never needs so the context stays small.
+
+# VCS / IDE / OS
+.git
+.gitignore
+.github
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Python caches / envs (source is copied fresh; deps installed in-image)
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.egg-info
+
+# Databases (a fresh DB is created in the mounted volume via migrations)
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# Runtime output not needed in the image
+backend/logs
+backend/reports
+
+# Frontend is built by its own image — not part of the backend context
+frontend
+
+# Local env files / secrets (provided at runtime via compose env_file)
+**/.env
+**/.env.*
+
+# Docs / large binaries not needed at runtime
+*.pdf
+docs

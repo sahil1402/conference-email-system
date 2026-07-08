@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { getAnalyticsSummary, getCalibration } from "@/lib/api";
+import {
+  getActiveLearningCandidates,
+  getAnalyticsSummary,
+  getCalibration,
+} from "@/lib/api";
 
 /** Subscribe to the analytics summary (polls every 30s). */
 export function useAnalytics() {
@@ -21,4 +25,19 @@ export function useCalibration() {
   });
 
   return { calibration: data, isLoading, isError };
+}
+
+/** Fetch the active-learning candidate list (flagged emails for future labeling). */
+export function useActiveLearningCandidates() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["activeLearning"],
+    queryFn: getActiveLearningCandidates,
+  });
+
+  return {
+    candidates: data?.candidates ?? [],
+    total: data?.total ?? 0,
+    isLoading,
+    isError,
+  };
 }

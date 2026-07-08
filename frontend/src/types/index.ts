@@ -190,6 +190,37 @@ export interface CalibrationReport {
 }
 
 // ---------------------------------------------------------------------------
+// Active-learning candidates — analytics.py::active_learning_candidates
+// ---------------------------------------------------------------------------
+
+export interface LowConfidenceFlag {
+  reason: "low_confidence";
+  confidence_used: number | null;
+  threshold: number;
+  margin: number;
+}
+
+export interface MeaningfulEditFlag {
+  reason: "meaningful_edit";
+  change_ratio: number;
+  min_ratio: number;
+}
+
+export interface ActiveLearningCandidate {
+  email_id: string;
+  subject: string | null;
+  reason: "low_confidence" | "meaningful_edit" | "both";
+  low_confidence: LowConfidenceFlag | null;
+  meaningful_edit: MeaningfulEditFlag | null;
+  flagged_at: string | null;
+}
+
+export interface ActiveLearningResponse {
+  candidates: ActiveLearningCandidate[];
+  total: number;
+}
+
+// ---------------------------------------------------------------------------
 // Audit trail
 // ---------------------------------------------------------------------------
 

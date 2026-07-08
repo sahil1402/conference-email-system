@@ -20,11 +20,17 @@ import {
   Tooltip,
 } from "recharts";
 
-import { useAnalytics, useCalibration } from "@/hooks/useAnalytics";
+import Link from "next/link";
+
+import {
+  useAnalytics,
+  useCalibration,
+  useActiveLearningCandidates,
+} from "@/hooks/useAnalytics";
 import { useEmailQueue } from "@/hooks/useEmailQueue";
-import { StatCard, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { Badge, StatCard, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { formatIntentLabel } from "@/lib/format";
-import type { CalibrationBucket } from "@/types";
+import type { ActiveLearningCandidate, CalibrationBucket } from "@/types";
 
 // Chart-only hex palette. recharts writes these into SVG fill/stroke attributes,
 // which do NOT resolve CSS variables — so these mirror the globals.css tokens.
@@ -57,6 +63,7 @@ export default function AnalyticsPage() {
   const { summary, isLoading: aLoading, isError: aError } = useAnalytics();
   const { emails, isLoading: eLoading, isError: eError } = useEmailQueue();
   const { calibration } = useCalibration();
+  const { candidates } = useActiveLearningCandidates();
 
   const isError = aError || eError;
   const isLoading = (aLoading || eLoading) && !summary;
@@ -297,7 +304,80 @@ export default function AnalyticsPage() {
           <Panel title="Classifier Calibration Reliability">
             <CalibrationDiagram calibration={calibration} />
           </Panel>
+
+          {/* SECTION G — Active-learning candidates (Phase 5G) */}
+          <Panel title="Active-Learning Candidates">
+            <ActiveLearningCandidates candidates={candidates} />
+          </Panel>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ActiveLearningCandidates({
+  candidates,
+}: {
+  candidates: ActiveLearningCandidate[];
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+        Emails a chair rescued near the confidence threshold, or substantially
+        rewrote before sending — surfaced here for a future human labeling pass.
+        This is a review list only; no retraining is triggered.
+      </p>
+
+      {candidates.length === 0 ? (
+        <EmptyState
+          icon={<Activity className="h-5 w-5" />}
+          title="No candidates flagged yet"
+          description="Emails get flagged as chairs approve near-threshold cases or edit drafts. None so far."
+        />
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {candidates.map((c) => (
+            <li
+              key={c.email_id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3"
+              style={{
+                backgroundColor: "var(--surface-raised)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <span
+                className="text-sm font-medium"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {c.subject || "(no subject)"}
+              </span>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                #{c.email_id}
+              </span>
+
+              {c.low_confidence && (
+                <Badge variant="warning" size="sm">
+                  low confidence
+                  {c.low_confidence.confidence_used != null &&
+                    ` · ${c.low_confidence.confidence_used.toFixed(2)} < ${c.low_confidence.threshold.toFixed(2)}`}
+                </Badge>
+              )}
+              {c.meaningful_edit && (
+                <Badge variant="faq" size="sm">
+                  edited · {(c.meaningful_edit.change_ratio * 100).toFixed(0)}% changed
+                </Badge>
+              )}
+
+              <Link
+                href="/queue"
+                className="ml-auto text-xs font-medium transition-opacity hover:opacity-80"
+                style={{ color: "var(--accent)" }}
+              >
+                View in queue ›
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
