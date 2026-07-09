@@ -173,6 +173,29 @@ class AuditRepository:
         """Return a single audit log by primary key, or ``None`` if absent."""
         return await db.get(AuditLog, log_id)
 
+    async def count_reassignments_by_original_chair(
+        self, db: AsyncSession
+    ) -> dict[int | None, int]:
+        """Count ``chair_reassigned`` audit entries grouped by the chair each
+        email was moved AWAY from (``original_chair_id`` in the entry metadata).
+
+        A single grouped aggregate over ALL matching audit rows — not a client
+        tally over a capped audit page. ``original_chair_id`` is read from the
+        JSON metadata column; a ``None`` key means the email had no chair before
+        the reassignment (the "Unassigned" bucket).
+        """
+        original = func.json_extract(AuditLog.extra_metadata, "$.original_chair_id")
+        stmt = (
+            select(original, func.count(AuditLog.id))
+            .where(AuditLog.action == "chair_reassigned")
+            .group_by(original)
+        )
+        result = await db.execute(stmt)
+        return {
+            (int(chair_id) if chair_id is not None else None): int(count)
+            for chair_id, count in result.all()
+        }
+
     async def create_audit_log(
         self,
         db: AsyncSession,

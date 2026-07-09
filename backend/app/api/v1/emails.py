@@ -174,20 +174,35 @@ async def ingest_email(
 @router.get("/queue")
 async def get_queue(
     lane: str | None = None,
+    chair_id: int | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    unassigned: bool = False,
     limit: int = 20,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Return the email queue, optionally filtered by routing lane."""
-    emails = await email_repo.get_email_queue(
-        db, lane=lane, limit=limit, offset=offset
+    """Return the email queue, filtered server-side by any combination of
+    lane / chair / unassigned / status / search.
+
+    ``total`` is the count for the SAME filter set (not the whole table), so a
+    scoped caller gets an accurate total independent of ``limit``/``offset`` and
+    the returned rows are the full server-side slice — callers never filter or
+    count a truncated page client-side.
+    """
+    kwargs = dict(
+        lane=lane,
+        chair_id=chair_id,
+        status=status,
+        search=search,
+        unassigned=unassigned,
     )
-    counts = await email_repo.count_emails_by_status(db)
-    total = sum(counts.values())
+    emails = await email_repo.get_email_queue(db, limit=limit, offset=offset, **kwargs)
+    total = await email_repo.count_email_queue(db, **kwargs)
     return {
         "emails": [_email_to_dict(e) for e in emails],
         "total": total,
-        "page_info": {"limit": limit, "offset": offset},
+        "page_info": {"limit": limit, "offset": offset, **kwargs},
     }
 
 

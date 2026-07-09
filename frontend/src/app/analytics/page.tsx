@@ -27,8 +27,7 @@ import {
   useCalibration,
   useActiveLearningCandidates,
 } from "@/hooks/useAnalytics";
-import { useEmailQueue } from "@/hooks/useEmailQueue";
-import { useChairs, useReassignmentEvents } from "@/hooks/useChairs";
+import { useChairs } from "@/hooks/useChairs";
 import { Badge, StatCard, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { chairColor, formatIntentLabel } from "@/lib/format";
 import type { ActiveLearningCandidate, CalibrationBucket } from "@/types";
@@ -62,14 +61,15 @@ const TOOLTIP_STYLE = {
 
 export default function AnalyticsPage() {
   const { summary, isLoading: aLoading, isError: aError } = useAnalytics();
-  const { emails, isLoading: eLoading, isError: eError } = useEmailQueue();
   const { calibration } = useCalibration();
   const { candidates } = useActiveLearningCandidates();
   const { chairs } = useChairs();
-  const { events: reassignEvents } = useReassignmentEvents();
 
-  const isError = aError || eError;
-  const isLoading = (aLoading || eLoading) && !summary;
+  // Analytics now sources every chart from server-side aggregates (summary /
+  // chairs / reassignment feed) — it no longer reads the paginated queue, so a
+  // capped page can't skew a chart.
+  const isError = aError;
+  const isLoading = aLoading && !summary;
 
   const total = summary?.total_emails ?? 0;
   const faq = summary?.faq_lane_count ?? 0;
@@ -90,69 +90,60 @@ export default function AnalyticsPage() {
       .sort((a, b) => b.count - a.count);
   }, [summary]);
 
+  // Confidence histogram from the server-side aggregate (summary.confidence_
+  // distribution over ALL emails), NOT the paginated queue page — deriving from
+  // the capped page counted only the newest 20. Colors stay client-side (chart
+  // palette) and align to the fixed low→high band order the backend returns.
   const confidenceData = useMemo(() => {
-    const bands = [
-      { band: "0–0.5", color: C.red, count: 0, test: (c: number) => c < 0.5 },
-      { band: "0.5–0.6", color: C.yellow, count: 0, test: (c: number) => c < 0.6 },
-      { band: "0.6–0.7", color: C.yellow, count: 0, test: (c: number) => c < 0.7 },
-      { band: "0.7–0.8", color: C.yellow, count: 0, test: (c: number) => c < 0.8 },
-      { band: "0.8–0.9", color: C.green, count: 0, test: (c: number) => c < 0.9 },
-      { band: "0.9–1.0", color: C.green, count: 0, test: () => true },
-    ];
-    for (const email of emails) {
-      const c = email.classification?.confidence;
-      if (typeof c !== "number") continue;
-      const bucket = bands.find((b) => b.test(c)) ?? bands[bands.length - 1];
-      bucket.count += 1;
-    }
-    return bands;
-  }, [emails]);
+    const colors = [C.red, C.yellow, C.yellow, C.yellow, C.green, C.green];
+    const dist = summary?.confidence_distribution ?? [];
+    return dist.map((d, i) => ({
+      band: d.band,
+      count: d.count,
+      color: colors[i] ?? C.green,
+    }));
+  }, [summary]);
+  const confidenceTotal = confidenceData.reduce((s, d) => s + d.count, 0);
 
-  // Email volume per chair (current ownership, from the loaded queue). Shows
-  // every chair — including idle ones — so the roster is visible; colored to
-  // match the chair badges elsewhere.
+  // Email volume per chair. Counts come from the server-side aggregate
+  // (summary.chair_distribution over ALL emails), NOT the paginated queue page
+  // — deriving from the capped page undercounted chairs whose emails fell
+  // outside the newest page. Shows every chair (including idle ones, count 0)
+  // so the full roster is visible; colored to match the chair badges elsewhere.
   const chairVolumeData = useMemo(() => {
-    const counts = new Map<number, number>();
-    for (const email of emails) {
-      if (email.assigned_chair_id != null) {
-        counts.set(
-          email.assigned_chair_id,
-          (counts.get(email.assigned_chair_id) ?? 0) + 1
-        );
-      }
-    }
+    const counts = summary?.chair_distribution ?? {};
     return chairs
       .map((c) => ({
         label: c.name,
-        count: counts.get(c.id) ?? 0,
+        count: counts[String(c.id)] ?? 0,
         color: chairColor(c.id).color,
       }))
       .sort((a, b) => b.count - a.count);
-  }, [emails, chairs]);
+  }, [summary, chairs]);
   const chairVolumeTotal = chairVolumeData.reduce((s, d) => s + d.count, 0);
 
   // Reassignments grouped by the chair each email was moved AWAY from — a
   // preview of where the router's picks get corrected most often (NOT a trained
   // model metric).
+  // Reassignments per chair from the server-side aggregate
+  // (summary.reassignment_by_chair over ALL chair_reassigned audit rows), NOT a
+  // client Map over a capped audit feed. Keys are stringified chair ids plus
+  // "unassigned" (moved away from no chair).
   const reassignByChairData = useMemo(() => {
-    const counts = new Map<number, number>();
-    let unassigned = 0;
-    for (const ev of reassignEvents) {
-      if (ev.original_chair_id == null) unassigned += 1;
-      else counts.set(ev.original_chair_id, (counts.get(ev.original_chair_id) ?? 0) + 1);
-    }
+    const dist = summary?.reassignment_by_chair ?? {};
     const rows = chairs
       .map((c) => ({
         label: c.name,
-        count: counts.get(c.id) ?? 0,
+        count: dist[String(c.id)] ?? 0,
         color: chairColor(c.id).color,
       }))
       .filter((r) => r.count > 0);
+    const unassigned = dist["unassigned"] ?? 0;
     if (unassigned > 0) {
       rows.push({ label: "Unassigned", count: unassigned, color: C.axis });
     }
     return rows.sort((a, b) => b.count - a.count);
-  }, [reassignEvents, chairs]);
+  }, [summary, chairs]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-8 py-10">
@@ -270,7 +261,7 @@ export default function AnalyticsPage() {
 
             {/* E — Confidence distribution */}
             <Panel title="Confidence Distribution">
-              {emails.length === 0 ? (
+              {confidenceTotal === 0 ? (
                 <ChartEmpty />
               ) : (
                 <div className="h-[280px]">

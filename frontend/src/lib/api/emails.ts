@@ -10,9 +10,33 @@ import type {
   RerouteRequest,
 } from "@/types";
 
-/** GET /emails/queue — fetch the email review queue (envelope with total + page_info). */
-export async function getEmailQueue(): Promise<EmailQueueResponse> {
-  const { data } = await apiClient.get<EmailQueueResponse>("/emails/queue");
+/** Optional filters for the queue fetch. `lane` scopes to a routing lane
+ * (e.g. "faq"); `chair_id` scopes to an assigned chair; `limit`/`offset`
+ * paginate. Omitting all preserves the prior behavior (whole queue, backend
+ * default page size). Server-side filtering + the lane/chair-scoped `total`
+ * mean callers never derive counts/lists from a truncated page. */
+export interface EmailQueueParams {
+  lane?: string;
+  chair_id?: number;
+  /** Filter to emails with no assigned chair (assigned_chair_id IS NULL). */
+  unassigned?: boolean;
+  /** Lifecycle status exact-match (e.g. "DRAFT_GENERATED"). */
+  status?: string;
+  /** Case-insensitive match on subject OR sender. */
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** GET /emails/queue — fetch the email review queue (envelope with total + page_info).
+ * `total` reflects the same (lane-filtered) query, so it is accurate regardless
+ * of page size — use it for stats rather than counting the returned page. */
+export async function getEmailQueue(
+  params?: EmailQueueParams
+): Promise<EmailQueueResponse> {
+  const { data } = await apiClient.get<EmailQueueResponse>("/emails/queue", {
+    params,
+  });
   return data;
 }
 

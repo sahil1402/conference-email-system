@@ -193,7 +193,20 @@ export interface AnalyticsSummary {
   approved_count: number;
   pending_count: number;
   avg_confidence: number;
+  /** Mean confidence over ALL faq-lane emails (server-side aggregate) — for the
+   * Auto-Replies "Avg Confidence" stat, page-size independent. */
+  faq_avg_confidence: number;
   intent_distribution: Record<string, number>;
+  /** Per-chair email volume, keyed by stringified chair id — a server-side
+   * aggregate over ALL emails (accurate regardless of page size). */
+  chair_distribution: Record<string, number>;
+  /** Confidence histogram over ALL emails (server-side aggregate), ordered
+   * low → high band. Counts are page-size independent. */
+  confidence_distribution: { band: string; count: number }[];
+  /** Reassignments grouped by the chair each email was moved AWAY from — a
+   * server-side aggregate over ALL chair_reassigned audit rows. Keys are
+   * stringified chair ids plus "unassigned" (no chair before the move). */
+  reassignment_by_chair: Record<string, number>;
   daily_volume: { date: string; count: number }[];
 }
 

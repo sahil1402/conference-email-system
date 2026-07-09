@@ -11,10 +11,42 @@ arrive as path/query strings) and coerce internally; a non-numeric id resolves
 to "not found" rather than an error.
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Email
+
+
+def _queue_conditions(
+    lane: str | None,
+    chair_id: int | None,
+    status: str | None,
+    search: str | None,
+    unassigned: bool,
+) -> list:
+    """Build the shared WHERE conditions for the queue list AND its count.
+
+    Kept in one place so ``get_email_queue`` and ``count_email_queue`` filter
+    identically — the page and the total can never disagree. All filters are
+    server-side: the lane lives in the ``routing`` JSON column, ``chair_id`` /
+    ``unassigned`` on the ``assigned_chair_id`` FK, ``status`` on the column, and
+    ``search`` is a case-insensitive match on subject OR sender.
+    """
+    conditions: list = []
+    if lane is not None:
+        conditions.append(func.json_extract(Email.routing, "$.lane") == lane)
+    if chair_id is not None:
+        conditions.append(Email.assigned_chair_id == chair_id)
+    if unassigned:
+        conditions.append(Email.assigned_chair_id.is_(None))
+    if status is not None:
+        conditions.append(Email.status == status)
+    if search:
+        pattern = f"%{search}%"
+        conditions.append(
+            or_(Email.subject.ilike(pattern), Email.sender.ilike(pattern))
+        )
+    return conditions
 
 
 def _coerce_id(email_id: str) -> int | None:
@@ -127,20 +159,25 @@ class EmailRepository:
         self,
         db: AsyncSession,
         lane: str | None = None,
+        chair_id: int | None = None,
+        status: str | None = None,
+        search: str | None = None,
+        unassigned: bool = False,
         limit: int = 20,
         offset: int = 0,
     ) -> list[Email]:
-        """Return the email queue, optionally filtered by routing lane.
+        """Return the email queue, filtered server-side by any combination of
+        lane / chair / unassigned / status / search.
 
-        The lane lives inside the ``routing`` JSON column (``RoutingDecision.lane``),
-        so filtering uses a JSON path extraction. When ``lane`` is ``None`` the
-        full queue is returned. Ordered newest first.
+        Every filter is applied in SQL (via :func:`_queue_conditions`), so the
+        returned page is a slice of the FULL matching set — callers never filter
+        a truncated page client-side. Ordered newest first.
         """
-        stmt = select(Email)
-        if lane is not None:
-            stmt = stmt.where(func.json_extract(Email.routing, "$.lane") == lane)
+        conditions = _queue_conditions(lane, chair_id, status, search, unassigned)
         stmt = (
-            stmt.order_by(Email.received_at.desc(), Email.id.desc())
+            select(Email)
+            .where(*conditions)
+            .order_by(Email.received_at.desc(), Email.id.desc())
             .limit(limit)
             .offset(offset)
         )
@@ -153,3 +190,39 @@ class EmailRepository:
             select(Email.status, func.count(Email.id)).group_by(Email.status)
         )
         return {status: count for status, count in result.all()}
+
+    async def count_email_queue(
+        self,
+        db: AsyncSession,
+        lane: str | None = None,
+        chair_id: int | None = None,
+        status: str | None = None,
+        search: str | None = None,
+        unassigned: bool = False,
+    ) -> int:
+        """Return the total number of emails matching the queue filters.
+
+        Uses the SAME :func:`_queue_conditions` as ``get_email_queue`` so the
+        count and the page always agree. With no filters this is the whole table;
+        with filters it is that slice's true total — page-size independent, so
+        callers can show an accurate count regardless of ``limit``/``offset``.
+        """
+        conditions = _queue_conditions(lane, chair_id, status, search, unassigned)
+        stmt = select(func.count()).select_from(Email).where(*conditions)
+        result = await db.execute(stmt)
+        return int(result.scalar_one())
+
+    async def count_by_chair(self, db: AsyncSession) -> dict[int, int]:
+        """Return a mapping of ``assigned_chair_id`` -> count over ALL emails.
+
+        A single grouped aggregate (not a paginated scan) so per-chair volume is
+        accurate regardless of how many emails exist or how they are ordered.
+        Only rows with a chair assigned are counted (NULL FKs are excluded).
+        """
+        stmt = (
+            select(Email.assigned_chair_id, func.count(Email.id))
+            .where(Email.assigned_chair_id.is_not(None))
+            .group_by(Email.assigned_chair_id)
+        )
+        result = await db.execute(stmt)
+        return {int(chair_id): int(count) for chair_id, count in result.all()}

@@ -38,11 +38,47 @@ _RESOLVED_STATUSES = {"approved", "rerouted"}
 _ALL = 1_000_000
 _DAILY_WINDOW_DAYS = 7
 
+# Confidence histogram bands (label, exclusive upper bound), lowest → highest.
+# The bounds are cumulative "first band where confidence < bound" — matching the
+# chart's bucketing — so the last band's bound (>1.0) catches everything ≥ 0.9.
+_CONFIDENCE_BANDS: list[tuple[str, float]] = [
+    ("0–0.5", 0.5),
+    ("0.5–0.6", 0.6),
+    ("0.6–0.7", 0.7),
+    ("0.7–0.8", 0.8),
+    ("0.8–0.9", 0.9),
+    ("0.9–1.0", 1.01),
+]
+
+
+def _confidence_band(confidence: float) -> str:
+    """Return the histogram band label a confidence falls in (first match)."""
+    for label, upper in _CONFIDENCE_BANDS:
+        if confidence < upper:
+            return label
+    return _CONFIDENCE_BANDS[-1][0]
+
 
 @router.get("/summary")
 async def analytics_summary(db: AsyncSession = Depends(get_db)) -> dict:
     """Return dashboard metrics aggregated across all emails."""
     emails = await email_repo.get_email_queue(db, lane=None, limit=_ALL, offset=0)
+    # Per-chair volume as a single grouped aggregate over ALL emails — not derived
+    # from a paginated page (that undercounts chairs whose emails fall outside the
+    # newest page). Keys are stringified chair ids for JSON friendliness.
+    chair_distribution = {
+        str(chair_id): count
+        for chair_id, count in (await email_repo.count_by_chair(db)).items()
+    }
+    # Reassignments grouped by the chair each email was moved AWAY from — a
+    # grouped aggregate over ALL chair_reassigned audit rows, not a client tally
+    # over a capped audit page. Null original chair → the "unassigned" bucket.
+    reassignment_by_chair = {
+        ("unassigned" if chair_id is None else str(chair_id)): count
+        for chair_id, count in (
+            await audit_repo.count_reassignments_by_original_chair(db)
+        ).items()
+    }
 
     total = len(emails)
     faq_count = 0
@@ -50,7 +86,10 @@ async def analytics_summary(db: AsyncSession = Depends(get_db)) -> dict:
     approved_count = 0
     pending_count = 0
     confidences: list[float] = []
+    faq_confidences: list[float] = []
     intent_counter: Counter[str] = Counter()
+    # Confidence histogram over ALL emails (not the newest page).
+    band_counts: dict[str, int] = {label: 0 for label, _ in _CONFIDENCE_BANDS}
 
     # Build the last-7-days date buckets (oldest → newest), all starting at 0.
     today = date.today()
@@ -77,6 +116,9 @@ async def analytics_summary(db: AsyncSession = Depends(get_db)) -> dict:
         confidence = classification.get("confidence")
         if isinstance(confidence, (int, float)):
             confidences.append(float(confidence))
+            band_counts[_confidence_band(float(confidence))] += 1
+            if lane == "faq":
+                faq_confidences.append(float(confidence))
 
         intent = classification.get("intent")
         if intent:
@@ -90,6 +132,17 @@ async def analytics_summary(db: AsyncSession = Depends(get_db)) -> dict:
     avg_confidence = (
         round(sum(confidences) / len(confidences), 4) if confidences else 0.0
     )
+    # Mean confidence over ALL faq-lane emails (for the Auto-Replies stat) — the
+    # full set, not the capped faq page the client used to average.
+    faq_avg_confidence = (
+        round(sum(faq_confidences) / len(faq_confidences), 4)
+        if faq_confidences
+        else 0.0
+    )
+    confidence_distribution = [
+        {"band": label, "count": band_counts[label]}
+        for label, _ in _CONFIDENCE_BANDS
+    ]
 
     return {
         "total_emails": total,
@@ -98,7 +151,11 @@ async def analytics_summary(db: AsyncSession = Depends(get_db)) -> dict:
         "approved_count": approved_count,
         "pending_count": pending_count,
         "avg_confidence": avg_confidence,
+        "faq_avg_confidence": faq_avg_confidence,
         "intent_distribution": dict(intent_counter),
+        "chair_distribution": chair_distribution,
+        "reassignment_by_chair": reassignment_by_chair,
+        "confidence_distribution": confidence_distribution,
         "daily_volume": [
             {"date": day, "count": count} for day, count in daily_buckets.items()
         ],

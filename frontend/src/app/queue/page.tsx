@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Inbox, SearchX } from "lucide-react";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
+import type { EmailQueueParams } from "@/lib/api";
 import {
   useApproveEmail,
   useRerouteEmail,
@@ -27,7 +28,6 @@ import {
 type LaneFilter = "all" | "faq" | "human_review";
 
 export default function QueuePage() {
-  const { emails, isLoading, isError, refetch } = useEmailQueue();
   const { status: streamStatus } = useEmailQueueStream();
   const { mutate: approve, isPending: isApproving } = useApproveEmail();
   const { mutate: reroute, isPending: isRerouting } = useRerouteEmail();
@@ -41,34 +41,34 @@ export default function QueuePage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [chairFilter, setChairFilter] = useState<string>("all");
 
-  const filteredEmails = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return emails.filter((email) => {
-      if (q) {
-        const haystack = `${email.subject} ${email.sender}`.toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      if (laneFilter !== "all" && email.routing?.lane !== laneFilter) {
-        return false;
-      }
-      if (statusFilter !== "all" && email.status !== statusFilter) {
-        return false;
-      }
-      if (chairFilter === "unassigned") {
-        if (email.assigned_chair_id != null) return false;
-      } else if (chairFilter !== "all") {
-        if (email.assigned_chair_id !== Number(chairFilter)) return false;
-      }
-      return true;
-    });
-  }, [emails, search, laneFilter, statusFilter, chairFilter]);
+  // Debounce the search box so typing doesn't fire a request per keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Every filter (lane / status / search / chair / unassigned) is applied
+  // SERVER-SIDE, so `emails` is the full matching set and `total` its true count
+  // — not a client-side slice of a capped 20-row page (the bug that made lane /
+  // status / search / chair filters drop out-of-window matches). The queue is
+  // small, so one page of 200 covers the whole result.
+  const queueParams = useMemo<EmailQueueParams>(() => {
+    const params: EmailQueueParams = { limit: 200 };
+    if (laneFilter !== "all") params.lane = laneFilter;
+    if (statusFilter !== "all") params.status = statusFilter;
+    if (debouncedSearch) params.search = debouncedSearch;
+    if (chairFilter === "unassigned") params.unassigned = true;
+    else if (chairFilter !== "all") params.chair_id = Number(chairFilter);
+    return params;
+  }, [laneFilter, statusFilter, debouncedSearch, chairFilter]);
+  const { emails, total, isLoading, isError, refetch } =
+    useEmailQueue(queueParams);
 
   const selectedEmail =
     selectedEmailId == null
       ? null
-      : filteredEmails.find((e) => e.id === selectedEmailId) ??
-        emails.find((e) => e.id === selectedEmailId) ??
-        null;
+      : emails.find((e) => e.id === selectedEmailId) ?? null;
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -86,7 +86,7 @@ export default function QueuePage() {
               Email Queue
             </h1>
             <Badge variant="neutral" size="sm">
-              {filteredEmails.length}
+              {total}
             </Badge>
             <span className="ml-auto">
               <LiveStatusDot status={streamStatus} />
@@ -117,7 +117,7 @@ export default function QueuePage() {
                 onRetry={() => refetch()}
               />
             </div>
-          ) : filteredEmails.length === 0 ? (
+          ) : total === 0 ? (
             <EmptyState
               icon={<SearchX className="h-5 w-5" />}
               title="No emails match your filters"
@@ -125,7 +125,15 @@ export default function QueuePage() {
             />
           ) : (
             <ul>
-              {filteredEmails.map((email) => (
+              {emails.length < total && (
+                <li
+                  className="px-4 py-2 text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Showing {emails.length} of {total} — refine filters to narrow.
+                </li>
+              )}
+              {emails.map((email) => (
                 <li
                   key={email.id}
                   style={{ borderBottom: "1px solid var(--border-subtle)" }}

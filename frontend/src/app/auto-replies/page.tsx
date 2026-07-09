@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
 import { Zap } from "lucide-react";
 
+import { useAnalytics } from "@/hooks/useAnalytics";
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import {
   Badge,
@@ -15,20 +15,17 @@ import {
 import { formatDateTime, formatIntentLabel } from "@/lib/format";
 
 export default function AutoRepliesPage() {
-  const { emails, isLoading, isError, refetch } = useEmailQueue();
-
-  const faqEmails = useMemo(
-    () => emails.filter((e) => e.routing?.lane === "faq"),
-    [emails]
-  );
-
-  const avgConfidence = useMemo(() => {
-    const vals = faqEmails
-      .map((e) => e.classification?.confidence)
-      .filter((c): c is number => typeof c === "number");
-    if (vals.length === 0) return 0;
-    return vals.reduce((a, b) => a + b, 0) / vals.length;
-  }, [faqEmails]);
+  // Lane-scoped, paginated query. `total` is the true faq-lane count (page-size
+  // independent); `emails` is the current page. Both come from this one query —
+  // no client-side filtering of a truncated generic-queue page (the old bug,
+  // which silently dropped faq emails outside the newest 20).
+  const { emails, total, isLoading, isError, refetch } = useEmailQueue({
+    lane: "faq",
+  });
+  // Average confidence over the FULL faq-lane set comes from the server-side
+  // aggregate (summary.faq_avg_confidence), NOT an average of the capped page.
+  const { summary } = useAnalytics();
+  const avgConfidence = summary?.faq_avg_confidence ?? 0;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-8 py-10">
@@ -63,7 +60,7 @@ export default function AutoRepliesPage() {
           <section className="grid grid-cols-2 gap-4 sm:max-w-md">
             <StatCard
               label="Total Auto-Replied"
-              value={faqEmails.length}
+              value={total}
               icon={<Zap className="h-4 w-4" />}
               accent="var(--faq-color)"
             />
@@ -73,8 +70,15 @@ export default function AutoRepliesPage() {
             />
           </section>
 
+          {/* Honest note if the page ever truncates the lane (stat stays accurate). */}
+          {emails.length < total && (
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Showing {emails.length} of {total} — load more to see the rest.
+            </p>
+          )}
+
           {/* Table */}
-          {faqEmails.length === 0 ? (
+          {total === 0 ? (
             <EmptyState
               icon={<Zap className="h-5 w-5" />}
               title="No auto-replies yet"
@@ -111,7 +115,7 @@ export default function AutoRepliesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {faqEmails.map((email) => {
+                    {emails.map((email) => {
                       const confidence = email.classification?.confidence ?? 0;
                       const citations =
                         email.retrieved_chunks?.length ??
