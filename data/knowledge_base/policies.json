@@ -1,362 +1,811 @@
 [
   {
-    "id": "policy_001",
-    "category": "submission_deadlines",
-    "title": "Abstract Registration Deadline",
-    "content": "All submissions must register a title and abstract by the abstract deadline, which falls one week before the full paper deadline. Abstract registration is mandatory; papers without a registered abstract cannot upload a full PDF. The abstract may be lightly edited after registration but the paper's research area cannot be changed after this date.",
-    "source": "CFP 2025",
-    "tags": ["deadline", "abstract", "registration", "submission"]
+    "id": "policy_046",
+    "category": "call_for_papers",
+    "title": "AAAI-27 Main Technical Track: Call for Papers — Overview",
+    "content": "We are pleased to announce the Forty-First AAAI Conference on Artificial Intelligence (AAAI-27), which will be held in Montréal, Canada, from February 16 to February 23, 2027.\nThe purpose of the AAAI conference series is to promote research in Artificial Intelligence (AI) and foster scientific exchange between researchers, practitioners, scientists, students, and engineers across the entirety of AI and its affiliated disciplines. AAAI-27 is the Forty-First AAAI Conference on Artificial Intelligence. As with AAAI-26, the theme of this conference is to create collaborative bridges within and beyond AI. In addition to the bridge theme, we emphasize the importance of AI for social impact and responsible AI. Like the 2026 edition of the AAAI conference, AAAI-27 will feature technical paper presentations, special tracks, invited speakers, workshops, tutorials, poster sessions, senior member presentations, competitions, and exhibition programs, and two other activities: a Bridge Program and a Lab Program. Many of these activities are tailored to the theme of bridges and are selected according to the highest standards, with additional programs for students and young researchers.\nAAAI-27 is an in-person conference.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_002",
-    "category": "submission_deadlines",
-    "title": "Full Paper Submission Deadline",
-    "content": "The full paper deadline is the final date by which the complete manuscript and any supplementary material must be uploaded. All deadlines are specified in Anywhere on Earth (AoE) time, meaning the deadline has not passed as long as it is still that date anywhere on the globe. Late submissions are not accepted under any circumstances once the system closes.",
-    "source": "CFP 2025",
-    "tags": ["deadline", "full-paper", "AoE", "timezone", "submission"]
+    "id": "policy_047",
+    "category": "call_for_papers",
+    "title": "Summary",
+    "content": "- Three technical tracks (Main Track; AI for Social Impact; AI Alignment)\n- Two-phase reviewing for the Main Track:\n- Phase 1: Two reviews supplemented by one AI-generated, non-decisional review.\n- Phase 2: Additional reviews for papers not rejected in Phase 1.\n- Author response after Phase 2, only for papers not rejected in Phase 1.\n- Metareview and disposition decision after author response period.\n- Submissions are limited to 7 pages of main content, with a maximum total length of 9 pages. Any pages beyond page 7 are reserved exclusively for references.\n- Authors may submit supplementary material, but please note that reviewers are not required to review this material. Any material critical to the evaluation of the paper should be included in the main body of the paper. Three kinds of supplementary material may be submitted alongside all papers: (1) technical appendix; (2) multimedia; (3) code and data. The supplementary material deadline is 3 days after the paper submission deadline.\n- All authors must complete a reproducibility checklist to facilitate replication of the reported research.\n- All qualified authors are required to be available to review (light load), unless extenuating circumstances apply.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_003",
-    "category": "submission_deadlines",
-    "title": "Deadline Extension Policy",
-    "content": "The conference does not guarantee deadline extensions, and authors should plan to meet the published dates. If an extension is granted due to exceptional circumstances such as a portal outage, it will be announced officially through the conference website and email list. Authors should never rely on social media rumors or assume an extension based on prior years.",
-    "source": "CFP 2025",
-    "tags": ["extension", "deadline", "announcement", "policy"]
+    "id": "policy_048",
+    "category": "call_for_papers",
+    "title": "Appropriate use of Generative AI by Authors",
+    "content": "Authors may judiciously use generative AI tools, such as large language models and image generators, in preparing their scholarly manuscripts. However, authors remain fully responsible for all submitted material, which must comply with the AAAI Code of Professional Ethics and Conduct and the AAAI Publications Policies and Guidelines. Any instances of plagiarism (for example, unattributed or reproduced text), non-existent references, or other violations of the Code will be subject to appropriate sanctions.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_004",
-    "category": "submission_deadlines",
-    "title": "Abstract and Full Paper Deadline Relationship",
-    "content": "Missing the abstract registration deadline disqualifies a paper from the full paper submission, as the system links the uploaded PDF to a previously registered abstract. The gap between the two deadlines is fixed at seven calendar days. Authors are strongly encouraged to register abstracts early to avoid being locked out of the full submission step.",
-    "source": "CFP 2025",
-    "tags": ["abstract", "full-paper", "deadline", "disqualify", "schedule"]
+    "id": "policy_049",
+    "category": "call_for_papers",
+    "title": "AAAI Ethics Violations Statement",
+    "content": "The AAAI Executive Council has established a subcommittee on violations to adjudicate cases of ethical violations that are identified and brought before them during the paper review process. Examples of punishable ethics violations include\n- plagiarism of the work of others,\n- self-plagiarism,\n- parallel near-duplicate submissions (variants rewritten via LLM or cosmetic rewrites to obtain \"multiple lottery tickets\"),\n- parallel duplicate submissions (without rewriting or effort to obfuscate),\n- prompt-injection attacks on the AAAI review system (attempt to cause LLM or system to leak, bias, reassign, or reveal content),\n- seeking or arranging reciprocal reviewing to inflate scores (explicit coordination or evidence of non-accidental coordinated bidding and/or reviewing behavior),\n- fabricating reviewer identities / sock-puppet accounts to review one's own paper,\n- other forms of covert resubmission or \"shotgun\" submissions with intent to circumvent limits on number of submissions,\n- coercion directed at AAAI reviewers, senior program committee members, associate program chairs, ethics chairs, or program chairs by an author or co-author of a submission\nThe violations subcommittee has been empowered to impose penalties ranging from desk rejection of papers to multi-year bans from participation in AAAI conferences including but not limited to the offending authors or area chairs.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_005",
-    "category": "submission_deadlines",
-    "title": "Rebuttal and Author Response Period",
-    "content": "After initial reviews are released, authors have a fixed five-day window to submit a rebuttal addressing reviewer questions. The rebuttal period dates are published in the conference timeline and also follow AoE time. Responses submitted after the window closes will not be visible to reviewers or the area chair.",
-    "source": "Author Guidelines 2025",
-    "tags": ["rebuttal", "response", "deadline", "reviewers", "timeline"]
+    "id": "policy_050",
+    "category": "call_for_papers",
+    "title": "Multiple Submissions Policy",
+    "content": "AAAI welcomes submissions presenting distinct scientific contributions. Each submission should represent a distinct scientific contribution that stands on its own merits with respect to any other simultaneously submitted paper involving an overlapping set of authors.\nAuthors may be listed on at most 10 AAAI-27 submissions.\nAAAI-27 does not permit simultaneous submission of papers involving an overlapping set of authors that do not constitute distinct scientific contributions, whether submitted to AAAI-27 or another archival conference or journal. Papers involving an overlapping set of authors may be considered together in the assessment of novelty. If publishing one paper would render another paper insufficiently novel or incremental, the AAAI-27 submission may be summarily rejected as violating AAAI's multiple-submission policy.\nAuthors should combine closely related ideas into a single, stronger paper. See the Submission Instructions for the complete policy and examples.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_006",
-    "category": "submission_deadlines",
-    "title": "Camera-Ready Submission Deadline",
-    "content": "Authors of accepted papers must upload the final camera-ready version by the camera-ready deadline, which is typically four weeks after acceptance notification. The camera-ready deadline is strict because it feeds directly into proceedings production. Failure to submit on time may result in the paper being removed from the proceedings.",
-    "source": "Author Guidelines 2025",
-    "tags": ["camera-ready", "deadline", "proceedings", "accepted", "final"]
+    "id": "policy_051",
+    "category": "call_for_papers",
+    "title": "AI-Assisted Peer-Review Process",
+    "content": "For AAAI-27, AAAI will continue the AI-Assisted Peer Review Pilot. The goal of the pilot is to better understand whether and how AI can be used responsibly and effectively in the AAAI review process, while incorporating feedback from authors, reviewers, and other participants to identify lessons for the broader community. The AI review system for AAAI-27 will be revised based on feedback and analysis from the AAAI-26 pilot. AAAI will continue to rely solely on humans for paper decisions, in compliance with the AAAI Code of Professional Ethics and Conduct and the AAAI Publications Policies and Guidelines. The pilot program will provide supplementary information in the form of AI-generated reviews and summaries that do not contain any ratings or recommendations. AI-generated supplementary reviews will not play any formal role in the review process, except being visible to the assigned reviewers (after they submit their own reviews), area chairs, and appropriate members of the Program Committee during the paper discussion phase. In addition, AI-generated summaries of reviewer discussions will also be used to assist Senior Program Committee members in their decision making.\nAs with previous AAAI conferences, AAAI-27 will follow a two-phase reviewing process. In previous years, this two-phase process consisted of at least two reviews of each submitted manuscript during Phase 1 followed by additional reviews for manuscripts selected to continue to Phase 2 review and consideration for acceptance by the conference. This year, the human-written reviews in Phase 1 will be complemented by an additional AI-generated review (as a uniquely identified AI-generated Supplementary First-Stage Review). A Senior Program Committee (SPC) member, under the auspices of an Area Chair (AC) and the Program Chairs, will make a decision based on the reviews and human-generated ratings to decide whether the paper proceeds to Phase 2. For papers rejected in Phase 1, authors will immediately be able to see their reviews, including the AI-generated review.\nIf the paper proceeds to Phase 2, additional human-written reviews will be provided followed by an opportunity for authors to respond to the reviews. During the author response phase, all reviews, including the AI-generated review, will become visible to the reviewers and the authors. Authors may address their response to all of the provided reviews, including the AI-generated review. A Senior Program Committee (SPC) member in Phase 2 will make recommendations for paper decisions based on all reviews, the author response, and discussion among the reviewers. The SPC will have access to AI-generated Discussion Summary Assistance to help highlight key points of consensus and disagreement among human reviewers.\nNo human reviewers are being replaced by AI reviewing. No human decision making is being replaced by AI decision making.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_007",
-    "category": "general_faq",
-    "title": "Notification and Decision Dates",
-    "content": "Acceptance and rejection notifications are sent on the published decision date, after the area chair and program committee meetings conclude. Authors should not contact chairs for early decisions, as outcomes are released simultaneously to ensure fairness. The full timeline including notification dates is maintained on the official conference dates page.",
-    "source": "CFP 2025",
-    "tags": ["notification", "decision", "timeline", "acceptance", "dates"]
+    "id": "policy_052",
+    "category": "call_for_papers",
+    "title": "Privacy and Data Protection",
+    "content": "The AAAI-27 AI review process will implement privacy controls to ensure:\n- All paper content and reviewer information will remain confidential.\n- No paper content will be used for LLM training.\n- Papers will not be repurposed for any use beyond generating the intended reviews and summaries.\n- Complete compliance with all data protection regulations.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_008",
-    "category": "formatting_requirements",
-    "title": "Page Limit for Main Technical Track",
-    "content": "Main track submissions are limited to eight pages of body text, including all figures and tables. References do not count toward the page limit and may extend beyond the eight pages. An optional technical appendix is permitted but reviewers are not obligated to read material beyond the main eight pages.",
-    "source": "CFP 2025",
-    "tags": ["page-limit", "main-track", "references", "appendix", "formatting"]
+    "id": "policy_053",
+    "category": "call_for_papers",
+    "title": "Collaborative Bridge Theme",
+    "content": "Driven by its disciplinary diversity, AAAI has incubated numerous AI sub-disciplines and conferences, and for decades has nurtured the cohesion of AI. New communities often emerge when two or more disciplines come together in order to explore new opportunities and perspectives; today, both are plentiful. The purpose of this year's Bridge Program is to tap into new sources of innovation by cultivating collaboration between two or more communities directed towards a common goal. Our interpretation of bridges is broad and encompasses disciplines within and outside of AI. Hence, our Bridge Program is intended to bring together both distinct subfields of AI, such as planning and learning, as well as other disciplines that contribute to and benefit from AI, such as AI and the humanities.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_009",
-    "category": "formatting_requirements",
-    "title": "Official Paper Template",
-    "content": "All submissions must use the official conference LaTeX or Word template provided on the website for the current year. Templates from prior editions are not accepted because column widths and metadata fields change. Papers using a non-standard template, altered margins, or reduced font sizes may be desk-rejected without review.",
-    "source": "CFP 2025",
-    "tags": ["template", "latex", "word", "formatting", "desk-reject"]
+    "id": "policy_054",
+    "category": "call_for_papers",
+    "title": "Topics",
+    "content": "AAAI-27 welcomes submissions reporting research that advances artificial intelligence, broadly conceived. The conference scope includes machine learning, natural language processing, computer vision, data mining, multiagent systems, knowledge representation, human-in-the-loop AI, search, planning, reasoning, robotics and perception, and ethics. In addition to fundamental work focused on any one of these areas, we expressly encourage work that cuts across technical areas of AI (e.g., machine learning and computer vision; robotics and multiagent systems, computer vision and natural language processing; or machine learning and planning), bridges between AI and a related research area (e.g., neuroscience; cognitive science), or develops AI techniques in the context of important application domains, such as healthcare, sustainability, transportation, and commerce.\nMost papers in AAAI-27 are expected to be part of the main track. All main track papers will be reviewed according to the same criteria and via the same process. This conference has two special tracks, which focus on AI for Social Impact, and AI Alignment. Papers in the special tracks will be reviewed according to a different evaluation rubric than papers in the main track. The same reviewing schedule will be followed for all papers.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_010",
-    "category": "formatting_requirements",
-    "title": "Font and Layout Requirements",
-    "content": "Submissions must use the two-column format with a 10-point serif font for body text as defined in the official template. Authors must not modify line spacing, margins, or font sizes to fit additional content. Documents must be submitted as a single PDF with embedded fonts to ensure consistent rendering across reviewer systems.",
-    "source": "CFP 2025",
-    "tags": ["font", "two-column", "layout", "pdf", "formatting"]
+    "id": "policy_055",
+    "category": "call_for_papers",
+    "title": "Special Track on AI for Social Impact",
+    "content": "As in past years, AAAI-27 will include a special track on AI for Social Impact (AISI). Submissions to this track will be reviewed according to a rubric that emphasizes the fit between the techniques used and a problem of social importance, rather than simply rewarding technical novelty. In particular, reviewers will assess the significance of the addressed problem; the paper's engagement with previous literature on the application problem (whether in the AI literature or elsewhere); both novelty of and justification for the proposed AI-based approach; quality of evaluation; facilitation of follow-up work; and overall scope and promise for social impact.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_011",
-    "category": "formatting_requirements",
-    "title": "Anonymization for Double-Blind Review",
-    "content": "The conference uses double-blind review, so submissions must not contain author names, affiliations, or acknowledgments that reveal identity. References to the authors' own prior work should be written in the third person rather than removed. Links to code or data must point to anonymized repositories that do not expose author identity.",
-    "source": "Author Guidelines 2025",
-    "tags": ["anonymization", "double-blind", "identity", "self-citation", "formatting"]
+    "id": "policy_056",
+    "category": "call_for_papers",
+    "title": "Special Track on AI Alignment",
+    "content": "The 2027 AI Alignment track seeks research on scalable oversight, mechanistic interpretability, empirical robustness evaluation, red-teaming, human cognitive and psychological factors, and safe-by-design engineering — including formal safety cases. We welcome work on transparent governance frameworks, economic incentives, institutional accountability, human-centered modeling and evaluation, and pluralistic coordination methods that enable AI systems to manage conflicting human values and foster international cooperation through shared evaluation standards. Submissions must state their contributions and relevance to the track clearly; papers that release open datasets, reproducible code, or practical evaluation tools are especially encouraged. Reviewing will emphasize technical correctness, appropriate coverage of related work, and relevance to the track.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_012",
-    "category": "formatting_requirements",
-    "title": "Supplementary Material Format",
-    "content": "Supplementary material may be uploaded as a single ZIP archive and may include code, additional proofs, videos, or extended results. Accepted video formats are MP4 and WebM, and the total supplement size must not exceed 100 MB. Reviewers may consult the supplement at their discretion but the main paper must be self-contained.",
-    "source": "CFP 2025",
-    "tags": ["supplementary", "zip", "video", "size-limit", "formatting"]
+    "id": "policy_057",
+    "category": "call_for_papers",
+    "title": "Review Criteria",
+    "content": "AAAI is a highly selective conference. Prospective authors are therefore strongly encouraged to submit only their very best work to AAAI.\nAll submissions will be rigorously evaluated by expert reviewers to assess whether the contributions of the paper are substantive enough to warrant publication in AAAI.\nThe contributions may be theoretical, methodological, algorithmic, empirical, integrative (connecting ideas and methods across disparate subfields of AI), or critical (e.g., principled analyses and arguments that draw attention to problematic choice of goals, assumptions, or approaches).\nAll submissions will be evaluated and scored for the significance and novelty of the contributions (research problems or questions addressed, methods, experiments, analyses), theoretical and/or empirical soundness of the claims, their relevance to the AAAI community, and clarity of exposition.\nAdditional considerations include adherence to responsible research practices (e.g., with respect to human subject studies, use of sensitive data, as well as data and algorithmic bias), and of steps to ensure reproducibility of research results (e.g., by providing detailed proofs, documenting experiments, sharing data, and sharing code).\nSolid technical papers that explore new territory or point out new directions for research, introduce new problems, address research questions, or introduce methods that are of interest beyond a single sub-area of AI are preferred to papers that advance the state of the art, but only incrementally, or only within a narrow sub-area of AI.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_013",
-    "category": "formatting_requirements",
-    "title": "References and Citation Style",
-    "content": "References must follow the citation style defined in the official template and should be complete and verifiable. There is no limit on the number of references. Authors should ensure that all claims relying on prior work are properly cited, as uncited reuse of text or results may be treated as a formatting and integrity issue.",
-    "source": "Author Guidelines 2025",
-    "tags": ["references", "citation", "style", "bibliography", "formatting"]
+    "id": "policy_058",
+    "category": "call_for_papers",
+    "title": "Questions and Suggestions",
+    "content": "Inquiries about the submission process and the conference program should be sent to workflowchairs@aaai.zendesk.com. Our team of workflow chairs will directly answer questions or forward as appropriate.",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_014",
-    "category": "formatting_requirements",
-    "title": "Figures, Tables, and Accessibility",
-    "content": "Figures and tables must be legible in both color and grayscale, as some reviewers print submissions. Authors should use colorblind-friendly palettes and ensure text within figures meets minimum font size requirements. Captions should be descriptive enough that the figure can be understood without reading the surrounding text.",
-    "source": "Author Guidelines 2025",
-    "tags": ["figures", "tables", "accessibility", "grayscale", "formatting"]
+    "id": "policy_059",
+    "category": "call_for_papers",
+    "title": "Key Dates for the Main Track",
+    "content": "- OpenReview submission site opens for author registration: Wed, Jun 17\n- OpenReview submission site opens for paper submission: Wed, Jun 30\n- Abstract deadline: Tue, Jul 21\n- SPC/PC/AC bidding start Thu, Jul 23\n- SPC/PC/AC bidding end Sun, Jul 26\n- Author name/order freeze: Tue, Jul 28\n- Paper deadline: Tue, Jul 28\n- Supplement deadline: Fri, Jul 31\n- Initial Desk Rejection (formatting, missing abstracts, etc): Fri, Aug 7\n- Phase 1 review starts: Fri, Aug 7\n- Phase 1 reviews end: Sun, Aug 30\n- SPC phase 1 recommendations: Sun, Sep 6\n- AC phase 1 recommendations: Wed, Sep 9\n- Phase 1 reject notifications: Thu, Sep 24\n- Phase 2 reviews start: Fri, Sep 25\n- Phase 2 reviews end: Fri, Oct 16\n- Author feedback start: Mon, Oct 19\n- Author feedback end: Sun, Oct 25\n- PC discussion start: Mon, Oct 26\n- PC discussion end: Wed, Nov 4\n- SPC metareviews: Tue, Nov 10\n- AC recommendations due: Fri, Nov 13\n- Notification: Mon, Nov 30\n- Camera-ready deadline: Mon, Dec 14\n- Conference start: Tue, Feb 16 2027\n- Conference end: Tue, Feb 23 2027",
+    "source": "call_for_papers.md",
+    "tags": [
+      "submission",
+      "deadlines",
+      "review-process",
+      "formatting",
+      "topics"
+    ]
   },
   {
-    "id": "policy_015",
-    "category": "review_process",
-    "title": "Reviewer Assignment and Load",
-    "content": "Reviewers are typically assigned three to six papers based on declared expertise and bidding preferences. The system attempts to match papers to reviewer subject areas, but mismatches can occur. Reviewers who receive papers far outside their expertise or an unusually high load should contact their area chair promptly to request rebalancing.",
-    "source": "Reviewer Handbook 2025",
-    "tags": ["reviewer", "assignment", "load", "expertise", "area-chair"]
+    "id": "policy_060",
+    "category": "submission_instructions",
+    "title": "Author Registration",
+    "content": "Authors must register at the AAAI-27 web-based technical track paper submission site before they can submit abstracts and papers. To avoid last-minute congestion, authors are encouraged to register well in advance of the abstract deadline. Authors are required to use the same OpenReview account (i.e., associated with the same email address) across all submissions and review assignments.\nGiven the size of the conference, all authors of AAAI-27 submissions will be expected to join the conference's reviewer pool unless prevented by extenuating circumstances. Potential reviewers will be vetted based on their research experience, and depending on this experience, may be selected as program committee or senior program committee members.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
   },
   {
-    "id": "policy_016",
-    "category": "review_process",
-    "title": "Conflict of Interest Declaration",
-    "content": "Reviewers must declare a conflict of interest with any paper authored by recent collaborators, advisors, advisees, or colleagues at the same institution within the past two years. Conflicts should be declared in the review system as soon as they are identified, and the reviewer should not access the manuscript further. The area chair will reassign conflicted papers.",
-    "source": "Reviewer Handbook 2025",
-    "tags": ["conflict-of-interest", "reviewer", "declaration", "reassignment", "ethics"]
+    "id": "policy_061",
+    "category": "submission_instructions",
+    "title": "Abstract and Paper Submission",
+    "content": "Every submission requires both an abstract submission and a corresponding paper submission. For regular papers, abstracts must be submitted by July 21, 2026 and full papers must be submitted by July 28, 2026. There will be no individual exceptions. If you experience any technical problems with the OpenReview site, please contact the AAAI-27 Workflow Chairs at workflowchairs@aaai.zendesk.com.\nSubmissions will not be accepted by e-mail or any other mechanism other than OpenReview. After submission, the system will not automatically send a confirmation of receipt. If you want to receive a confirmation email, please click the paper ID to view the submission, and then click the \"Email\" button at the top right to send the confirmation to yourself or all the authors. AAAI will contact authors again only if problems are encountered with papers. We intend to close the submission system exactly at the deadline. Once the deadline has passed, we regret that we will be unable to make individual exceptions or to correspond with authors regarding circumstances that prevented timely submission.\nAt the time of abstract submission, authors should include a full title for their paper and a complete abstract in the fields provided. Submissions that have \"placeholder\" (e.g., test or xyz) titles or abstracts (or none at all) will be deleted. Authors of such vacuous submissions will be notified that their abstract has been deleted and will not be allowed to submit a full paper. The Program Chairs also reserve the right to reject papers without review if they change their abstracts substantially between the abstract and final deadlines.\nPapers must be formatted in AAAI two-column, camera-ready style; see the AAAI-27 author kit for details (https://aaai.org/authorkit27/). Papers must be in trouble-free, high-resolution PDF format, formatted for US Letter (8.5\" x 11\") paper, using Type 1 or TrueType fonts. AAAI submissions are anonymous and must conform to the instructions for double-blind review. The authors must remove all author and affiliation information from their submission for review, and may replace it with other information, such as paper number and keywords. Submissions may consist of up to 7 pages of technical content plus additional pages solely for references; acknowledgements should be omitted from papers submitted for review. Only PDF files are required at the time of submission for review; authors will additionally need to submit paper source files if their paper is accepted for publication.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
   },
   {
-    "id": "policy_017",
-    "category": "review_process",
-    "title": "Review Confidentiality",
-    "content": "All submitted papers are confidential and reviewers may not share, distribute, or use any ideas, methods, or results from a submission for their own purposes. Confidentiality obligations continue even after the review process ends and regardless of whether the paper is accepted. Breaches of confidentiality are treated as serious ethics violations and may lead to a reviewing ban.",
-    "source": "Reviewer Handbook 2025",
-    "tags": ["confidentiality", "reviewer", "ethics", "violation", "review-process"]
+    "id": "policy_062",
+    "category": "submission_instructions",
+    "title": "Submission Limit per Author",
+    "content": "Each individual author is limited to no more than a combined limit of 10 submissions to the AAAI-27 technical track (including papers in the AI Alignment and AI for Social Impact tracks) and authors may not be added to papers following submission (see below for policies about author changes).",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
   },
   {
-    "id": "policy_018",
-    "category": "review_process",
-    "title": "Review Quality and Tone Standards",
-    "content": "Reviews must be constructive, specific, and professional, focusing on the technical merits of the work rather than personal remarks. Reviewers should justify scores with concrete evidence and avoid dismissive or hostile language. Area chairs may discount reviews that are unsubstantiated, abusive, or that appear to reflect undisclosed bias.",
-    "source": "Reviewer Handbook 2025",
-    "tags": ["review-quality", "tone", "constructive", "bias", "area-chair"]
+    "id": "policy_063",
+    "category": "submission_instructions",
+    "title": "Guidelines for Changes to Titles/Authors after Submissions",
+    "content": "MODIFICATIONS TO SUBMISSIONS ARE ONLY ALLOWED UNTIL THE FULL PAPER DEADLINE (July 28 for Phase 1 submissions). No exceptions will be granted. Please see the full policy on Paper Modification Guidelines.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
   },
   {
-    "id": "policy_019",
-    "category": "review_process",
-    "title": "Declining or Returning Assignments",
-    "content": "Reviewers who cannot complete their assignments due to personal emergencies or other constraints should notify their area chair as early as possible. Early notice allows the chair to reassign papers without delaying the timeline. Reviewers are asked not to silently abandon assignments, as missing reviews place an unfair burden on co-reviewers and authors.",
-    "source": "Reviewer Handbook 2025",
-    "tags": ["decline", "assignment", "reviewer", "reassignment", "notice"]
+    "id": "policy_064",
+    "category": "submission_instructions",
+    "title": "Policy Concerning Multiple Submissions and Scientific Integrity",
+    "content": "AAAI-27 is committed to maintaining a fair review process and the highest standards of scientific integrity. Each submission should represent a distinct scientific contribution that stands on its own merits.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
   },
   {
-    "id": "policy_020",
-    "category": "review_process",
-    "title": "Author Rebuttal Handling",
-    "content": "After authors submit rebuttals, reviewers are expected to read the response and update their reviews and scores where warranted. Reviewers should acknowledge points that were successfully addressed and explain remaining concerns. The discussion phase that follows allows reviewers and the area chair to converge on a recommendation.",
-    "source": "Reviewer Handbook 2025",
-    "tags": ["rebuttal", "reviewer", "discussion", "score-update", "review-process"]
+    "id": "policy_065",
+    "category": "submission_instructions",
+    "title": "Simultaneous Submission to Other Archival Venues",
+    "content": "AAAI-27 will not consider any paper that, at the time of submission, is under review, accepted for publication, or previously published in another archival conference or journal. Preprint servers (such as arXiv) and non-archival workshops are permitted.\nAuthors may withdraw a submission from another venue with a concurrent review process and submit that work to AAAI-27, provided the withdrawal is completed before the AAAI-27 submission. Authors must confirm at the time of submission that their paper is not simultaneously under review at another archival conference or journal.\nAfter submitting to AAAI-27, authors may not submit the same or substantially similar work to another archival conference or journal until they have received a decision from AAAI-27 or have withdrawn their AAAI-27 submission.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
   },
   {
-    "id": "policy_021",
-    "category": "review_process",
-    "title": "Reviewer System Access Issues",
-    "content": "Reviewers who cannot see their assigned papers, despite receiving an assignment notification, should first confirm they are logged into the correct account linked to their reviewer profile. If assignments still do not appear, they should contact the program committee support address with their submission system ID. Access problems do not extend review deadlines unless explicitly granted by an area chair.",
-    "source": "Reviewer Handbook 2025",
-    "tags": ["access", "reviewer", "system", "support", "login"]
+    "id": "policy_066",
+    "category": "submission_instructions",
+    "title": "Overlapping Submissions",
+    "content": "If concerns arise regarding overlapping submissions, papers involving an overlapping set of authors may be considered together in the assessment of novelty. If publishing one paper would render another paper (whether submitted to AAAI-27 or another archival conference or journal) insufficiently novel or incremental, the AAAI-27 submission may be summarily rejected as violating AAAI's multiple-submission policy.\nAuthors should not submit multiple papers that do not constitute distinct scientific contributions. This includes, but is not limited to:\n* Submitting the same paper with cosmetic changes.\n* \"Thin slicing\" a single contribution into multiple minimally different papers.\n* Submitting multiple papers that, taken together, would more appropriately be presented as a single scientific contribution (for example, by splitting results across different methods, datasets, application domains, analyses, or presentations).\n* Submitting obfuscated duplicates or \"alternative universe\" versions of substantially the same work.\nAuthors should combine closely related ideas into a single, stronger submission whenever appropriate.\nAssessment of Overlap\nIf concerns are raised regarding overlap between submissions, the program committee will review the available information about the submissions. If it concludes that the submissions have excessive technical overlap or otherwise violate the multiple-submission policy, the AAAI-27 submission may be summarily rejected. In cases involving another archival conference or journal, the organizers of that venue may also be informed. As with all summary rejection decisions, these determinations are final.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
   },
   {
-    "id": "policy_022",
+    "id": "policy_067",
+    "category": "submission_instructions",
+    "title": "Citation and Comparison",
+    "content": "Papers are expected to cite those refereed publications most relevant to their content, but authors are excused for not knowing about all non-refereed work (e.g, appearing on arXiv). Nevertheless, in cases where such prior work is widely known in the field, its existence may be considered by reviewers in assessing a submission's novelty. Papers published less than two months before the regular paper submission deadline (July 28, 2026) are considered contemporaneous to all AAAI-27 submissions; authors are not obliged to address such papers (though, especially for the camera ready versions of accepted papers, authors are encouraged to do so).",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_068",
+    "category": "submission_instructions",
+    "title": "Reproducibility Guidelines",
+    "content": "Authors must complete the reproducibility checklist provided in the AAAI-27 Author Kit and submit it at the time of paper submission. The checklist describes how the results in the submission can be reproduced and must be uploaded separately from the main paper in the designated field of the submission form. The completed checklist will be made available to reviewers.\nInformation needed to reproduce experimental results may be included in the main paper or in a Code and Data Supplement, as appropriate. Additional technical material such as proofs, assumptions, and algorithm pseudocode, may be included in the Supplementary Document. When relevant, authors are encouraged to address each reproducibility criterion in detail within the Supplementary Document.\nReviewers will evaluate the reproducibility of the reported results based on the materials included in the submission, and this evaluation will contribute to the final paper decision. All code, data, and other materials necessary for reproducibility should be provided at submission time (e.g., in the Code and Data Supplement or Supplementary Document). Claims that such materials “will be released after acceptance or publication” must not be treated as evidence of reproducibility; if they are not included in the submission, reviewers should assume they will not be made available.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_069",
+    "category": "submission_instructions",
+    "title": "Ethics Policy",
+    "content": "All AAAI authors and reviewers are required to honor the AAAI Publications Ethics and Malpractice Statement, as well as the AAAI Code of Professional Conduct. A paper may be rejected if an author is found to violate the AAAI Publications Ethics and Malpractice Statement or the AAAI Code of Professional Conduct.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_070",
+    "category": "submission_instructions",
+    "title": "Demonstrations",
+    "content": "During paper submission, authors will be able to express interest in giving a public demo of systems described in the paper. Based on these expressions of interest and on reviews, papers will be selected to participate in a demonstration session, which will happen in addition to technical talks and posters.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_071",
+    "category": "submission_instructions",
+    "title": "Supplementary Material",
+    "content": "Submissions must not contain pointers to supplementary material on the web, as this may violate both blind review and the policy that submissions cannot be changed after they are made available to reviewers. However, authors have the option of submitting supplementary material in support of their submissions. Authors must be very careful not to violate the double blind review requirements in any supplementary material to prevent their paper from being summarily rejected. All such material is due no later than July 31.\nAuthors can include one or more of the following:\n1. A Supplementary Document (PDF) — Additional technical material supporting the paper, such as proofs, derivations, experimental details, dataset descriptions, or extended results.\n2. A Supplementary Media Archive (ZIP) — Images, audio, video demonstrations, animations, or other multimedia content supporting the paper.\n3. A Supplementary Code and Data Package (ZIP) — Source code, scripts, data, and instructions intended to help reviewers assess the reproducibility of the paper's claims.\nDuring review, the purpose of supplementary material is to assist reviewers. Authors are encouraged to share the supplementary material upon paper acceptance.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_072",
+    "category": "submission_instructions",
+    "title": "Technical Appendix",
+    "content": "The length of main submissions is strictly limited. Authors may optionally submit a technical appendix (PDF) containing additional supporting information such as proofs of theorems that are stated in the main paper; additional information needed to reproduce experiments; further experimental results; figures and examples to illustrate technical claims; etc. The main submission may reference the supplementary material, but should be self contained. Reviewers will be instructed to make their acceptance evaluations based on the main submission, and will not be obliged to consult the supplementary material. If proofs or other supplementary matter are an important part of the contribution, their essential elements should be included in the main paper.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_073",
+    "category": "submission_instructions",
+    "title": "Regular Paper Submission",
+    "content": "After the July 21 abstract deadline and until the end of review process the following items cannot be changed:\n- paper topics\nAfter the July 21 abstract deadline and until the July 28 paper submission deadline, the following items can be changed:\n- list of authors\n- author order\n- submitted paper\nand the following items can be edited, but should not be substantively changed:\n- title of the paper\n- abstract of the paper\nIf the Program Chairs determine that an abstract or title has been changed to the extent that it describes research that is qualitatively different, the paper will be rejected without review.\nAfter the July 28 paper submission deadline, and until the July 31 supplementary material deadline, the following items can be changed:\n- supplementary material\nAfter the July 31 deadline and before notification NOTHING can be changed.\nIMPORTANT NOTE: Submissions that have \"placeholder\" titles (e.g., test or xyz) or abstracts (or none at all) will be deleted. Authors of such vacuous submissions will be notified that their abstract has been deleted and will not be allowed to submit a full paper.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_074",
+    "category": "submission_instructions",
+    "title": "Paper / Paper Data Changes after Acceptance",
+    "content": "During camera-ready submission (deadline December 14), authors may request to modify their paper title through the camera-ready submission site. Note that authors cannot be added or deleted under any circumstances.\nAfter the camera-ready deadline changes can only be made at the request of the publisher.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_075",
+    "category": "submission_instructions",
+    "title": "Blind Review",
+    "content": "AAAI-27 reviews are double blind (i.e., neither reviewers nor authors should be able to identify each other). The first page, on which the paper body begins, should include the title, abstract, content areas, and ID number (if available), but not names or affiliations of the authors. Acknowledgments of funding or assistance should also be omitted. Ensure that no information is included that would identify the authors or their affiliations; papers including such information may be summarily rejected at the discretion of the program chairs.\nSubmissions should include references to all published literature relevant to the paper. When the authors' previous work is relevant, they have three options, in descending order of desirability:\n1. Use the third person, rather than the first person. For example, say \"Previously, Hinton et al (2006) showed that...,\" rather than \"In our previous work (Hinton et al, 2006) we showed that...\".\n2. Avoid citing previous, unpublished work that would surely identify the authors (e.g., a previous technical report or PhD thesis which substantially overlaps with the current submission); such citations may be added to the camera-ready copy.\n3. When neither previous option is appropriate, cite as \"Anonymous (2019)\" to indicate that a citation has been suppressed.\nThere are two cases where the existence of non-anonymous online material will not be considered a violation of AAAI-27's blind review policy: it is acceptable for submitted work (1) to appear in a preliminary version as an unrefereed preprint (e.g., on arXiv.org, social media, personal websites) or in any workshop that does not have archival proceedings; or (2) to be discussed in research talks, even if abstracts or videos of such talks are made available online. In such cases, the AAAI-27 submission should not include citations or other pointers to the non-anonymous material and the non-anonymous online material should not reference the fact that the work was submitted to AAAI-27; violations may lead to summary rejection. Reviewers will be instructed not to actively seek out such previous publications or to share knowledge of them with other reviewers but will not be disqualified if they encounter such information.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_076",
+    "category": "submission_instructions",
+    "title": "Final Paper Publication",
+    "content": "Accepted papers (Main Technical Track) will be allocated 7 pages in the proceedings plus up to 2 acknowledgement/reference pages. All references in the submitted paper must appear in the final version, unless superseded. Authors have the option to purchase up to two additional pages to include additional technical content in the published proceedings at a cost of $300 per page. Final papers found to exceed page limits and or otherwise violating the instructions to authors will not be included in the proceedings. Authors will be required to transfer copyright of their paper to AAAI. Authors will submit camera-ready files (including LaTeX or Word source files) of accepted papers by December 14, 2026. These published, archival versions of the papers will be made available in the AAAI Digital Library.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_077",
+    "category": "submission_instructions",
+    "title": "Conference Registration and Attendance",
+    "content": "For each submitted paper, at least one author is required to register for the conference and to present the paper. Details about attendance at the conference will be posted to the AAAI-27 web page.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_078",
+    "category": "submission_instructions",
+    "title": "Affiliated Events",
+    "content": "AAAI will be co-located with two other sister conferences. Authors may want to consider whether their potential AAAI submission is more appropriate for one of these other venues.\n1. IAAI solicits papers on applications that showcase novel uses of AI technology, with a particular focus on successful deployments, challenge problems, and methodologies related to deploying applications at scale.\n2. EAAI solicits papers that discuss contributions related to AI education and use of AI in education.\nWhile each sister event has a distinct focus, each has some degree of overlap with AAAI-27. Authors are advised to consult each event's CFP carefully and to use their best judgment in determining where to submit their work. These sister events have independent program committees and review processes, so we are unable to move papers after submission from AAAI-27 to a sister conference or vice versa.",
+    "source": "submission_instructions.md",
+    "tags": [
+      "submission",
+      "formatting",
+      "openreview",
+      "author-registration",
+      "page-limits",
+      "modification-guidelines"
+    ]
+  },
+  {
+    "id": "policy_079",
     "category": "ethics_policy",
-    "title": "Plagiarism and Text Reuse",
-    "content": "Submissions must be original work, and copying text, figures, or results from other publications without proper attribution constitutes plagiarism. Self-plagiarism, including substantial reuse of the authors' own prior text without citation, is also prohibited. Confirmed plagiarism cases lead to immediate rejection and may be reported to the authors' institutions.",
-    "source": "Ethics Policy 2025",
-    "tags": ["plagiarism", "originality", "text-reuse", "attribution", "ethics"]
+    "title": "Ethics Code — Contact & Scope",
+    "content": "For inquiries about this code, please contact aaaiethics@aaai.org. Please see https://aaai.org/Conferences/code-of-conduct.php for the AAAI Code of Conduct for Events and Conferences.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_023",
+    "id": "policy_080",
     "category": "ethics_policy",
-    "title": "Reporting Suspected Misconduct",
-    "content": "Anyone, including reviewers and authors, may report suspected research or review misconduct confidentially to the ethics chair. Reports should include specific evidence such as the relevant text, figures, or timestamps. The identity of the reporter is protected to the extent possible, and reports are investigated through a formal process before any action is taken.",
-    "source": "Ethics Policy 2025",
-    "tags": ["misconduct", "report", "ethics-chair", "confidential", "investigation"]
+    "title": "Preamble",
+    "content": "Computing Professionals, and in particular, AI professionals' actions change the world. To act responsibly, they should reflect upon the wider impacts of their work, consistently supporting the public good. This code (the \"Code\") is adapted from the Association for Computing Machinery (\"ACM\") Code of Ethics and Professional Conduct (\"the \"ACM Code\") and expresses the conscience of the AI profession.\nThe Code is designed to inspire and guide the ethical conduct of all AI professionals, including current and aspiring practitioners, instructors, students, influencers, and anyone who uses AI technology in an impactful way, and is particularly intended to act as a standard of ethical and professional conduct for all AAAI members. Additionally, the Code serves as a basis for remediation when violations occur. The Code includes principles formulated as statements of responsibility, based on the understanding that the public good is always the primary consideration. Each principle is supplemented by guidelines, which provide explanations to assist AI professionals in understanding and applying the principle.\nSection 1 outlines fundamental ethical principles that form the basis for the remainder of the Code. Section 2 addresses additional, more specific considerations of professional responsibility. Section 3 guides individuals who have a leadership role, whether in the workplace or in a volunteer professional capacity. Commitment to ethical conduct is required of every AAAI member, and principles involving compliance with the Code are given in Section 4.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_024",
+    "id": "policy_081",
     "category": "ethics_policy",
-    "title": "Human Subjects and IRB Approval",
-    "content": "Research involving human subjects or sensitive behavioral data must comply with applicable ethical standards and obtain institutional review board (IRB) or equivalent approval. Authors must disclose the approval and describe consent procedures in the paper. Submissions that use human data without documented approval may be flagged for ethics review and held pending clarification.",
-    "source": "Ethics Policy 2025",
-    "tags": ["human-subjects", "IRB", "consent", "approval", "ethics"]
+    "title": "1. GENERAL ETHICAL PRINCIPLES",
+    "content": "An AI professional should...\n1.1 Contribute to society and to human well-being, acknowledging that all people are stakeholders in computing.\nThis principle, which concerns the quality of life of all people, affirms an obligation of AI professionals, both individually and collectively, to use their skills for the benefit of society, its members, and the environment surrounding them. This obligation includes promoting fundamental human rights and protecting each individual's right to autonomy. An essential aim of AI professionals is to minimize negative consequences of computing, including threats to health, safety, personal security, and privacy. When the interests of multiple groups conflict, the needs of those less advantaged should be given increased attention and priority.\nAI professionals should consider whether the results of their efforts will respect diversity, will be used in socially responsible ways, will meet social needs, and will be broadly accessible. They are encouraged to actively contribute to society by engaging in pro bono or volunteer work that benefits the public good.\nIn addition to a safe social environment, human well-being requires a safe natural environment. Therefore, AI professionals should promote environmental sustainability both locally and globally.\n1.2 Avoid harm.\nIn this document, \"harm\" means negative consequences, especially when those consequences are significant and unjust. Examples of harm include unjustified physical or mental injury, unjustified destruction or disclosure of information, and unjustified damage to property, reputation, and the environment. This list is not exhaustive.\nWell-intended actions, including those that accomplish assigned duties, may lead to harm. When that harm is unintended, those responsible are obliged to undo or mitigate the harm as much as possible. Avoiding harm begins with careful consideration of potential impacts on all those affected by decisions. When harm is an intentional part of the system, those responsible are obligated to ensure that the harm is ethically justified. In either case, ensure that all harm is minimized.\nTo minimize the possibility of indirectly or unintentionally harming others, AI professionals should follow generally accepted best practices unless there is a compelling ethical reason to do otherwise. Additionally, the consequences of data aggregation and emergent properties of systems should be carefully analyzed. Those involved with pervasive or infrastructure systems should also consider Principle 3.7.\nAn AI professional has an additional obligation to report any signs of system risks that might result in harm. If leaders do not act to curtail or mitigate such risks, it may be necessary to \"blow the whistle\" to reduce potential harm. However, capricious or misguided reporting of risks can itself be harmful. Before reporting risks, an AI professional should carefully assess relevant aspects of the situation.\n1.3 Be honest and trustworthy.\nHonesty is an essential component of trustworthiness. An AI professional should be transparent and provide full disclosure of all pertinent system capabilities, limitations, and potential problems to the appropriate parties. Making deliberately false or misleading claims, fabricating or falsifying data, offering or accepting bribes, and other dishonest conduct are violations of the Code.\nAI professionals should be honest about their qualifications, and about any limitations in their competence to complete a task. AI professionals should be forthright about any circumstances that might lead to either real or perceived conflicts of interest or otherwise tend to undermine the independence of their judgment. Furthermore, commitments should be honored.\nAI professionals should not misrepresent an organization's policies or procedures, and should not speak on behalf of an organization unless authorized to do so.\n1.4 Be fair and take action not to discriminate.\nThe values of equality, tolerance, respect for others, and justice govern this principle. Fairness requires that even careful decision processes provide some avenue for redress of grievances.\nAI professionals should foster fair participation of all people, including those of underrepresented groups. Prejudicial discrimination on the basis of age, color, disability, ethnicity, family status, gender identity, labor union membership, military status, nationality, race, religion or belief, sex, sexual orientation, or any other inappropriate factor is an explicit violation of the Code. Harassment, including sexual harassment, bullying, and other abuses of power and authority, is a form of discrimination that, amongst other harms, limits fair access to the virtual and physical spaces where such harassment takes place.\nThe use of information and technology may cause new, or enhance existing, inequities. Technologies and practices should be as inclusive and accessible as possible and AI professionals should take action to avoid creating systems or technologies that disenfranchise or oppress people. Failure to design for inclusiveness and accessibility may constitute unfair discrimination.\n1.5 Respect the work required to produce new ideas, inventions, creative works, and computing artifacts.\nDeveloping new ideas, inventions, creative works, and computing artifacts creates value for society, and those who expend this effort should expect to gain value from their work. AI professionals should therefore credit the creators of ideas, inventions, work, and artifacts, and respect copyrights, patents, trade secrets, license agreements, and other methods of protecting authors' works.\nBoth custom and the law recognize that some exceptions to a creator's control of a work are necessary for the public good. AI professionals should not unduly oppose reasonable uses of their intellectual works. Efforts to help others by contributing time and energy to projects that help society illustrate a positive aspect of this principle. Such efforts include free and open source software and work put into the public domain. AI professionals should not claim private ownership of work that they or others have shared as public resources.\n1.6 Respect privacy.\nThe responsibility of respecting privacy applies to AI professionals in a particularly profound way. Technology enables the collection, monitoring, and exchange of personal information quickly, inexpensively, and often without the knowledge of the people affected. Therefore, an AI professional should become conversant in the various definitions and forms of privacy and should understand the rights and responsibilities associated with the collection and use of personal information.\nAI professionals should only use personal information in accordance with the applicable laws and regulations. AI professionals should take precautions to prevent re-identification of anonymized data or unauthorized data collection, ensuring the accuracy of data, understanding the provenance of the data, and protecting it from unauthorized access and accidental disclosure. AI professionals should establish transparent policies and procedures that allow individuals to understand what data is being collected and how it is being used, where it is transmitted for processing, to give informed consent for automatic data collection, and to review, obtain, correct inaccuracies in, and delete their personal data.\nOnly the necessary personal information should be collected in a system. The retention and disposal periods for that information should be clearly defined, enforced, and communicated to data subjects. Personal information gathered for a specific purpose should not be used for other purposes without the person's consent. Merged data collections can compromise privacy features present in the original collections. Therefore, AI professionals should take special care for privacy when merging data collections.\n1.7 Honor confidentiality.\nAI professionals are often entrusted with confidential information such as trade secrets, client data, nonpublic business strategies, financial information, research data, pre-publication scholarly articles, and patent applications. AI professionals should protect confidentiality except in cases where it is evidence of the violation of law, of organizational regulations, or of the Code. In these cases, the nature or contents of that information should not be disclosed except to appropriate authorities. An AI professional should consider thoughtfully whether such disclosures are consistent with the Code.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_025",
+    "id": "policy_082",
     "category": "ethics_policy",
-    "title": "Dual Submission and Concurrent Review",
-    "content": "Papers must not be under concurrent review at another archival venue, and submitting substantially similar work to multiple venues simultaneously is prohibited. Authors with overlapping submissions should withdraw one to remain compliant. Dual submission, when discovered, results in rejection of all affected papers and may trigger an ethics inquiry.",
-    "source": "Ethics Policy 2025",
-    "tags": ["dual-submission", "concurrent", "overlap", "rejection", "ethics"]
+    "title": "2. PROFESSIONAL RESPONSIBILITIES",
+    "content": "An AI professional should...\n2.1 Strive to achieve high quality in both the processes and products of professional work.\nAI professionals should insist on and support high quality work from themselves and from colleagues. The dignity of employers, employees, colleagues, clients, users, and anyone else affected either directly or indirectly by the work should be respected throughout the process. AI professionals should respect the right of those involved to transparent communication about the project. Professionals should be cognizant of any serious negative consequences affecting any stakeholder that may result from poor quality work and should resist inducements to neglect this responsibility.\n2.2 Maintain high standards of professional competence, conduct, and ethical practice.\nHigh quality computing depends on individuals and teams who take personal and group responsibility for acquiring and maintaining professional competence. Professional competence starts with technical knowledge and with awareness of the social context in which their work may be deployed. Professional competence also requires skill in communication, in reflective analysis, and in recognizing and navigating ethical challenges. Upgrading skills should be an ongoing process and might include independent study, attending conferences or seminars, and other informal or formal education. Professional organizations and employers should encourage and facilitate these activities.\n2.3 Know and respect existing rules pertaining to professional work.\n\"Rules\" here include local, regional, national, and international laws and regulations, as well as any policies and procedures of the organizations to which the professional belongs. AI professionals must abide by these rules unless there is a compelling ethical justification to do otherwise. Rules that are judged unethical should be challenged. A rule may be unethical when it has an inadequate moral basis or causes recognizable harm. An AI professional should consider challenging the rule through existing channels before violating the rule. An AI professional who decides to violate a rule because it is unethical, or for any other reason, must consider potential consequences and accept responsibility for that action.\n2.4 Accept and provide appropriate professional review.\nHigh quality professional work in computing depends on professional review at all stages. Whenever appropriate, AI professionals should seek and utilize peer and stakeholder review. AI professionals should also provide constructive, critical reviews of others' work.\n2.5 Give comprehensive and thorough evaluations of computer systems and their impacts, including analysis of possible risks.\nAI professionals are in a position of trust, and therefore have a special responsibility to provide objective, credible evaluations and testimony to employers, employees, clients, users, and the public. AI professionals should strive to be perceptive, thorough, and objective when evaluating, recommending, and presenting system descriptions and alternatives. Extraordinary care should be taken to identify and mitigate potential risks in machine learning systems. A system for which future risks cannot be reliably predicted requires frequent reassessment of risk as the system evolves in use, or it should not be deployed. Any issues that might result in major risk must be reported to appropriate parties.\n2.6 Perform work only in areas of competence.\nAn AI professional is responsible for evaluating potential work assignments. This includes evaluating the work's feasibility and advisability, and making a judgment about whether the work assignment is within the professional's areas of competence. If at any time before or during the work assignment the professional identifies a lack of a necessary expertise, they must disclose this to the employer or client.\n2.7 Foster public awareness and understanding of computing, related technologies, and their consequences.\nAs appropriate to the context and one's abilities, AI professionals should share technical knowledge with the public, foster awareness of computing, and encourage understanding of computing. These communications with the public should be clear, respectful, and welcoming. Important issues include the impacts of computer systems, their limitations, their vulnerabilities, and the opportunities that they present. Additionally, an AI professional should respectfully address inaccurate or misleading information related to computing.\n2.8 Access computing and communication resources only when authorized or when compelled by the public good.\nIndividuals and organizations have the right to restrict access to their systems and data so long as the restrictions are consistent with other principles in the Code. Consequently, AI professionals should not access another's computer system, software, or data without a reasonable belief that such an action would be authorized or a compelling belief that it is consistent with the public good. A system being publicly accessible is not sufficient grounds on its own to imply authorization.\n2.9 Design and implement systems that are robustly and usably secure.\nBreaches of computer security cause harm. Robust security should be a primary consideration when designing and implementing systems. AI professionals should perform due diligence to ensure the system functions as intended, and take appropriate action to secure resources against accidental and intentional misuse, modification, and denial of service.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_026",
+    "id": "policy_083",
     "category": "ethics_policy",
-    "title": "Breach of Review Confidentiality",
-    "content": "Using or disclosing confidential ideas obtained during review, such as releasing a preprint that exploits an unpublished method from a reviewed paper, is a severe ethics violation. Allegations are investigated by the ethics committee using submitted evidence including drafts and timestamps. Substantiated breaches can result in multi-year bans from reviewing and submitting.",
-    "source": "Ethics Policy 2025",
-    "tags": ["confidentiality", "breach", "review", "preprint", "ethics"]
+    "title": "3. PROFESSIONAL LEADERSHIP PRINCIPLES",
+    "content": "Leadership may either be a formal designation or arise informally from influence over others. In this section, \"leader\" means any member of an organization or group who has influence, educational responsibilities, or managerial responsibilities. While these principles apply to all AI professionals, leaders bear a heightened responsibility to uphold and promote them, both within and through their organizations.\nAn AI professional, especially one acting as a leader, should...\n3.1 Ensure that the public good is the central concern during all professional computing work.\nPeople — including users, customers, colleagues, and others affected directly or indirectly — should always be the central concern in computing. The public good should always be an explicit consideration when evaluating tasks associated with research, requirements analysis, design, implementation, testing, validation, deployment, maintenance, retirement, and disposal.\n3.2 Articulate, encourage acceptance of, and evaluate fulfillment of social responsibilities by members of the organization or group.\nTechnical organizations and groups affect broader society, and their leaders should accept the associated responsibilities. Organizations — through procedures and attitudes oriented toward quality, transparency, and the welfare of society — reduce harm to the public and raise awareness of the influence of technology in our lives.\n3.3 Manage personnel and resources to enhance the quality of working life.\nLeaders should ensure that they enhance, not degrade, the quality of working life. Leaders should consider the personal and professional development, accessibility requirements, physical safety, psychological well-being, and human dignity of all workers.\n3.4 Articulate, apply, and support policies and processes that reflect the principles of the Code.\nLeaders should pursue clearly defined organizational policies that are consistent with the Code and effectively communicate them to relevant stakeholders. In addition, leaders should encourage and reward compliance with those policies, and take appropriate action when policies are violated.\n3.5 Create opportunities for members of the organization or group to grow as professionals.\nEducational opportunities are essential for all organization and group members. Leaders should ensure that opportunities are available to AI professionals to help them improve their knowledge and skills in professionalism, in the practice of ethics, and in their technical specialties.\n3.6 Use care when modifying or retiring systems.\nInterface changes, the removal of features, and even software updates have an impact on the productivity of users and the quality of their work. Leaders should take care when changing or discontinuing support for system features on which people still depend.\n3.7 Recognize and take special care of systems that become integrated into the infrastructure of society.\nEven the simplest computer systems have the potential to impact all aspects of society when integrated with everyday activities such as commerce, travel, government, healthcare, and education. When organizations and groups develop systems that become an important part of the infrastructure of society, their leaders have an added responsibility to be good stewards of these systems.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_027",
+    "id": "policy_084",
     "category": "ethics_policy",
-    "title": "Undisclosed Conflicts and Biased Reviewing",
-    "content": "Reviewers must not review papers where an undisclosed competitive or personal conflict could bias their judgment. Authors who suspect a review reflects an undisclosed conflict may raise the concern with the area chair, who will assess whether a conflict was improperly hidden. The goal is to evaluate the integrity of the process, not simply to change a score.",
-    "source": "Ethics Policy 2025",
-    "tags": ["conflict", "bias", "undisclosed", "reviewer", "ethics"]
+    "title": "4. COMPLIANCE WITH THE CODE",
+    "content": "An AI professional should...\n4.1 Uphold, promote, and respect the principles of the Code.\nThe future of computing depends on both technical and ethical excellence. AI professionals should adhere to the principles of the Code and contribute to improving them. AI professionals who recognize breaches of the Code should take actions to resolve the ethical issues they recognize, including, when reasonable, expressing their concern to the person or persons thought to be violating the Code.\n4.2 Treat violations of the Code as inconsistent with membership in the AAAI.\nEach AAAI member should encourage and support adherence by all AI professionals regardless of AAAI membership. AAAI members who recognize a breach of the Code should consider reporting the violation to the AAAI. Any such report may be reviewed by AAAI's Executive Council or a committee appointed by the Executive Council and, if an AAAI member is found to be in violation of the Code, it may be subject to disciplinary measures including but not limited to suspension or expulsion as set forth in Article VI, Section 6 of AAAI's bylaws.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_028",
+    "id": "policy_085",
     "category": "ethics_policy",
-    "title": "Use of Generative AI in Submissions",
-    "content": "Authors may use generative AI tools for editing and assistance but remain fully responsible for the accuracy, originality, and integrity of their submission. AI-generated content that introduces fabricated citations or results is treated as a serious integrity violation. Substantial use of AI in producing the research itself should be disclosed in the paper.",
-    "source": "Ethics Policy 2025",
-    "tags": ["generative-ai", "disclosure", "integrity", "fabrication", "ethics"]
+    "title": "History and Development of the Code",
+    "content": "The ACM Code and guidelines were developed by the ACM Code 2018 Task Force. This Code and its guidelines were adopted by the AAAI Executive Council on January 28, 2019.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_029",
-    "category": "authorship_guidelines",
-    "title": "Criteria for Authorship",
-    "content": "Authorship should be limited to those who made substantial intellectual contributions to the conception, execution, or analysis of the work. Each listed author should be able to take public responsibility for the content. Individuals who provided only minor assistance, such as funding or general supervision without intellectual input, should be acknowledged rather than listed as authors.",
-    "source": "Authorship Guidelines 2025",
-    "tags": ["authorship", "contribution", "criteria", "responsibility", "guidelines"]
+    "id": "policy_086",
+    "category": "ethics_policy",
+    "title": "AAAI Plurality Statement",
+    "content": "AAAI's greatest strengths come from the people who make up our community. AAAI is committed to fostering an inclusive community with opportunities for all participants without regard to age, religion, race, ethnicity, gender identity, sexual orientation, national origin, or disability. We strive to remove barriers and obstacles that limit participation, and we work to uncover biases that create unfair practices. Every AAAI participant is encouraged to engage in civil discourse when opinions and points of view differ. We value and respect one another, and we will hold one another accountable when we falter. Differences are welcomed and celebrated. Join us.",
+    "source": "ethics_code.md",
+    "tags": [
+      "ethics",
+      "code-of-conduct",
+      "professional-standards",
+      "plurality"
+    ]
   },
   {
-    "id": "policy_030",
-    "category": "authorship_guidelines",
-    "title": "Author Order and Consent",
-    "content": "The order of authors should reflect the agreed-upon division of contributions and must be settled among all authors before submission. Every listed author must consent to being included and to the final author order. Adding someone as an author without their knowledge or consent is a violation of authorship integrity.",
-    "source": "Authorship Guidelines 2025",
-    "tags": ["author-order", "consent", "agreement", "integrity", "guidelines"]
+    "id": "policy_087",
+    "category": "ethics_policy",
+    "title": "AAAI Publication Ethics and Malpractice Statement — Overview",
+    "content": "Author: Association for the Advancement of Artificial Intelligence\nUpdated: July 2024\nThe Association for the Advancement of Artificial Intelligence affirms that plagiarizing another person's existing words or ideas without explicitly acknowledging the original author and source constitutes a completely unacceptable breach of academic and professional conduct. Plagiarized words and expressions also carry potentially severe ethical and legal consequences to all parties. As a consequence, AAAI will immediately remove any manuscript or publication that does not meet the standards listed in this ethics and malpractice statement.",
+    "source": "publication_ethics.md",
+    "tags": [
+      "ethics",
+      "plagiarism",
+      "authorship",
+      "reviewer-responsibilities",
+      "confidentiality"
+    ]
   },
   {
-    "id": "policy_031",
-    "category": "authorship_guidelines",
-    "title": "Resolving Authorship Disputes",
-    "content": "Authorship disputes should first be addressed within the author group, ideally with guidance from a neutral mentor or institutional authority. If the dispute cannot be resolved internally, the affected party may contact the program chairs, who will handle the matter confidentially. The chairs can hold a paper's status while the dispute is examined but do not adjudicate institutional credit assignments.",
-    "source": "Authorship Guidelines 2025",
-    "tags": ["dispute", "authorship", "resolution", "chairs", "confidential"]
+    "id": "policy_088",
+    "category": "ethics_policy",
+    "title": "Author Responsibilities",
+    "content": "As creators of the work, authors have a number of responsibilities when submitting their paper or manuscript to AAAI. They must warrant:\n1. That the papers they submit are their own original work\n2. That no portion of their paper (including, but not limited to, graphics and figures) has been previously published unless written consent from the previous publisher and AAAI have been obtained prior to submission\n3. That the paper is not currently under consideration for publication elsewhere\n4. That the authors listed on the paper accurately reflect those persons who actually did the work and contributed to the paper in a meaningful way\n5. That they have identified and acknowledged all sources used in the creation of their paper or manuscript, including any graphics, images, tables, and figures, and also including any persons who do not meet the criteria for authorship\n6. That they have notified AAAI of any conflicts of interest they might have with regard to the work\n7. That all sources of financial support for the project have been disclosed, especially if it might be construed to influence the results or interpretation of their paper or manuscript\n8. That any errors discovered after submission of the paper will be disclosed to AAAI.",
+    "source": "publication_ethics.md",
+    "tags": [
+      "ethics",
+      "plagiarism",
+      "authorship",
+      "reviewer-responsibilities",
+      "confidentiality"
+    ]
   },
   {
-    "id": "policy_032",
-    "category": "authorship_guidelines",
-    "title": "Adding or Removing Authors",
-    "content": "Changes to the author list after submission, including additions or removals, require the consent of all current authors and a written justification. Requests are reviewed by the program chairs to prevent honorary or coerced authorship. Legitimate corrections, such as restoring an accidentally omitted contributor, are generally permitted before the camera-ready deadline.",
-    "source": "Authorship Guidelines 2025",
-    "tags": ["add-author", "remove-author", "consent", "camera-ready", "guidelines"]
+    "id": "policy_089",
+    "category": "ethics_policy",
+    "title": "Editor and Program Chair Responsibilities",
+    "content": "The editor and program chairs have final responsibility for determining which articles or papers will be published. They may confer with other editors, members of the editorial board or program committee, or other designated reviewers in making this decision. The decision will be constrained by legal requirements regarding libel, copyright or trademark infringement, and by the AAAI policy on plagiarism, including self-plagiarism. The editor and program chairs will evaluate manuscript and paper submissions without regard to race, gender, sexual orientation, religious belief, ethnic origin, or citizenship.\nThe editor and program chair must maintain confidentiality of submitted materials and may not use unpublished materials in their own research without the express written consent of the author. Data sharing is forbidden, and data privacy is taken very seriously. We use data only to judge the quality of genuine submissions and reviews. Any other use is prohibited without explicit advance permission from the AAAI Executive Council. Editors and program chairs must maintain confidentiality of submitted materials and may not use unpublished materials in any way in their own research without the express written consent of the author. Notwithstanding the foregoing, the editor and program chair may disclose aggregated information and de-identified metadata in accordance with AAAI's privacy policy.\nEditors are expected to make fair decisions free from commercial, political, and personal bias. They are expected to disclose all conflicts of interest, abstain from involvement in any decision about a paper in which they have such a conflict, and abide by the guidelines of the AAAI Conflict of Interest Policy for Editors.",
+    "source": "publication_ethics.md",
+    "tags": [
+      "ethics",
+      "plagiarism",
+      "authorship",
+      "reviewer-responsibilities",
+      "confidentiality"
+    ]
   },
   {
-    "id": "policy_033",
-    "category": "authorship_guidelines",
-    "title": "Author Responsibilities and Accountability",
-    "content": "All authors share responsibility for the integrity of the submitted work, including the validity of results and the proper citation of prior work. At least one corresponding author must be designated to handle communication with the conference. Authors are accountable for ensuring that co-authors are aware of and approve the submission.",
-    "source": "Authorship Guidelines 2025",
-    "tags": ["responsibility", "accountability", "corresponding-author", "integrity", "guidelines"]
+    "id": "policy_090",
+    "category": "ethics_policy",
+    "title": "Reviewer Responsibilities",
+    "content": "Reviewers must notify AAAI of any conflicts of interest or loyalty and remove themselves from those duties or responsibilities to which the conflict relates.\nReviewers must treat the papers assigned to them, and the reviews they write, as confidential documents. Neither the papers nor the reviews may be shown to or discussed with others except as authorized by the editor or program chair, or the submitting author.\nReviewers must also keep information pertaining to the submission confidential in all respects. No information, including content deliberations, decisions on papers, or discussions with other reviewers (including their identities) may be disclosed to outside persons.\nReviewers may not make use of any information contained in the material they review unless that material is available to the general public. Reviewers must bring to the attention of appropriate person any information that might be reason to reject publication of the submission. Reviewers must report any suspicion of serious misconduct to AAAI.\nReviewers must evaluate submissions only for the intellectual content. Personal criticism of the author is inappropriate. Referees should express their views clearly, and support their conclusions.\nReviewers must issue their review in a timely fashion and notify the editor or program chair if prompt review is not possible. Under such circumstances, the reviewers must excuse themselves from the review process.",
+    "source": "publication_ethics.md",
+    "tags": [
+      "ethics",
+      "plagiarism",
+      "authorship",
+      "reviewer-responsibilities",
+      "confidentiality"
+    ]
   },
   {
-    "id": "policy_034",
-    "category": "authorship_guidelines",
-    "title": "Honorary and Ghost Authorship",
-    "content": "Honorary authorship, where a senior figure is listed without meaningful contribution, and ghost authorship, where a real contributor is omitted, are both prohibited. These practices distort the record of who is responsible for the work. The conference may investigate credible reports of either practice as authorship integrity concerns.",
-    "source": "Authorship Guidelines 2025",
-    "tags": ["honorary", "ghost-authorship", "integrity", "contribution", "guidelines"]
+    "id": "policy_091",
+    "category": "ethics_policy",
+    "title": "Editorial Board / Program Committee Responsibilities",
+    "content": "The editorial board and program committee must keep information pertaining to submissions confidential.\nA board or program committee member must disclose any conflict or duality of interest and relinquish responsibilities and duties which would otherwise arise.\nThe editorial board and program committee must evaluate submissions only for the intellectual content.\nThe editorial board or program committee bears responsibility for recommending publication decisions for submissions.\nData sharing is forbidden, and data privacy is taken very seriously. We use data only to judge the quality of genuine submissions and reviews. Any other use is prohibited without explicit advance permission from the AAAI Executive Council.\nThe editorial board and program committee must maintain confidentiality of submitted materials and may not use unpublished materials in any way in their own research without the express written consent of the author. Notwithstanding the foregoing, the editorial board, but not the members of the program committee, may disclose aggregated information and de-identified metadata in accordance with AAAI's privacy policy.",
+    "source": "publication_ethics.md",
+    "tags": [
+      "ethics",
+      "plagiarism",
+      "authorship",
+      "reviewer-responsibilities",
+      "confidentiality"
+    ]
   },
   {
-    "id": "policy_035",
-    "category": "authorship_guidelines",
-    "title": "Equal Contribution and Affiliation Notes",
-    "content": "Papers may designate equal contribution among two or more authors using a clear footnote in the camera-ready version. Affiliations should reflect where the work was primarily conducted. Any special notation, such as equal contribution or shared corresponding authorship, must be agreed upon by the involved authors before the final version is submitted.",
-    "source": "Authorship Guidelines 2025",
-    "tags": ["equal-contribution", "affiliation", "footnote", "camera-ready", "guidelines"]
+    "id": "policy_092",
+    "category": "publication_policies",
+    "title": "AAAI Publication Policies and Guidelines — Overview",
+    "content": "AAAI publication policies and guidelines provide instructions and forms for authors with an accepted paper in a Proceedings or Technical Report that will be formally published by AAAI Press. To obtain such information, please download the author kit for your specific conference. The URL for this kit appears in your acceptance letter.",
+    "source": "publications_policies.md",
+    "tags": [
+      "authorship",
+      "ai-authorship",
+      "reviewer-policy",
+      "llm-policy",
+      "copyright",
+      "errata"
+    ]
   },
   {
-    "id": "policy_036",
-    "category": "withdrawal_policy",
-    "title": "Withdrawing a Submission Before Decisions",
-    "content": "Authors may withdraw a submission at any time before final decisions are released by using the withdrawal function in the submission system or by contacting the program chairs. A withdrawal request should identify the specific submission number. Once withdrawn, a paper is removed from the review process and cannot be reinstated for the current cycle.",
-    "source": "Withdrawal Policy 2025",
-    "tags": ["withdrawal", "submission", "before-decision", "submission-id", "policy"]
+    "id": "policy_093",
+    "category": "publication_policies",
+    "title": "Policy on use of AI systems in producing AAAI or AAAI-related publications",
+    "content": "It is AAAI's policy that any AI system, including Generative Models such as ChatGPT, BARD, and DALL-E, does not satisfy the criteria for authorship of papers published by AAAI and, as such, also cannot be used as a citable source in papers published by AAAI. This includes papers submitted for publication in the AAAI Conference Proceedings, the proceedings of all other AAAI co-organized and cooperating conferences and workshops, and AI Magazine. Attribution of authorship carries with it accountability for the work, which cannot be effectively applied to AI systems. Further, the use of any AI system in the development of an AAAI-affiliated publication is only allowed if its role is properly documented in the manuscript. Ultimately, all authors are responsible for the entire content of their papers, including text, figures, references, and appendices.",
+    "source": "publications_policies.md",
+    "tags": [
+      "authorship",
+      "ai-authorship",
+      "reviewer-policy",
+      "llm-policy",
+      "copyright",
+      "errata"
+    ]
   },
   {
-    "id": "policy_037",
-    "category": "withdrawal_policy",
-    "title": "Withdrawal After Acceptance",
-    "content": "Withdrawing a paper after acceptance is strongly discouraged but permitted in cases such as legal or patent conflicts. Authors must submit a formal written request to the program chairs explaining the reason. Late withdrawals are processed to remove the paper from the proceedings, and the chairs aim to handle such cases without prejudice to future submissions.",
-    "source": "Withdrawal Policy 2025",
-    "tags": ["withdrawal", "after-acceptance", "patent", "proceedings", "policy"]
+    "id": "policy_094",
+    "category": "publication_policies",
+    "title": "Reviewer Policy",
+    "content": "We would like to remind AAAI reviewers that all conference submissions have to be kept confidential. Because of this, submitted papers cannot be uploaded into any system that does not ensure that they are not shared with others. This includes also prompting Large Language Models with papers or parts of them, because these systems may disclose part of the prompt to other users.\nWe would also like to remind reviewers that they are fully responsible for the entire content of their reviews, so tools can be used to improve the wording of the review but not to generate its content.",
+    "source": "publications_policies.md",
+    "tags": [
+      "authorship",
+      "ai-authorship",
+      "reviewer-policy",
+      "llm-policy",
+      "copyright",
+      "errata"
+    ]
   },
   {
-    "id": "policy_038",
-    "category": "withdrawal_policy",
-    "title": "Withdrawing One of Multiple Submissions",
-    "content": "When authors have overlapping submissions and wish to withdraw one to comply with the dual-submission policy, they should specify exactly which submission number to withdraw and which to retain. The retained submission remains active in review. Withdrawing the overlapping paper before reviews begin is the recommended way to avoid a dual-submission violation.",
-    "source": "Withdrawal Policy 2025",
-    "tags": ["withdrawal", "overlap", "dual-submission", "submission-id", "policy"]
+    "id": "policy_095",
+    "category": "publication_policies",
+    "title": "Author Instructions",
+    "content": "Authors of AAAI Press monographs, edited collections, and AI Magazine authors should first consult the instructions on the AAAI Press (https://aaai.org/Press/press.php) and AI Magazine (https://aaai.org/Magazine/magazine.php) Web pages. These instructions are provided primarily for persons who plan to publish a conference, workshop, or symposium paper.",
+    "source": "publications_policies.md",
+    "tags": [
+      "authorship",
+      "ai-authorship",
+      "reviewer-policy",
+      "llm-policy",
+      "copyright",
+      "errata"
+    ]
   },
   {
-    "id": "policy_039",
-    "category": "withdrawal_policy",
-    "title": "Effect of Withdrawal on Future Submissions",
-    "content": "Withdrawing a submission in good faith does not penalize authors or affect their eligibility to submit in future editions of the conference. There is no blacklist for legitimate withdrawals. Repeated patterns of strategic withdrawal intended to game deadlines or reviews, however, may be reviewed by the chairs.",
-    "source": "Withdrawal Policy 2025",
-    "tags": ["withdrawal", "future-submission", "eligibility", "penalty", "policy"]
+    "id": "policy_096",
+    "category": "publication_policies",
+    "title": "AAAI Publications: Reference Documents & Links",
+    "content": "The AAAI Publications Ethics and Malpractice Statement (https://aaai.org/wp-content/uploads/2024/11/Publications_Ethics_and_Malpractice_Statement-July-2024_v3.pdf) was created and approved by the Publications Committee. The current version updated in July 2024.\nThe AAAI Publication Policy (http://aaai.org/wp-content/uploads/2023/01/AAAI_Publication_Policy.pdf) was created by the Publications Committee. The current version was approved on May 8, 2017.",
+    "source": "publications_policies.md",
+    "tags": [
+      "authorship",
+      "ai-authorship",
+      "reviewer-policy",
+      "llm-policy",
+      "copyright",
+      "errata"
+    ]
   },
   {
-    "id": "policy_040",
-    "category": "withdrawal_policy",
-    "title": "Data Deletion After Withdrawal",
-    "content": "Upon withdrawal, authors may request that uploaded files, including datasets and supplementary material, be deleted from the conference servers. The organizers will confirm deletion in writing and typically complete it within thirty days, subject to any required audit retention. Requests citing institutional data governance requirements are accommodated wherever feasible.",
-    "source": "Withdrawal Policy 2025",
-    "tags": ["data-deletion", "withdrawal", "files", "governance", "policy"]
+    "id": "policy_097",
+    "category": "publication_policies",
+    "title": "Submit an Erratum or Errata",
+    "content": "How to submit an erratum or errata (https://aaai.org/wp-content/uploads/2023/03/AAAI_Publications_Submitting_Errata.pdf) to a previously published paper in the AAAI digital Library. The current version was updated in November 2022.",
+    "source": "publications_policies.md",
+    "tags": [
+      "authorship",
+      "ai-authorship",
+      "reviewer-policy",
+      "llm-policy",
+      "copyright",
+      "errata"
+    ]
   },
   {
-    "id": "policy_041",
-    "category": "withdrawal_policy",
-    "title": "Withdrawal Confirmation and Records",
-    "content": "Every withdrawal is acknowledged with a written confirmation from the submission system or the program chairs. Authors should retain this confirmation as their record that the paper is no longer under review. If a confirmation is not received within two business days of a withdrawal request, authors should follow up with the program committee.",
-    "source": "Withdrawal Policy 2025",
-    "tags": ["confirmation", "withdrawal", "records", "acknowledgment", "policy"]
+    "id": "policy_098",
+    "category": "cross_reference",
+    "title": "Policy Cross-Reference and Disambiguation Guide — Overview",
+    "content": "This document clarifies areas where AAAI policies from different sources intersect or require nuanced interpretation. It does not introduce new policy — it explains how existing policies relate to each other.",
+    "source": "policy_cross_reference.md",
+    "tags": [
+      "cross-reference",
+      "ai-authorship",
+      "ai-usage",
+      "page-limits",
+      "reviewer-policy",
+      "confidentiality",
+      "disambiguation"
+    ]
   },
   {
-    "id": "policy_042",
-    "category": "general_faq",
-    "title": "Registration Fees and Timing",
-    "content": "There is no fee to submit a paper; registration fees apply only after acceptance. At least one author of each accepted paper must register at the full rate to have the paper included in the proceedings. Early-bird registration rates are available for a limited window after notification.",
-    "source": "General FAQ 2025",
-    "tags": ["registration", "fee", "accepted", "proceedings", "faq"]
+    "id": "policy_099",
+    "category": "cross_reference",
+    "title": "AI Usage vs AI Authorship",
+    "content": "Two policies govern how AI systems relate to AAAI publications. They address different aspects and both apply simultaneously.\nManuscript Preparation (Call for Papers): Authors may judiciously use generative AI tools (such as large language models and image generators) in preparing their scholarly manuscripts. Authors remain fully responsible for all submitted material.\nAuthorship and Citation (Publication Policies): Any AI system does not satisfy the criteria for authorship of papers published by AAAI and cannot be used as a citable source. Attribution of authorship carries with it accountability for the work, which cannot be effectively applied to AI systems. The use of any AI system in the development of an AAAI-affiliated publication is only allowed if its role is properly documented in the manuscript.\nCombined interpretation: Authors are permitted to use AI tools as aids during writing (e.g., improving wording, generating initial drafts that are then substantially revised). However, the AI system must not be listed as an author, must not appear as a cited source, and its use must be documented in the manuscript. The authors bear full responsibility for all content, including any AI-generated material. Any plagiarism (including unattributed AI-generated text), non-existent references, or other violations remain subject to sanctions.",
+    "source": "policy_cross_reference.md",
+    "tags": [
+      "cross-reference",
+      "ai-authorship",
+      "ai-usage",
+      "page-limits",
+      "reviewer-policy",
+      "confidentiality",
+      "disambiguation"
+    ]
   },
   {
-    "id": "policy_043",
-    "category": "general_faq",
-    "title": "Attendance and Virtual Presentation",
-    "content": "The conference offers both in-person and virtual presentation options for accepted papers. Inclusion in the proceedings requires that the paper be presented in at least one of these formats by a registered author. Authors facing travel constraints should select the virtual option during registration rather than skipping presentation entirely.",
-    "source": "General FAQ 2025",
-    "tags": ["attendance", "virtual", "presentation", "proceedings", "faq"]
+    "id": "policy_100",
+    "category": "cross_reference",
+    "title": "Page Limits: Submission vs Camera-Ready",
+    "content": "Page limits differ between the submission phase and the camera-ready phase.\nAt submission: Submissions are limited to 7 pages of main content, with a maximum total length of 9 pages. Any pages beyond page 7 are reserved exclusively for references. The reproducibility checklist does not count toward the page limit and is to be submitted separately. Acknowledgements should be omitted from papers submitted for review.\nAt camera-ready (after acceptance): Accepted papers are allocated 7 pages in the proceedings plus up to 2 acknowledgement/reference pages (the reference pages can now have acknowledgements and other non-technical sections such as disclaimer of AI usage, ethical impact and statement of contribution). Authors have the option to purchase up to 2 additional pages for additional technical content at $300 per page. All references from the submitted paper must appear in the final version unless superseded.",
+    "source": "policy_cross_reference.md",
+    "tags": [
+      "cross-reference",
+      "ai-authorship",
+      "ai-usage",
+      "page-limits",
+      "reviewer-policy",
+      "confidentiality",
+      "disambiguation"
+    ]
   },
   {
-    "id": "policy_044",
-    "category": "general_faq",
-    "title": "Submission Limits per Author",
-    "content": "There is no strict limit on the number of papers an author may co-author, but each author is expected to fulfill reviewing duties proportional to their submissions. Being a co-author and a lead author carry the same integrity responsibilities. Authors should ensure they can genuinely stand behind every submission bearing their name.",
-    "source": "General FAQ 2025",
-    "tags": ["submission-limit", "co-author", "lead-author", "reviewing", "faq"]
-  },
-  {
-    "id": "policy_045",
-    "category": "general_faq",
-    "title": "Workshops and Main Track Tracks",
-    "content": "Workshops operate on separate timelines from the main track and have their own submission systems and deadlines. A paper rejected from the main track may be eligible for submission to a relevant workshop if the workshop's deadline has not passed and dual-submission rules are respected. Authors should consult each workshop's individual call for participation.",
-    "source": "General FAQ 2025",
-    "tags": ["workshop", "main-track", "deadline", "fallback", "faq"]
+    "id": "policy_101",
+    "category": "cross_reference",
+    "title": "Reviewer Confidentiality and LLM Use",
+    "content": "Two policies govern reviewer confidentiality. The general ethics framework and the specific LLM prohibition both apply.\nGeneral Confidentiality (Publication Ethics and Malpractice Statement): Reviewers must treat assigned papers and their reviews as confidential documents. Neither the papers nor the reviews may be shown to or discussed with others except as authorized by the editor, program chair, or submitting author. No information — including content, deliberations, decisions, or discussions with other reviewers — may be disclosed to outside persons.\nLLM-Specific Prohibition (Publication Policies): Submitted papers cannot be uploaded into any system that does not ensure they are not shared with others. This includes prompting Large Language Models with papers or parts of them, because these systems may disclose part of the prompt to other users.\nReviewer Use of Tools for Review Writing (Publication Policies): Reviewers are fully responsible for the entire content of their reviews. Tools can be used to improve the wording of a review but not to generate its content.\nCombined interpretation: Reviewers must not upload submission content (full papers, excerpts, figures, or data) to any LLM or external system. They may use tools (including AI tools that do not retain or share input) to polish the language of reviews they have independently written, but may not use such tools to generate the substance of the review. The confidentiality obligation covers all aspects of the submission and the review process.",
+    "source": "policy_cross_reference.md",
+    "tags": [
+      "cross-reference",
+      "ai-authorship",
+      "ai-usage",
+      "page-limits",
+      "reviewer-policy",
+      "confidentiality",
+      "disambiguation"
+    ]
   }
 ]

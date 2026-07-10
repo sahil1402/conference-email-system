@@ -128,6 +128,14 @@ class PolicyDocument(Base):
     category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Taxonomy tags (JSON list of strings) and the origin document. Both are
+    # populated from the knowledge-base JSON at seed time (Phase E). Nullable
+    # because the pre-Phase-E dummy rows carry neither until the DB is reseeded
+    # (Phase F). Adding ``tags`` here gives the DB-backed FAISS retriever tag
+    # parity with the file-backed BM25 retriever, which already reads tags.
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
