@@ -1,0 +1,1453 @@
+[
+  {
+    "id": "eval_001",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "When is the full paper submission deadline?",
+    "old_relevant_chunk_id": "policy_002",
+    "old_relevant_policy_keywords": [
+      "deadline",
+      "anywhere on earth"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "july 28",
+      "full papers",
+      "no exceptions"
+    ],
+    "confidence": "medium",
+    "rationale": "Abstract & Paper Submission gives the Jul 28 full-paper deadline; AoE timezone not in the real corpus, hence medium.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_074",
+      "cosine": 0.492
+    }
+  },
+  {
+    "id": "eval_002",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "Abstract registration deadline question",
+    "old_relevant_chunk_id": "policy_004",
+    "old_relevant_policy_keywords": [
+      "abstract",
+      "deadline"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "abstract",
+      "july 21",
+      "full paper"
+    ],
+    "confidence": "high",
+    "rationale": "Same chunk states both the Jul 21 abstract and Jul 28 paper deadlines and their dependency.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_061",
+      "cosine": 0.561
+    }
+  },
+  {
+    "id": "eval_003",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "Camera-ready deadline for accepted paper",
+    "old_relevant_chunk_id": "policy_006",
+    "old_relevant_policy_keywords": [
+      "camera-ready",
+      "proceedings"
+    ],
+    "proposed_relevant_chunk_id": "policy_076",
+    "proposed_relevant_policy_keywords": [
+      "camera-ready",
+      "december 14",
+      "proceedings"
+    ],
+    "confidence": "high",
+    "rationale": "Final Paper Publication: camera-ready Dec 14 and consequences for the proceedings if limits/instructions violated.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_074",
+      "cosine": 0.59
+    }
+  },
+  {
+    "id": "eval_004",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "Rebuttal period dates",
+    "old_relevant_chunk_id": "policy_005",
+    "old_relevant_policy_keywords": [
+      "rebuttal",
+      "response"
+    ],
+    "proposed_relevant_chunk_id": "policy_059",
+    "proposed_relevant_policy_keywords": [
+      "author feedback",
+      "notification"
+    ],
+    "confidence": "low",
+    "rationale": "No dedicated rebuttal-window policy exists; Key Dates only lists the author-feedback window (Oct 19-25). Weak grounding.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_059",
+      "cosine": 0.4
+    }
+  },
+  {
+    "id": "eval_005",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "Requesting a deadline extension",
+    "old_relevant_chunk_id": "policy_003",
+    "old_relevant_policy_keywords": [
+      "extension",
+      "deadline"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "no exceptions",
+      "deadline"
+    ],
+    "confidence": "medium",
+    "rationale": "No extension policy; the closest grounding is 'no individual exceptions once the deadline passes'.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_063",
+      "cosine": 0.4
+    }
+  },
+  {
+    "id": "eval_006",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "subject": "Page limit for the main track",
+    "old_relevant_chunk_id": "policy_008",
+    "old_relevant_policy_keywords": [
+      "page",
+      "references"
+    ],
+    "proposed_relevant_chunk_id": "policy_100",
+    "proposed_relevant_policy_keywords": [
+      "7 pages",
+      "references",
+      "page limit"
+    ],
+    "confidence": "high",
+    "rationale": "Page Limits chunk: 7 pages main content, references beyond p7 — exact answer.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_100",
+      "cosine": 0.665
+    }
+  },
+  {
+    "id": "eval_007",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "subject": "Which LaTeX template should we use?",
+    "old_relevant_chunk_id": "policy_009",
+    "old_relevant_policy_keywords": [
+      "template",
+      "latex"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "author kit",
+      "two-column",
+      "format"
+    ],
+    "confidence": "medium",
+    "rationale": "Mentions the AAAI two-column style + author kit; does not explicitly address reusing last year's style file.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_059",
+      "cosine": 0.338
+    }
+  },
+  {
+    "id": "eval_008",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "subject": "Anonymization for double-blind review",
+    "old_relevant_chunk_id": "policy_011",
+    "old_relevant_policy_keywords": [
+      "anonymized",
+      "double-blind"
+    ],
+    "proposed_relevant_chunk_id": "policy_075",
+    "proposed_relevant_policy_keywords": [
+      "double blind",
+      "anonymous",
+      "third person"
+    ],
+    "confidence": "high",
+    "rationale": "Blind Review: exactly how to handle self-citations for anonymization (third person / Anonymous).",
+    "top_cosine_candidate": {
+      "policy_id": "policy_075",
+      "cosine": 0.583
+    }
+  },
+  {
+    "id": "eval_009",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "subject": "Supplementary material size limit",
+    "old_relevant_chunk_id": "policy_012",
+    "old_relevant_policy_keywords": [
+      "supplementary",
+      "size"
+    ],
+    "proposed_relevant_chunk_id": "policy_071",
+    "proposed_relevant_policy_keywords": [
+      "supplementary material",
+      "pdf",
+      "zip"
+    ],
+    "confidence": "medium",
+    "rationale": "Supplementary Material lists accepted formats/packages; an explicit size limit is not stated, hence medium.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_071",
+      "cosine": 0.538
+    }
+  },
+  {
+    "id": "eval_010",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "subject": "Question about our figures",
+    "old_relevant_chunk_id": "policy_014",
+    "old_relevant_policy_keywords": [
+      "figures",
+      "grayscale"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No figure/grayscale/legibility formatting policy exists in the real corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_071",
+      "cosine": 0.304
+    }
+  },
+  {
+    "id": "eval_011",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "Registration fee question",
+    "old_relevant_chunk_id": "policy_042",
+    "old_relevant_policy_keywords": [
+      "registration",
+      "fee"
+    ],
+    "proposed_relevant_chunk_id": "policy_077",
+    "proposed_relevant_policy_keywords": [
+      "register",
+      "present",
+      "author"
+    ],
+    "confidence": "medium",
+    "rationale": "Conference Registration: at least one author must register/present; no submission-fee amount in corpus, hence medium.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.542
+    }
+  },
+  {
+    "id": "eval_012",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "Virtual attendance possible?",
+    "old_relevant_chunk_id": "policy_043",
+    "old_relevant_policy_keywords": [
+      "virtual",
+      "presentation"
+    ],
+    "proposed_relevant_chunk_id": "policy_077",
+    "proposed_relevant_policy_keywords": [
+      "register",
+      "present",
+      "attend"
+    ],
+    "confidence": "medium",
+    "rationale": "Registration/attendance chunk; virtual presentation not explicitly addressed.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.454
+    }
+  },
+  {
+    "id": "eval_013",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "Workshop vs main track",
+    "old_relevant_chunk_id": "policy_045",
+    "old_relevant_policy_keywords": [
+      "workshop",
+      "deadline"
+    ],
+    "proposed_relevant_chunk_id": "policy_078",
+    "proposed_relevant_policy_keywords": [
+      "affiliated",
+      "sister",
+      "independent"
+    ],
+    "confidence": "medium",
+    "rationale": "No 'workshop' chunk; Affiliated Events (IAAI/EAAI sister conferences, own deadlines/committees) is the closest topical match.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_065",
+      "cosine": 0.426
+    }
+  },
+  {
+    "id": "eval_014",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "How many papers can I co-author?",
+    "old_relevant_chunk_id": "policy_044",
+    "old_relevant_policy_keywords": [
+      "co-author",
+      "reviewing"
+    ],
+    "proposed_relevant_chunk_id": "policy_062",
+    "proposed_relevant_policy_keywords": [
+      "10 submissions",
+      "limit",
+      "author"
+    ],
+    "confidence": "high",
+    "rationale": "Submission Limit per Author: at most 10 — directly answers the co-authorship count.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_062",
+      "cosine": 0.554
+    }
+  },
+  {
+    "id": "eval_015",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "First-time submitter — general process",
+    "old_relevant_chunk_id": "policy_042",
+    "old_relevant_policy_keywords": [
+      "registration",
+      "proceedings"
+    ],
+    "proposed_relevant_chunk_id": "policy_060",
+    "proposed_relevant_policy_keywords": [
+      "author registration",
+      "register"
+    ],
+    "confidence": "medium",
+    "rationale": "Vague first-timer request; Author Registration is the best general on-ramp.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.487
+    }
+  },
+  {
+    "id": "eval_016",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "subject": "Too many papers assigned to review",
+    "old_relevant_chunk_id": "policy_015",
+    "old_relevant_policy_keywords": [
+      "reviewer",
+      "load"
+    ],
+    "proposed_relevant_chunk_id": "policy_047",
+    "proposed_relevant_policy_keywords": [
+      "light load",
+      "review"
+    ],
+    "confidence": "low",
+    "rationale": "No load-rebalancing policy; only the Summary's 'light load' expectation is tangentially relevant.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_100",
+      "cosine": 0.373
+    }
+  },
+  {
+    "id": "eval_017",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "subject": "Cannot see my assigned papers",
+    "old_relevant_chunk_id": "policy_021",
+    "old_relevant_policy_keywords": [
+      "access",
+      "reviewer"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "Reviewer system-access bugs are not covered by any policy chunk (operational/support issue).",
+    "top_cosine_candidate": {
+      "policy_id": "policy_060",
+      "cosine": 0.367
+    }
+  },
+  {
+    "id": "eval_018",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "subject": "Need to decline some review assignments",
+    "old_relevant_chunk_id": "policy_019",
+    "old_relevant_policy_keywords": [
+      "reassign",
+      "area chair"
+    ],
+    "proposed_relevant_chunk_id": "policy_090",
+    "proposed_relevant_policy_keywords": [
+      "notify",
+      "program chair",
+      "excuse"
+    ],
+    "confidence": "medium",
+    "rationale": "Reviewer Responsibilities: reviewers must notify the chair and excuse themselves if they cannot complete a review — directly on point.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.426
+    }
+  },
+  {
+    "id": "eval_019",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "subject": "Paper assigned outside my expertise",
+    "old_relevant_chunk_id": "policy_015",
+    "old_relevant_policy_keywords": [
+      "expertise",
+      "reviewer"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No policy governs reassigning a paper that is outside a reviewer's expertise.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.392
+    }
+  },
+  {
+    "id": "eval_020",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "subject": "Possible conflict on an assigned paper",
+    "old_relevant_chunk_id": "policy_016",
+    "old_relevant_policy_keywords": [
+      "conflict",
+      "reviewer"
+    ],
+    "proposed_relevant_chunk_id": "policy_090",
+    "proposed_relevant_policy_keywords": [
+      "conflict of interest",
+      "recuse",
+      "reviewer"
+    ],
+    "confidence": "medium",
+    "rationale": "Reviewer Responsibilities: reviewers must disclose COI and remove themselves — grounds the conflict-on-assigned-paper case.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.406
+    }
+  },
+  {
+    "id": "eval_021",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "subject": "Added as a co-author without my consent",
+    "old_relevant_chunk_id": "policy_030",
+    "old_relevant_policy_keywords": [
+      "authorship",
+      "consent"
+    ],
+    "proposed_relevant_chunk_id": "policy_088",
+    "proposed_relevant_policy_keywords": [
+      "author list",
+      "contributed",
+      "warrant"
+    ],
+    "confidence": "medium",
+    "rationale": "Author Responsibilities: the author list must accurately reflect those who actually did the work — grounds the added-without-consent case.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_074",
+      "cosine": 0.435
+    }
+  },
+  {
+    "id": "eval_022",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "subject": "Dispute over author order",
+    "old_relevant_chunk_id": "policy_031",
+    "old_relevant_policy_keywords": [
+      "authorship",
+      "order"
+    ],
+    "proposed_relevant_chunk_id": "policy_073",
+    "proposed_relevant_policy_keywords": [
+      "list of authors",
+      "author order",
+      "deadline"
+    ],
+    "confidence": "medium",
+    "rationale": "Regular Paper Submission: author list/order changeable between abstract and paper deadlines — the operative rule for an order dispute.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_088",
+      "cosine": 0.357
+    }
+  },
+  {
+    "id": "eval_023",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "subject": "Please remove me from the author list",
+    "old_relevant_chunk_id": "policy_032",
+    "old_relevant_policy_keywords": [
+      "author",
+      "consent"
+    ],
+    "proposed_relevant_chunk_id": "policy_063",
+    "proposed_relevant_policy_keywords": [
+      "modifications",
+      "full paper deadline",
+      "authors"
+    ],
+    "confidence": "medium",
+    "rationale": "Guidelines for Changes to Titles/Authors: author-list changes only until the full-paper deadline.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_074",
+      "cosine": 0.417
+    }
+  },
+  {
+    "id": "eval_024",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "subject": "Missing co-author was omitted",
+    "old_relevant_chunk_id": "policy_032",
+    "old_relevant_policy_keywords": [
+      "author",
+      "consent"
+    ],
+    "proposed_relevant_chunk_id": "policy_074",
+    "proposed_relevant_policy_keywords": [
+      "camera-ready",
+      "authors cannot be added or deleted",
+      "acceptance"
+    ],
+    "confidence": "high",
+    "rationale": "Paper Data Changes after Acceptance: authors cannot be added/deleted after acceptance — exactly the omitted-co-author-at-camera-ready situation.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_074",
+      "cosine": 0.503
+    }
+  },
+  {
+    "id": "eval_025",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "subject": "Pressure to add a senior name",
+    "old_relevant_chunk_id": "policy_034",
+    "old_relevant_policy_keywords": [
+      "authorship",
+      "contribution"
+    ],
+    "proposed_relevant_chunk_id": "policy_088",
+    "proposed_relevant_policy_keywords": [
+      "author list",
+      "meaningful",
+      "contributed"
+    ],
+    "confidence": "medium",
+    "rationale": "Author Responsibilities: authors must reflect those who contributed meaningfully — grounds the honorary-authorship question.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_069",
+      "cosine": 0.353
+    }
+  },
+  {
+    "id": "eval_026",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "subject": "Reporting suspected plagiarism",
+    "old_relevant_chunk_id": "policy_022",
+    "old_relevant_policy_keywords": [
+      "plagiarism",
+      "attribution"
+    ],
+    "proposed_relevant_chunk_id": "policy_087",
+    "proposed_relevant_policy_keywords": [
+      "plagiarism",
+      "unacceptable",
+      "remove"
+    ],
+    "confidence": "high",
+    "rationale": "Publication Ethics & Malpractice: plagiarism is unacceptable and AAAI will remove offending manuscripts — grounds a plagiarism report.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_089",
+      "cosine": 0.412
+    }
+  },
+  {
+    "id": "eval_027",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "subject": "Possible dual submission",
+    "old_relevant_chunk_id": "policy_025",
+    "old_relevant_policy_keywords": [
+      "dual submission",
+      "concurrent"
+    ],
+    "proposed_relevant_chunk_id": "policy_065",
+    "proposed_relevant_policy_keywords": [
+      "under review",
+      "archival",
+      "simultaneous"
+    ],
+    "confidence": "high",
+    "rationale": "Simultaneous Submission to Other Archival Venues: papers under concurrent review elsewhere are not permitted.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_066",
+      "cosine": 0.545
+    }
+  },
+  {
+    "id": "eval_028",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "subject": "Human subjects approval not disclosed",
+    "old_relevant_chunk_id": "policy_024",
+    "old_relevant_policy_keywords": [
+      "irb",
+      "human subjects"
+    ],
+    "proposed_relevant_chunk_id": "policy_057",
+    "proposed_relevant_policy_keywords": [
+      "human subject",
+      "responsible research",
+      "sensitive data"
+    ],
+    "confidence": "medium",
+    "rationale": "Review Criteria lists responsible research practices incl. human-subject studies/sensitive data — closest to an IRB-disclosure concern.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_091",
+      "cosine": 0.441
+    }
+  },
+  {
+    "id": "eval_029",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "subject": "Reviewer may have breached confidentiality",
+    "old_relevant_chunk_id": "policy_026",
+    "old_relevant_policy_keywords": [
+      "confidentiality",
+      "breach"
+    ],
+    "proposed_relevant_chunk_id": "policy_090",
+    "proposed_relevant_policy_keywords": [
+      "confidential",
+      "reviewers",
+      "misconduct"
+    ],
+    "confidence": "high",
+    "rationale": "Reviewer Responsibilities: papers are confidential and reviewers may not use the information — grounds a confidentiality-breach report.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.47
+    }
+  },
+  {
+    "id": "eval_030",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "subject": "Review seems biased by hidden conflict",
+    "old_relevant_chunk_id": "policy_027",
+    "old_relevant_policy_keywords": [
+      "conflict",
+      "bias"
+    ],
+    "proposed_relevant_chunk_id": "policy_090",
+    "proposed_relevant_policy_keywords": [
+      "conflict of interest",
+      "intellectual content",
+      "reviewer"
+    ],
+    "confidence": "medium",
+    "rationale": "Reviewer Responsibilities: COI disclosure + evaluate only intellectual content — grounds a biased/hidden-conflict review complaint.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.43
+    }
+  },
+  {
+    "id": "eval_031",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "subject": "Withdraw our submission",
+    "old_relevant_chunk_id": "policy_036",
+    "old_relevant_policy_keywords": [
+      "withdraw",
+      "submission"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No chunk describes how to withdraw an AAAI submission before decisions (operational process).",
+    "top_cosine_candidate": {
+      "policy_id": "policy_065",
+      "cosine": 0.376
+    }
+  },
+  {
+    "id": "eval_032",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "subject": "Withdrawal after acceptance due to patent",
+    "old_relevant_chunk_id": "policy_037",
+    "old_relevant_policy_keywords": [
+      "withdrawal",
+      "after acceptance"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No withdrawal-after-acceptance process in the corpus (policy_074 covers title/author edits, not withdrawal).",
+    "top_cosine_candidate": {
+      "policy_id": "policy_065",
+      "cosine": 0.374
+    }
+  },
+  {
+    "id": "eval_033",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "subject": "Data deletion after withdrawal",
+    "old_relevant_chunk_id": "policy_040",
+    "old_relevant_policy_keywords": [
+      "withdrawal",
+      "deletion"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No data-deletion-on-withdrawal policy; the AI-review privacy chunk is about training-data use, not withdrawal deletion.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_065",
+      "cosine": 0.356
+    }
+  },
+  {
+    "id": "eval_034",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "subject": "Withdraw one of two overlapping submissions",
+    "old_relevant_chunk_id": "policy_038",
+    "old_relevant_policy_keywords": [
+      "withdraw",
+      "overlap"
+    ],
+    "proposed_relevant_chunk_id": "policy_064",
+    "proposed_relevant_policy_keywords": [
+      "distinct scientific contribution",
+      "multiple-submission"
+    ],
+    "confidence": "medium",
+    "rationale": "Multiple Submissions policy grounds WHY one of two overlapping papers must go, though not the withdrawal mechanics.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_050",
+      "cosine": 0.449
+    }
+  },
+  {
+    "id": "eval_035",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "subject": "Need to pull our paper over an integrity concern",
+    "old_relevant_chunk_id": "policy_036",
+    "old_relevant_policy_keywords": [
+      "withdraw",
+      "withdrawal"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No withdrawal-process chunk; integrity-driven withdrawal mechanics are uncovered.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_073",
+      "cosine": 0.376
+    }
+  },
+  {
+    "id": "eval_036",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "subject": "Cannot log into the submission system",
+    "old_relevant_chunk_id": "policy_021",
+    "old_relevant_policy_keywords": [
+      "access",
+      "account"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "technical problems",
+      "openreview",
+      "workflow chairs"
+    ],
+    "confidence": "medium",
+    "rationale": "Abstract & Paper Submission: OpenReview technical problems → contact the Workflow Chairs (the only support grounding).",
+    "top_cosine_candidate": {
+      "policy_id": "policy_060",
+      "cosine": 0.28
+    }
+  },
+  {
+    "id": "eval_037",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "subject": "Upload error on final PDF",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [
+      "upload",
+      "system"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "technical problems",
+      "openreview",
+      "workflow chairs"
+    ],
+    "confidence": "medium",
+    "rationale": "Upload error → Workflow-Chairs contact route. NOTE: was null; proposing a contact-route grounding.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_065",
+      "cosine": 0.314
+    }
+  },
+  {
+    "id": "eval_038",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "subject": "Portal shows the wrong title",
+    "old_relevant_chunk_id": "policy_021",
+    "old_relevant_policy_keywords": [
+      "system",
+      "support"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "technical problems",
+      "openreview",
+      "workflow chairs"
+    ],
+    "confidence": "medium",
+    "rationale": "Portal glitch → Workflow-Chairs contact route.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_074",
+      "cosine": 0.492
+    }
+  },
+  {
+    "id": "eval_039",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "subject": "Uploaded file is missing",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [
+      "upload",
+      "files"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "technical problems",
+      "openreview",
+      "workflow chairs"
+    ],
+    "confidence": "medium",
+    "rationale": "Missing-file upload failure → Workflow-Chairs contact route. NOTE: was null.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_071",
+      "cosine": 0.341
+    }
+  },
+  {
+    "id": "eval_040",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "subject": "System crashed right before the deadline",
+    "old_relevant_chunk_id": "policy_003",
+    "old_relevant_policy_keywords": [
+      "system",
+      "upload"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "technical problems",
+      "workflow chairs",
+      "no exceptions"
+    ],
+    "confidence": "medium",
+    "rationale": "System crash before deadline → contact route + 'no exceptions' framing.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_097",
+      "cosine": 0.339
+    }
+  },
+  {
+    "id": "eval_041",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "Deadline for registration and abstract",
+    "old_relevant_chunk_id": "policy_001",
+    "old_relevant_policy_keywords": [
+      "abstract",
+      "deadline",
+      "registration"
+    ],
+    "proposed_relevant_chunk_id": "policy_060",
+    "proposed_relevant_policy_keywords": [
+      "author registration",
+      "abstract deadline",
+      "register"
+    ],
+    "confidence": "high",
+    "rationale": "Author Registration: register before submitting, and well in advance of the abstract deadline — directly answers the ordering question.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_061",
+      "cosine": 0.533
+    }
+  },
+  {
+    "id": "eval_042",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "Timing for camera-ready formatting",
+    "old_relevant_chunk_id": "policy_006",
+    "old_relevant_policy_keywords": [
+      "camera-ready",
+      "deadline"
+    ],
+    "proposed_relevant_chunk_id": "policy_076",
+    "proposed_relevant_policy_keywords": [
+      "camera-ready",
+      "december 14",
+      "proceedings"
+    ],
+    "confidence": "medium",
+    "rationale": "Camera-ready timing clear; the 'do formatting requirements change' part is only partially covered.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_074",
+      "cosine": 0.553
+    }
+  },
+  {
+    "id": "eval_058",
+    "ground_truth_intent": "submission_deadline",
+    "ground_truth_lane": "faq",
+    "subject": "Rebuttal deadline and reviewer response",
+    "old_relevant_chunk_id": "policy_005",
+    "old_relevant_policy_keywords": [
+      "rebuttal",
+      "deadline",
+      "response"
+    ],
+    "proposed_relevant_chunk_id": "policy_051",
+    "proposed_relevant_policy_keywords": [
+      "author response",
+      "reviews"
+    ],
+    "confidence": "low",
+    "rationale": "No explicit rebuttal-close/reviewer-response policy; AI-Assisted Peer-Review Process only describes the author-response phase generally.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_047",
+      "cosine": 0.276
+    }
+  },
+  {
+    "id": "eval_043",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "subject": "Page limit before the deadline",
+    "old_relevant_chunk_id": "policy_008",
+    "old_relevant_policy_keywords": [
+      "page limit",
+      "references"
+    ],
+    "proposed_relevant_chunk_id": "policy_100",
+    "proposed_relevant_policy_keywords": [
+      "7 pages",
+      "references",
+      "page limit"
+    ],
+    "confidence": "high",
+    "rationale": "Same page-limit chunk; references-count question answered directly.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_100",
+      "cosine": 0.668
+    }
+  },
+  {
+    "id": "eval_044",
+    "ground_truth_intent": "formatting_requirements",
+    "ground_truth_lane": "faq",
+    "subject": "Template question for a virtual poster",
+    "old_relevant_chunk_id": "policy_009",
+    "old_relevant_policy_keywords": [
+      "template",
+      "formatting"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "author kit",
+      "two-column",
+      "format"
+    ],
+    "confidence": "medium",
+    "rationale": "Template/format via author kit; virtual-poster aspect is not a formatting policy.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_070",
+      "cosine": 0.348
+    }
+  },
+  {
+    "id": "eval_045",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "Workshop deadline and fees",
+    "old_relevant_chunk_id": "policy_045",
+    "old_relevant_policy_keywords": [
+      "workshop",
+      "fee",
+      "deadline"
+    ],
+    "proposed_relevant_chunk_id": "policy_078",
+    "proposed_relevant_policy_keywords": [
+      "affiliated",
+      "independent",
+      "deadlines"
+    ],
+    "confidence": "medium",
+    "rationale": "Same as eval_013: Affiliated Events is the closest to 'workshops with their own deadlines/fees'.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_059",
+      "cosine": 0.327
+    }
+  },
+  {
+    "id": "eval_046",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "Supplementary material for virtual attendees",
+    "old_relevant_chunk_id": "policy_043",
+    "old_relevant_policy_keywords": [
+      "virtual",
+      "attend",
+      "fee"
+    ],
+    "proposed_relevant_chunk_id": "policy_077",
+    "proposed_relevant_policy_keywords": [
+      "register",
+      "present",
+      "attend"
+    ],
+    "confidence": "medium",
+    "rationale": "Registration/attendance; virtual + fee difference not explicit.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.477
+    }
+  },
+  {
+    "id": "eval_057",
+    "ground_truth_intent": "general_inquiry",
+    "ground_truth_lane": "faq",
+    "subject": "Do co-authors have to review?",
+    "old_relevant_chunk_id": "policy_044",
+    "old_relevant_policy_keywords": [
+      "co-author",
+      "reviewing"
+    ],
+    "proposed_relevant_chunk_id": "policy_060",
+    "proposed_relevant_policy_keywords": [
+      "reviewer pool",
+      "authors",
+      "expected"
+    ],
+    "confidence": "high",
+    "rationale": "Author Registration: all authors are expected to join the reviewer pool — exact answer to co-author reviewing duties.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.519
+    }
+  },
+  {
+    "id": "eval_047",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "subject": "Conflict on a paper I was assigned to review",
+    "old_relevant_chunk_id": "policy_016",
+    "old_relevant_policy_keywords": [
+      "conflict",
+      "reviewer",
+      "reassign"
+    ],
+    "proposed_relevant_chunk_id": "policy_090",
+    "proposed_relevant_policy_keywords": [
+      "conflict of interest",
+      "recuse",
+      "reviewer"
+    ],
+    "confidence": "medium",
+    "rationale": "Same COI-recusal grounding as eval_020.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.362
+    }
+  },
+  {
+    "id": "eval_048",
+    "ground_truth_intent": "review_assignment",
+    "ground_truth_lane": "human_review",
+    "subject": "Cannot access papers assigned for review",
+    "old_relevant_chunk_id": "policy_021",
+    "old_relevant_policy_keywords": [
+      "access",
+      "reviewer",
+      "assignment"
+    ],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "Reviewer portal-access bug — operational/support, no policy grounding.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_094",
+      "cosine": 0.402
+    }
+  },
+  {
+    "id": "eval_049",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "subject": "Co-author added without consent - is this misconduct?",
+    "old_relevant_chunk_id": "policy_030",
+    "old_relevant_policy_keywords": [
+      "author list",
+      "authorship",
+      "consent"
+    ],
+    "proposed_relevant_chunk_id": "policy_088",
+    "proposed_relevant_policy_keywords": [
+      "author list",
+      "contributed",
+      "warrant"
+    ],
+    "confidence": "medium",
+    "rationale": "Author Responsibilities grounds the authorship-vs-misconduct question on the authorship side.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_088",
+      "cosine": 0.417
+    }
+  },
+  {
+    "id": "eval_050",
+    "ground_truth_intent": "authorship_dispute",
+    "ground_truth_lane": "human_review",
+    "subject": "Remove me from the paper before it is withdrawn",
+    "old_relevant_chunk_id": "policy_032",
+    "old_relevant_policy_keywords": [
+      "remove me",
+      "author list"
+    ],
+    "proposed_relevant_chunk_id": "policy_063",
+    "proposed_relevant_policy_keywords": [
+      "modifications",
+      "full paper deadline",
+      "authors"
+    ],
+    "confidence": "medium",
+    "rationale": "Author-list change window; the withdraw-alternative is separate/uncovered.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_073",
+      "cosine": 0.393
+    }
+  },
+  {
+    "id": "eval_051",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "subject": "Withdraw due to a possible integrity problem",
+    "old_relevant_chunk_id": "policy_036",
+    "old_relevant_policy_keywords": [
+      "withdraw",
+      "submission"
+    ],
+    "proposed_relevant_chunk_id": "policy_049",
+    "proposed_relevant_policy_keywords": [
+      "violations",
+      "ethics",
+      "sanctions"
+    ],
+    "confidence": "medium",
+    "rationale": "Ethics Violations Statement grounds the 'should we also report this as an ethics concern' part; withdrawal mechanics remain uncovered.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_069",
+      "cosine": 0.423
+    }
+  },
+  {
+    "id": "eval_052",
+    "ground_truth_intent": "submission_withdrawal",
+    "ground_truth_lane": "human_review",
+    "subject": "Withdraw failed in the system",
+    "old_relevant_chunk_id": "policy_036",
+    "old_relevant_policy_keywords": [
+      "withdraw",
+      "withdrawal",
+      "submission"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "technical problems",
+      "openreview",
+      "workflow chairs"
+    ],
+    "confidence": "medium",
+    "rationale": "System error during withdrawal is a technical issue → the corpus routes OpenReview technical problems to the Workflow Chairs.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_097",
+      "cosine": 0.266
+    }
+  },
+  {
+    "id": "eval_053",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "subject": "Biased review from an undisclosed conflict?",
+    "old_relevant_chunk_id": "policy_027",
+    "old_relevant_policy_keywords": [
+      "conflict",
+      "bias",
+      "undisclosed"
+    ],
+    "proposed_relevant_chunk_id": "policy_090",
+    "proposed_relevant_policy_keywords": [
+      "conflict of interest",
+      "intellectual content",
+      "reviewer"
+    ],
+    "confidence": "medium",
+    "rationale": "Same grounding as eval_030 (undisclosed-conflict biased review).",
+    "top_cosine_candidate": {
+      "policy_id": "policy_090",
+      "cosine": 0.452
+    }
+  },
+  {
+    "id": "eval_054",
+    "ground_truth_intent": "ethics_concern",
+    "ground_truth_lane": "human_review",
+    "subject": "Uncited reuse of text - formatting or plagiarism?",
+    "old_relevant_chunk_id": "policy_022",
+    "old_relevant_policy_keywords": [
+      "plagiarism",
+      "attribution"
+    ],
+    "proposed_relevant_chunk_id": "policy_049",
+    "proposed_relevant_policy_keywords": [
+      "self-plagiarism",
+      "plagiarism",
+      "violations"
+    ],
+    "confidence": "medium",
+    "rationale": "Ethics Violations Statement lists self-plagiarism among punishable violations — grounds the uncited-reuse question.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_048",
+      "cosine": 0.403
+    }
+  },
+  {
+    "id": "eval_055",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "subject": "Portal outage right at the deadline",
+    "old_relevant_chunk_id": "policy_003",
+    "old_relevant_policy_keywords": [
+      "portal",
+      "system",
+      "error"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "technical problems",
+      "workflow chairs",
+      "no exceptions"
+    ],
+    "confidence": "medium",
+    "rationale": "Portal outage at deadline → contact route + 'no exceptions'.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_065",
+      "cosine": 0.358
+    }
+  },
+  {
+    "id": "eval_056",
+    "ground_truth_intent": "technical_issue",
+    "ground_truth_lane": "human_review",
+    "subject": "PDF upload rejected for formatting",
+    "old_relevant_chunk_id": "policy_010",
+    "old_relevant_policy_keywords": [
+      "upload",
+      "system",
+      "error"
+    ],
+    "proposed_relevant_chunk_id": "policy_061",
+    "proposed_relevant_policy_keywords": [
+      "pdf",
+      "truetype",
+      "fonts"
+    ],
+    "confidence": "medium",
+    "rationale": "PDF rejected for fonts → policy_061 specifies trouble-free high-resolution PDF with Type 1/TrueType fonts.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_097",
+      "cosine": 0.245
+    }
+  },
+  {
+    "id": "eval_059",
+    "ground_truth_intent": "sponsorship",
+    "ground_truth_lane": "human_review",
+    "subject": "Interested in becoming a conference sponsor",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No sponsorship policy in the corpus (author/policy-facing KB); correctly stays null.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.475
+    }
+  },
+  {
+    "id": "eval_060",
+    "ground_truth_intent": "sponsorship",
+    "ground_truth_lane": "human_review",
+    "subject": "Exhibitor booth availability and pricing",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No exhibitor/sponsorship policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.424
+    }
+  },
+  {
+    "id": "eval_061",
+    "ground_truth_intent": "sponsorship",
+    "ground_truth_lane": "human_review",
+    "subject": "Financial support for the student program",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No sponsorship-agreement policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.47
+    }
+  },
+  {
+    "id": "eval_062",
+    "ground_truth_intent": "publicity",
+    "ground_truth_lane": "human_review",
+    "subject": "Promoting the conference on social media",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No publicity/promotion policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.459
+    }
+  },
+  {
+    "id": "eval_063",
+    "ground_truth_intent": "publicity",
+    "ground_truth_lane": "human_review",
+    "subject": "Adding the event to our newsletter",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No publicity/advertising policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.522
+    }
+  },
+  {
+    "id": "eval_064",
+    "ground_truth_intent": "publicity",
+    "ground_truth_lane": "human_review",
+    "subject": "Cross-promotion with our research blog",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No cross-promotion/publicity policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.373
+    }
+  },
+  {
+    "id": "eval_065",
+    "ground_truth_intent": "media_inquiry",
+    "ground_truth_lane": "human_review",
+    "subject": "Press pass request for conference coverage",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No media-accreditation/press policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.448
+    }
+  },
+  {
+    "id": "eval_066",
+    "ground_truth_intent": "media_inquiry",
+    "ground_truth_lane": "human_review",
+    "subject": "Interview request with the program committee",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No media/embargo policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_058",
+      "cosine": 0.437
+    }
+  },
+  {
+    "id": "eval_067",
+    "ground_truth_intent": "media_inquiry",
+    "ground_truth_lane": "human_review",
+    "subject": "Media inquiry about the conference",
+    "old_relevant_chunk_id": null,
+    "old_relevant_policy_keywords": [],
+    "proposed_relevant_chunk_id": null,
+    "proposed_relevant_policy_keywords": [],
+    "confidence": "null",
+    "rationale": "No media-contact/press policy in the corpus.",
+    "top_cosine_candidate": {
+      "policy_id": "policy_077",
+      "cosine": 0.477
+    }
+  }
+]

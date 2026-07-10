@@ -232,10 +232,12 @@ Replaced the 45-chunk dummy KB with the real **AAAI-27 policy corpus**; retrieve
 | Retrieval-only R@1/3/5 (bm25/faiss/fusion) | ~0.68–1.0 | **0.000** | expected-stale — gold IDs point at dropped dummy chunks |
 
   Classifier/routing byte-identical confirms the retriever/classifier boundary held (nothing leaked). Retrieval-only zeros are a **stale-ground-truth artifact, not a regression** — the retriever demonstrably works (Piece G).
-- **⚠️ Flagged follow-up (IN PROGRESS, not done)**: `data/eval/ground_truth.json`'s `relevant_chunk_id` + `relevant_policy_keywords` still reference the dropped dummy corpus. They need re-authoring against `policy_046`–`101` before retrieval-only metrics are meaningful again. A remap proposal is being generated separately, pending review — **left untouched this phase**.
+- **Ground-truth remap — DONE (closing addendum)**: `data/eval/ground_truth.json` re-authored against the real corpus (only `relevant_chunk_id`/`relevant_policy_keywords` touched) — **45/67 entries now carry real chunk IDs (`policy_046`–`101`), 22 correctly null** (operational/logistics emails — portal bugs, reviewer reassignment, AAAI withdrawal mechanics — plus the sponsorship/publicity/media_inquiry intents the corpus doesn't cover; these escalate to human review with no forced citation). Classifier + routing **reconfirmed byte-identical** post-remap (acc 0.8507 / macro F1 0.8729 / routing 0.7761), proving the remap touched retrieval fields only.
+  - **Retrieval-only now real** (45 scored / 22 excluded; report `backend/reports/eval_remap_verify.json`), R@1/3/5 · nDCG@1/3/5: bm25 0.333/0.533/0.578 · 0.333/0.451/0.468; faiss 0.378/0.533/0.733 · 0.378/0.464/0.547; fusion 0.356/0.600/0.756 · 0.356/0.504/0.568. These are **lower than the old dummy-corpus 5A baseline** (bm25 0.71/0.87/0.92, faiss 0.82/0.97/1.0) because that baseline was synthetic-emails-matching-synthetic-policies (near-trivial by construction); these reflect **genuine retrieval difficulty on real policy content, not a regression**.
+  - **Flag for later**: fusion led bm25/faiss at R@3/R@5 here (0.600/0.756) — worth revisiting for a future default-backend decision, not conclusive on 45 emails.
 - **Post-swap demo-data cleanup (DB-only, no code/schema change)**: `emails`/`audit_logs` had accumulated to 95/408 (3× duplicate re-seeds of the 30 toy emails + 5 dev-test rows, since seed.py's email path isn't idempotent). Truncated both and re-seeded a single clean pass of the 30 toy emails (template drafter, this run only) against the real corpus — all 30 emails' citations verified in `policy_046`–`101`, zero dummy refs.
 - **CURRENT demo-data state**: **emails 30 · audit_logs 144 · policy_documents 56 · chairs 5**.
-- Status: **COMPLETE** — pending Sahil's manual browser verification (batched with 6A/6B), the ground_truth.json remap (separate, in progress), and merge to main.
+- Status: **COMPLETE** (incl. ground-truth remap + eval verification) — pending Sahil's manual browser verification (batched with 6A/6B) and merge to main.
 
 ---
 
@@ -264,7 +266,7 @@ Replaced the 45-chunk dummy KB with the real **AAAI-27 policy corpus**; retrieve
 ## Open Blockers (active)
 - **NCSA Delta GPU access pending** — the Phase 3D local drafter (MODEL_PROVIDER=local, Ollama on Delta) is implemented and unit-tested with mocks but NOT yet run on real GPU hardware; awaiting Delta access for live local-model validation.
 - **Synthetic EMAIL dataset** — the **policy corpus is now the real AAAI-27 KB** (56 chunks), but data/emails/toy_dataset.json (30) and data/eval/ground_truth.json (67) remain hand-written synthetic emails; eval numbers (classification 85.1% / routing 77.6%) are on synthetic email traffic, not real conference email.
-- **Stale eval ground truth (IN PROGRESS)** — data/eval/ground_truth.json's `relevant_chunk_id`/`relevant_policy_keywords` still point at the dropped dummy corpus (`policy_001`–`045`), so retrieval-only metrics read 0.000 post-swap (artifact, not a regression). Remap against `policy_046`–`101` is being drafted separately, pending review.
+- **Eval ground-truth remap — RESOLVED** — data/eval/ground_truth.json re-authored against `policy_046`–`101` (45 real gold chunks / 22 null); retrieval-only metrics real again (details in the Real-Corpus phase entry).
 
 ## Phase 5 — In Progress
 5A eval/observability ✅ done · 5B calibration ✅ done · 5C retrieval fusion ✅ done · 5D no-API drafter ✅ done · 5E live queue + calibration view ✅ done · 5F chair-edit diff + shortcuts ✅ done · 5G active learning flag ✅ done · 5H drafter adapter spec ✅ done · 5I Docker/CI ✅ done · 5J demo recording
