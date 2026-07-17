@@ -77,3 +77,8 @@ Thumbs.db
 # Local backup artifacts (knowledge-base swaps)
 data/knowledge_base/*.bak-*
 data/knowledge_base/*.db-export-*.json
+
+# Claude workflow
+claude_hist.md
+Claude.md
+CLAUDE.md

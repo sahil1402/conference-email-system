@@ -2,7 +2,7 @@
 
 Implements step 1 of the test roadmap in docs/PIPELINE_AUDIT.md. Two resumable
 stages over data/tickets/marc_threads.jsonl and the real policy KB
-(data/knowledge_base/policies_aaai27.json):
+(data/knowledge_base/policies.json):
 
   sample  ~200 answered threads, stratified by keyword-classifier intent with
           author-facing intents over-sampled (the corpus skews ~68%
@@ -43,7 +43,7 @@ from app.pipeline.retriever import PolicyRetriever  # noqa: E402
 from distill_style_guide import chat, scrub, strip_quoted_tail  # noqa: E402
 
 THREADS_PATH = REPO_ROOT / "data" / "tickets" / "marc_threads.jsonl"
-KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies_aaai27.json"
+KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
 OUT_DIR = REPO_ROOT / "data" / "eval_real"
 SAMPLE_PATH = OUT_DIR / "sample.jsonl"
 LABELS_PATH = OUT_DIR / "labels.jsonl"

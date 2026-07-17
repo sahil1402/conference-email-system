@@ -12,7 +12,7 @@
 
 ## Setup
 
-**Corpus:** `data/knowledge_base/policies_aaai27.json` — 93 chunks from the six real AAAI policy markdown docs (`chunk_policies.py`: `##` primary cut, `###` subsection split, preamble "Overview" chunks, oversize leaves paragraph-packed; contextual path titles; median 99 words, max 216, none past the ~220-word dense-embed truncation bound).
+**Corpus:** `data/knowledge_base/policies.json` (formerly `policies.json`; promoted to canonical at the 2026-07-17 corpus unification — see `archive/README.md`) — 93 chunks from the six real AAAI policy markdown docs (`chunk_policies.py`: `##` primary cut, `###` subsection split, preamble "Overview" chunks, oversize leaves paragraph-packed; contextual path titles; median 99 words, max 216, none past the ~220-word dense-embed truncation bound).
 
 **Eval set:** 202 real tickets sampled from the answered-thread corpus (`data/tickets/marc_threads.jsonl`), stratified by keyword-classifier intent with author-facing intents over-sampled. Relevance labels produced by an external labeling model **anchored on the chair's actual reply** (the reply defines the information need), multi-gold, with a full-catalog miss-scan. Label QA: 20-ticket independent spot-check by a separate model family — answerable 19/20, chunk selection 9/9, intent 19/20 agreement; known bias: slightly *generous* on answerability. **Scored subset: 37 tickets** (policy-answerable with ≥1 gold chunk).
 

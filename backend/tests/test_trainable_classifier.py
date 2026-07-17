@@ -15,6 +15,9 @@ import main
 import app.pipeline.trainable_classifier as tcmod
 from app.pipeline.trainable_classifier import TrainableClassifier
 
+# Heavy ML module (embedding model loads/training) — deselected by -m 'not ml'.
+pytestmark = pytest.mark.ml
+
 
 def _samples() -> list[dict]:
     """10 synthetic labeled emails across 3 intents."""

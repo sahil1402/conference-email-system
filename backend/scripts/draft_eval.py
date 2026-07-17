@@ -37,7 +37,7 @@ from app.pipeline.retriever import PolicyRetriever, RetrievedChunk  # noqa: E402
 from app.pipeline.router import EmailRouter  # noqa: E402
 from distill_style_guide import read_key, scrub  # noqa: E402
 
-KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies_aaai27.json"
+KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
 EVAL_DIR = REPO_ROOT / "data" / "eval_real"
 SAMPLE_PATH = EVAL_DIR / "sample.jsonl"
 LABELS_PATH = EVAL_DIR / "labels.jsonl"

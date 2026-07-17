@@ -41,3 +41,6 @@ packages = ["app"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "ml: heavy ML tests (embedding-model loads/training; slow on networked filesystems) — skip with -m 'not ml' for fast iteration",
+]

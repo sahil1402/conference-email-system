@@ -12,6 +12,9 @@ import app.pipeline.retriever as retriever_module
 from app.pipeline.fusion_retriever import FusionRetriever
 from app.pipeline.retriever import PolicyRetriever, RetrievedChunk
 
+# Heavy ML module (embedding model loads/training) — deselected by -m 'not ml'.
+pytestmark = pytest.mark.ml
+
 _RRF_K = 60
 
 

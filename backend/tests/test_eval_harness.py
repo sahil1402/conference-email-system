@@ -21,6 +21,9 @@ _GROUND_TRUTH = _PROJECT_ROOT / "data" / "eval" / "ground_truth.json"
 sys.path.insert(0, str(_BACKEND_DIR / "scripts"))
 import run_eval  # noqa: E402
 
+# Heavy ML module (embedding model loads/training) — deselected by -m 'not ml'.
+pytestmark = pytest.mark.ml
+
 
 def _load_ground_truth() -> list[dict]:
     with open(_GROUND_TRUTH, encoding="utf-8") as fh:

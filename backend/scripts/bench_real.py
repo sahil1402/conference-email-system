@@ -2,7 +2,7 @@
 
 Implements test-roadmap steps 2-4 from docs/PIPELINE_AUDIT.md over the labeled
 sample produced by label_real_tickets.py (data/eval_real/sample.jsonl +
-labels.jsonl) and the real policy KB (policies_aaai27.json).
+labels.jsonl) and the real policy KB (policies.json).
 
 Reports (all PII-free — ids and metrics only):
   1. Coverage — fraction of real traffic answerable from the policy docs,
@@ -37,7 +37,7 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 from app.pipeline.retriever import PolicyRetriever  # noqa: E402
 
-KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies_aaai27.json"
+KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
 SAMPLE_PATH = REPO_ROOT / "data" / "eval_real" / "sample.jsonl"
 LABELS_PATH = REPO_ROOT / "data" / "eval_real" / "labels.jsonl"
 

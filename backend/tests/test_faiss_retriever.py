@@ -23,6 +23,9 @@ import app.pipeline.retriever as retriever_module
 from app.pipeline.faiss_retriever import FAISSRetriever
 from app.pipeline.retriever import PolicyRetriever, RetrievedChunk
 
+# Heavy ML module (embedding model loads/training) — deselected by -m 'not ml'.
+pytestmark = pytest.mark.ml
+
 
 def _fake_policies() -> list:
     """5 realistic conference-policy documents (PolicyDocument-shaped)."""

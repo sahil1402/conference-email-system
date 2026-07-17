@@ -1,7 +1,7 @@
 """Chunk the real AAAI policy markdown documents into the knowledge-base schema.
 
 Reads the six AAAI-27 policy docs (markdown with YAML frontmatter) and emits
-data/knowledge_base/policies_aaai27.json in the exact schema of the existing
+data/knowledge_base/policies.json in the exact schema of the existing
 toy KB (id/category/title/content/source/tags), so BOTH retrieval backends work
 unchanged: BM25 indexes title+content+tags from the JSON, and FAISS embeds
 "title content" once the chunks are seeded into policy_documents.
@@ -33,8 +33,8 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_POLICIES_DIR = REPO_ROOT.parent / "policies"
-DEFAULT_OUTPUT = REPO_ROOT / "data" / "knowledge_base" / "policies_aaai27.json"
+DEFAULT_POLICIES_DIR = REPO_ROOT / "data" / "policy_corpus_real"
+DEFAULT_OUTPUT = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
 
 FIRST_ID = 101
 # Leaf chunks above this word count get paragraph-packed into parts (dense

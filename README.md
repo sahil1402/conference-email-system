@@ -72,7 +72,7 @@ Every stage is a swappable, config-flag-controlled module — none of these are 
 | Stage | Backend Options | Notes |
 |---|---|---|
 | Classifier | `keyword` · `trainable` | Trainable backend uses sentence-transformers embeddings + LogisticRegression, exposed via `/api/v1/train/classifier` |
-| Retriever | `bm25` · `faiss` · `fusion` | Grounds replies in the real **AAAI-27 policy corpus** (56 chunks parsed from 6 official AAAI policy documents — call for papers, submission instructions, code of conduct, publication ethics, publication policies, and a cross-reference guide — each tagged from a fixed 25-term taxonomy). `bm25` is lexical; `faiss` uses sentence-transformers (`all-MiniLM-L6-v2`) with `IndexFlatIP` cosine similarity; `fusion` is reciprocal-rank fusion over both. Both `bm25` (from the corpus file) and `faiss` (from the DB) now surface chunk tags — tag parity across backends |
+| Retriever | `bm25` · `faiss` · `fusion` | Grounds replies in the real **AAAI-27 policy corpus** (93 chunks parsed from 6 official AAAI policy documents — call for papers, submission instructions, code of conduct, publication ethics, publication policies, and a cross-reference guide — each tagged from its document frontmatter and section headings). `bm25` is lexical; `faiss` uses sentence-transformers (`all-MiniLM-L6-v2`) with `IndexFlatIP` cosine similarity; `fusion` is reciprocal-rank fusion over both. Both `bm25` (from the corpus file) and `faiss` (from the DB) now surface chunk tags — tag parity across backends |
 | Router (lane) | `threshold` · `rl` | RL backend is an online, epsilon-greedy contextual bandit updated on every approve/reroute |
 | Chair Router | `intent_mapping` · `learned` (planned) | Assigns human-review emails to a specific chair by matching classified intent against each chair's owned areas; falls back to a general/catch-all chair on no match. Reroutes are logged as the future training signal for a learned assignment policy |
 | Drafter | `anthropic_api` · `local` · `template` | `local` targets an Ollama-compatible endpoint (pending GPU compute); `template` is a zero-dependency, zero-API fallback |
@@ -145,7 +145,7 @@ conference-email-system/
 │   ├── data/
 │   │   ├── toy_emails.json            # Labeled toy emails across all intents
 │   │   ├── toy_emails_multichair.py   # NEW (Phase 6A): toy dataset exercising all 5 chairs
-│   │   └── policies.json              # Real AAAI-27 policy corpus — 56 tagged chunks (policy_046-101)
+│   │   └── policies.json              # Real AAAI-27 policy corpus — 93 tagged chunks (policy_101-193)
 │   ├── data/eval/
 │   │   └── ground_truth.json          # Eval set covering all classifier intents
 │   ├── models/                        # Trained classifier artifacts
@@ -365,7 +365,7 @@ FAISS retriever, expanded ground-truth eval set, `scripts/run_eval.py` CLI, livi
 - **Held-out validation** (planned): validate calibration (5B) on held-out data before enabling by default
 - **Real conference dataset** (planned): pending AAAI dataset approval
 
-**Outstanding blockers:** NCSA Delta GPU allocation (for local draft generation) is still pending. The **policy corpus is now the real AAAI-27 knowledge base** (56 chunks); the **email dataset remains synthetic** (toy emails) pending real conference email traffic.
+**Outstanding blockers:** NCSA Delta GPU allocation (for local draft generation) is still pending. The **policy corpus is now the real AAAI-27 knowledge base** (93 chunks, see archive/README.md for the corpus unification); the **email dataset remains synthetic** (toy emails) pending real conference email traffic.
 
 ---
 
