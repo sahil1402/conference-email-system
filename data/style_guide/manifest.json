@@ -22,7 +22,12 @@
       "single unified grounding constraint instead of overlapping restatements",
       "no hard word cap (was 'usually under 150 words') — length is the model's call, but concise/to-the-point/no-filler kept (user direction 2026-07-17)"
     ],
-    "eval_plan": "A/B v1 vs v2 (vs no guide) in the held-out eval against real chair replies once retrieval bench + drafter auth fix land"
+    "eval_plan": "A/B v1 vs v2 (vs no guide) in the held-out eval against real chair replies once retrieval bench + drafter auth fix land",
+    "revision_2026_07_17_placeholder_contract": [
+      "rule 2.1 rewritten: never PROMISE an action either ('we will look into...'); operational steps become [CHAIR: ...] placeholders",
+      "hard constraint 1 rewritten: unanswerable parts get an inline [CHAIR: ...] placeholder + a chair note, never 'the policy does not specify' in the reply",
+      "motivation: 50/74 eval drafts leaked chair-facing meta language into the reply body; the drafter system prompt now carries the same placeholder contract (primary enforcement) and this guide must not contradict it"
+    ]
   },
   "note": "Guides are style/behavior only; policy content comes from retrieval. Active version to be selected by the future STYLE_GUIDE_PATH setting."
 }

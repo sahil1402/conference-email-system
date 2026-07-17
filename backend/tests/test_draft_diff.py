@@ -154,3 +154,53 @@ async def test_whitespace_only_change_is_not_an_edit(ctx):
     assert resp.status_code == 200
     approved = [e for e in await _audit_entries(ctx.client, email_id) if e["action"] == "approved"]
     assert approved[0]["details"]["edited"] is False
+
+
+# ---------------------------------------------------------------------------
+# Send-gate: unresolved [CHAIR: ...] placeholders block approval (Phase 7F)
+# ---------------------------------------------------------------------------
+_PLACEHOLDER_DRAFT = (
+    "Dear author, you can update the affiliation by "
+    "[CHAIR: fill in the CRC update procedure]."
+)
+
+
+async def test_approve_blocked_while_placeholders_remain(ctx):
+    email_id = await _seed_email(ctx.factory, _PLACEHOLDER_DRAFT)
+    resp = await ctx.client.patch(
+        f"/api/v1/emails/{email_id}/approve",
+        json={"approved_by": "chair"},
+    )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["placeholders"] == ["fill in the CRC update procedure"]
+    # Nothing was approved or audited — the email still awaits the chair's edit.
+    assert await _audit_entries(ctx.client, email_id) == []
+
+
+async def test_approve_blocked_when_edit_still_has_placeholder(ctx):
+    email_id = await _seed_email(ctx.factory, _PLACEHOLDER_DRAFT)
+    resp = await ctx.client.patch(
+        f"/api/v1/emails/{email_id}/approve",
+        json={
+            "approved_by": "chair",
+            "final_text": "Dear author, [CHAIR: decide the procedure] applies.",
+        },
+    )
+    assert resp.status_code == 409
+
+
+async def test_approve_succeeds_once_placeholders_resolved(ctx):
+    email_id = await _seed_email(ctx.factory, _PLACEHOLDER_DRAFT)
+    fixed = (
+        "Dear author, you can update the affiliation by emailing the "
+        "publications chairs with your paper id."
+    )
+    resp = await ctx.client.patch(
+        f"/api/v1/emails/{email_id}/approve",
+        json={"approved_by": "chair", "final_text": fixed},
+    )
+    assert resp.status_code == 200
+    draft = resp.json()["draft"]
+    assert draft["draft_text"] == fixed
+    assert draft["original_draft_text"] == _PLACEHOLDER_DRAFT

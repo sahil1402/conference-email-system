@@ -82,6 +82,10 @@ export interface DraftResult {
   citations: string[];
   model_used: string;
   generation_metadata: Record<string, unknown>;
+  /** Chair-facing caveats/suggestions — never part of the sendable reply (7F). */
+  notes_for_chair?: string | null;
+  /** Hints of the [CHAIR: ...] placeholders the drafter left in draft_text (7F). */
+  placeholders?: string[];
   /** Set once a chair edits the draft (Phase 5F): the original AI/template text. */
   original_draft_text?: string;
   is_edited?: boolean;

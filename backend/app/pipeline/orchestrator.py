@@ -180,8 +180,22 @@ class EmailPipeline:
                 "draft_length": len(draft.draft_text),
                 "provider": draft.generation_metadata.get("provider", self.drafter.provider),
                 "model_used": draft.model_used,
+                "placeholders": len(draft.placeholders),
             }
         status = "draft_failed" if draft.generation_metadata.get("error") else "complete"
+
+        # A draft with [CHAIR: ...] placeholders needs chair input by
+        # construction — it is never FAQ-complete, whatever the router chose.
+        if draft.placeholders and routing.lane != LANE_HUMAN_REVIEW:
+            routing = routing.model_copy(
+                update={
+                    "lane": LANE_HUMAN_REVIEW,
+                    "override_reason": (
+                        f"draft contains {len(draft.placeholders)} chair "
+                        "placeholder(s) requiring input before sending"
+                    ),
+                }
+            )
 
         # --- chair assignment (the second routing decision) ---------------
         # Human-review only; returns None for FAQ-lane emails. Kept out of the

@@ -44,14 +44,23 @@ to emails from authors and reviewers.
 Rules you must follow without exception:
 - Ground every statement in the policy context provided in the user message.
 - Never invent, assume, or generalize a policy that is not in that context.
-- If the context does not answer the question, say so plainly and do not guess.
 - Be concise, professional, and direct.
 - For the FAQ lane: give a complete, final answer the author can act on.
-- For the human-review lane: write the best reply the context supports; put \
-every uncertainty, caveat, or confirmation the chair should handle in the \
-NOTES FOR CHAIR section — never inside the reply.
 - The REPLY section must contain ONLY the email text the requester should \
 receive: no headers like "Draft reply:", no meta-commentary, no chair notes.
+- Write the reply as a chair with full knowledge would. Never tell the \
+requester that the policy or context does not specify or cover something, and \
+never promise investigation ("we will look into / check / follow up") — you \
+cannot perform actions.
+- Where the context cannot support something the reply needs — a fact, a \
+procedure, a decision — do not guess and do not mention the gap: insert an \
+inline placeholder at that exact spot, formatted [CHAIR: what to fill in or \
+decide], keeping the surrounding sentence natural so the chair only edits the \
+bracketed part.
+- For every placeholder, add a matching line in NOTES FOR CHAIR: what is \
+missing, whether it is a knowledge gap or a chair decision, and a suggested \
+resolution if you can infer one. Every other uncertainty, caveat, or \
+confirmation the chair should handle also goes there — never in the reply.
 - Never mention internal policy ids (like policy_004) in the reply — refer to \
 policies by their natural names (e.g. "the submission instructions").
 
@@ -76,6 +85,63 @@ _INLINE_ID_RE = re.compile(
     r"\s*\((?:see\s+)?policy_\d+(?:\s*,\s*policy_\d+)*\)|\bpolicy_\d+\b"
 )
 _SCAFFOLD_RE = re.compile(r"^\s*(?:draft\s+reply|reply|draft)\s*:\s*\n+", re.IGNORECASE)
+
+# Chair-editable placeholders the drafter inserts where the context cannot
+# support a statement. Public: the approve endpoint uses it as the send-gate.
+PLACEHOLDER_RE = re.compile(r"\[CHAIR:\s*(?P<hint>[^\]]*)\]")
+
+# Chair-facing meta language that must never reach a requester — the reply
+# contract routes it to placeholders/notes, and these flag any residual leaks.
+_LEAK_PATTERNS = (
+    re.compile(
+        r"(?:do(?:es)?\s+not|doesn'?t|don'?t)\s+"
+        r"(?:specify|state|address|cover|mention)|not\s+specified",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwe\s+(?:will|'ll)\s+(?:look\s+into|check|verify|confirm|"
+        r"investigate|follow\s+up)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:cannot|can'?t|unable\s+to)\s+(?:confirm|verify|determine)\b",
+        re.IGNORECASE,
+    ),
+    # Meta references to the retrieval context itself ("the policy context/
+    # information available to me...") — internal machinery, not requester text.
+    re.compile(r"\bpolicy\s+(?:context|information|text)\b", re.IGNORECASE),
+)
+
+
+def find_placeholders(text: str) -> list[str]:
+    """Return the hint of every [CHAIR: ...] placeholder in ``text``, in order."""
+    return [m.group("hint").strip() for m in PLACEHOLDER_RE.finditer(text)]
+
+
+def _apply_reply_contract(
+    reply: str, notes: str | None, metadata: dict
+) -> tuple[list[str], str | None]:
+    """Deterministically enforce the reply contract on a parsed reply.
+
+    Extracts [CHAIR: ...] placeholders (returned so the orchestrator can force
+    the human-review lane) and flags residual chair-facing meta language into
+    ``metadata`` plus a warning appended to the chair notes. Flag, never
+    rewrite — regex edits to prose are how replies get garbled.
+    """
+    placeholders = find_placeholders(reply)
+    leaks: list[str] = []
+    for pattern in _LEAK_PATTERNS:
+        leaks.extend(m.group(0) for m in pattern.finditer(reply))
+    if leaks:
+        metadata["reply_leaks"] = leaks
+        warning = (
+            "WARNING (automated check): the reply may contain chair-facing "
+            "meta language that belongs in a [CHAIR: ...] placeholder or in "
+            "these notes — please rephrase before sending: "
+            + "; ".join(f'"{s}"' for s in leaks)
+        )
+        notes = f"{notes}\n\n{warning}" if notes else warning
+    return placeholders, notes
 
 
 def _sanitize_reply(reply: str) -> str:
@@ -160,6 +226,12 @@ class DraftResponse(BaseModel):
         default=None,
         description="Chair-facing caveats/confirmations, kept STRICTLY out of "
         "draft_text so they can never be sent to a requester.",
+    )
+    placeholders: list[str] = Field(
+        default_factory=list,
+        description="Hints of the [CHAIR: ...] placeholders left in draft_text "
+        "for the chair to fill in; non-empty forces the human-review lane and "
+        "blocks approval until resolved.",
     )
     citations: list[str] = Field(
         default_factory=list,
@@ -311,18 +383,21 @@ class ResponseDrafter:
                 block.text for block in message.content if block.type == "text"
             )
             reply, citations, notes = _split_structured(raw_text)
+            metadata = {
+                "lane": routing.lane,
+                "stop_reason": message.stop_reason,
+                "input_tokens": message.usage.input_tokens,
+                "output_tokens": message.usage.output_tokens,
+            }
+            placeholders, notes = _apply_reply_contract(reply, notes, metadata)
 
             return DraftResponse(
                 draft_text=reply,
                 notes_for_chair=notes,
+                placeholders=placeholders,
                 citations=citations,
                 model_used=settings.DRAFT_MODEL,
-                generation_metadata={
-                    "lane": routing.lane,
-                    "stop_reason": message.stop_reason,
-                    "input_tokens": message.usage.input_tokens,
-                    "output_tokens": message.usage.output_tokens,
-                },
+                generation_metadata=metadata,
             )
         except Exception as exc:  # noqa: BLE001 - drafter must never raise
             return _fallback(
@@ -380,10 +455,12 @@ class ResponseDrafter:
             if isinstance(usage, dict):
                 metadata["input_tokens"] = usage.get("prompt_tokens")
                 metadata["output_tokens"] = usage.get("completion_tokens")
+            placeholders, notes = _apply_reply_contract(reply, notes, metadata)
 
             return DraftResponse(
                 draft_text=reply,
                 notes_for_chair=notes,
+                placeholders=placeholders,
                 citations=citations,
                 model_used=settings.LOCAL_MODEL_NAME,
                 generation_metadata=metadata,

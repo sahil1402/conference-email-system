@@ -33,7 +33,9 @@ from app.core import tracing
 from app.core.tracing import configure_tracing
 from app.db.database import Base, get_db
 from app.db.models import Chair, Email
+from app.pipeline.drafter import DraftResponse
 from app.pipeline.orchestrator import EmailPipeline
+from app.pipeline.router import RoutingDecision
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
 
@@ -192,6 +194,54 @@ async def test_faq_lane_email_has_no_chair(ctx):
         email = await email_repo.get_email_by_id(db, result.email_id)
         if result.routing.lane == "faq":
             assert email.assigned_chair_id is None
+
+
+# ---------------------------------------------------------------------------
+# Placeholder downgrade: a [CHAIR: ...] draft is never FAQ-complete (Phase 7F)
+# ---------------------------------------------------------------------------
+class _FaqRouter:
+    """Stub router that always picks the FAQ lane."""
+
+    strategy = "stub"
+
+    def route(self, classification, retrieved_chunks):
+        return RoutingDecision(
+            lane="faq", reason="stub", confidence_used=0.99, threshold_applied=0.5
+        )
+
+
+class _PlaceholderDrafter:
+    """Stub drafter returning a reply that still needs chair input."""
+
+    provider = "stub"
+
+    async def draft(self, email, classification, retrieved_chunks, routing):
+        return DraftResponse(
+            draft_text="The fee is [CHAIR: confirm the registration fee].",
+            placeholders=["confirm the registration fee"],
+            model_used="stub",
+            generation_metadata={"lane": routing.lane},
+        )
+
+
+async def test_placeholder_draft_downgrades_faq_to_human_review(ctx):
+    """Even an FAQ-routed email is downgraded to human review — and picks up a
+    chair assignment — when its draft carries [CHAIR: ...] placeholders."""
+    pipeline = EmailPipeline()
+    pipeline.router = _FaqRouter()
+    pipeline.drafter = _PlaceholderDrafter()
+
+    async with ctx.factory() as db:
+        result = await pipeline.process_email(
+            {"from": "a@u.edu", "subject": "Registration and fees",
+             "body": "What is the registration fee for the workshop?"},
+            db,
+        )
+        assert result.routing.lane == "human_review"
+        assert "placeholder" in (result.routing.override_reason or "")
+        email = await email_repo.get_email_by_id(db, result.email_id)
+        assert (email.routing or {}).get("lane") == "human_review"
+        assert email.assigned_chair_id is not None
 
 
 # ---------------------------------------------------------------------------

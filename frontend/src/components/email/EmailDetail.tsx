@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   FileText,
   Send,
@@ -33,6 +34,17 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ApiError, Chair, Email, RetrievedChunk } from "@/types";
+
+/**
+ * [CHAIR: ...] placeholders the drafter leaves where the policy context could
+ * not support the reply (Phase 7F). Mirrors backend drafter.PLACEHOLDER_RE —
+ * the approve endpoint 409s while any remain, so the UI blocks approval too.
+ */
+const PLACEHOLDER_RE = /\[CHAIR:\s*([^\]]*)\]/g;
+
+function findPlaceholders(text: string): string[] {
+  return Array.from(text.matchAll(PLACEHOLDER_RE), (m) => m[1].trim());
+}
 
 interface EmailDetailProps {
   email: Email;
@@ -92,6 +104,11 @@ export function EmailDetail({
   const draftChanged = hasMeaningfulDiff(originalDraft, editedDraft);
   const canAct = lane === "human_review";
 
+  // Live placeholder check on the CURRENT edit — approval unblocks the moment
+  // the chair resolves the last [CHAIR: ...] token (backend enforces the same).
+  const unresolvedPlaceholders = findPlaceholders(editedDraft);
+  const canApprove = canAct && unresolvedPlaceholders.length === 0;
+
   // Current assignment (optimistic value wins until the refetch confirms it).
   const currentChairId = reassignedTo ?? email.assigned_chair_id;
   const currentChairName =
@@ -125,7 +142,7 @@ export function EmailDetail({
         return; // don't hijack typing
       }
       const key = e.key.toLowerCase();
-      if (key === "a" && canAct && !isApproving) {
+      if (key === "a" && canApprove && !isApproving) {
         e.preventDefault();
         onApprove(editedDraft);
       } else if (key === "e") {
@@ -147,7 +164,7 @@ export function EmailDetail({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canAct, isApproving, editedDraft, onApprove]);
+  }, [canAct, canApprove, isApproving, editedDraft, onApprove]);
 
   return (
     <div className="flex h-full flex-col">
@@ -254,6 +271,32 @@ export function EmailDetail({
           />
         </Collapsible>
 
+        {/* CHAIR SUGGESTIONS — drafter notes + gaps, never part of the reply */}
+        {draft?.notes_for_chair && (
+          <Collapsible
+            title="Chair Suggestions"
+            icon={<AlertTriangle className="h-4 w-4" style={{ color: "var(--warning)" }} />}
+            defaultOpen
+          >
+            <div
+              className="mt-1 rounded-lg border p-3 text-sm leading-relaxed"
+              style={{
+                backgroundColor: "var(--warning-subtle)",
+                borderColor: "var(--warning)",
+                color: "var(--text-primary)",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {draft.notes_for_chair}
+            </div>
+            <p className="pt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+              Internal guidance from the drafting pipeline — review it, resolve
+              any [CHAIR: …] placeholders in the draft below, then approve. This
+              text is never sent to the requester.
+            </p>
+          </Collapsible>
+        )}
+
         {/* AI DRAFT */}
         <Collapsible title="AI Draft" icon={<FileText className="h-4 w-4" />} defaultOpen>
           {draft ? (
@@ -271,6 +314,34 @@ export function EmailDetail({
                   color: "var(--text-primary)",
                 }}
               />
+              {unresolvedPlaceholders.length > 0 && (
+                <div
+                  className="flex items-start gap-2 rounded-lg border p-2.5 text-xs leading-relaxed"
+                  style={{
+                    backgroundColor: "var(--warning-subtle)",
+                    borderColor: "var(--warning)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <AlertTriangle
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    style={{ color: "var(--warning)" }}
+                  />
+                  <span>
+                    {unresolvedPlaceholders.length} unresolved{" "}
+                    <code>[CHAIR: …]</code> placeholder
+                    {unresolvedPlaceholders.length > 1 ? "s" : ""} — replace{" "}
+                    {unresolvedPlaceholders.length > 1 ? "them" : "it"} with real
+                    content before approving:{" "}
+                    {unresolvedPlaceholders.map((hint, i) => (
+                      <em key={i}>
+                        {i > 0 && "; "}
+                        {hint}
+                      </em>
+                    ))}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <button
                   type="button"
@@ -348,8 +419,13 @@ export function EmailDetail({
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                disabled={isApproving}
+                disabled={isApproving || !canApprove}
                 onClick={() => onApprove(editedDraft)}
+                title={
+                  canApprove
+                    ? undefined
+                    : "Resolve the [CHAIR: …] placeholders in the draft first"
+                }
                 className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
                   backgroundColor: "var(--success)",

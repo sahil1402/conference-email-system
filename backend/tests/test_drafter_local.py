@@ -198,6 +198,74 @@ def _system_content() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Chair-placeholder contract (Phase 7F)
+# ---------------------------------------------------------------------------
+async def test_chair_placeholders_extracted_and_preserved(monkeypatch):
+    monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _OkClient)
+    monkeypatch.setattr(
+        _OkClient,
+        "content",
+        "=== REPLY ===\nYou can update the affiliation by "
+        "[CHAIR: fill in the CRC update procedure]. The deadline is "
+        "[CHAIR: confirm the camera-ready deadline].\n"
+        "=== CITATIONS ===\nnone\n"
+        "=== NOTES FOR CHAIR ===\nCRC update procedure is not in the corpus.",
+    )
+    result = await _draft_with(ResponseDrafter(provider="local"))
+    # Tokens stay verbatim in the reply for the chair to edit in place...
+    assert "[CHAIR: fill in the CRC update procedure]" in result.draft_text
+    # ...and are surfaced as structured hints for the lane/approve gates.
+    assert result.placeholders == [
+        "fill in the CRC update procedure",
+        "confirm the camera-ready deadline",
+    ]
+
+
+async def test_clean_reply_has_no_placeholders_or_leaks(monkeypatch):
+    monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _OkClient)
+    result = await _draft_with(ResponseDrafter(provider="local"))
+    assert result.placeholders == []
+    assert "reply_leaks" not in result.generation_metadata
+
+
+async def test_leaked_meta_language_is_flagged_not_rewritten(monkeypatch):
+    monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _OkClient)
+    monkeypatch.setattr(
+        _OkClient,
+        "content",
+        "=== REPLY ===\nThe policy context does not specify the withdrawal "
+        "procedure. We will look into this and follow up.\n"
+        "=== CITATIONS ===\nnone\n"
+        "=== NOTES FOR CHAIR ===\nnone",
+    )
+    result = await _draft_with(ResponseDrafter(provider="local"))
+    # The reply is left intact (flag, never regex-rewrite prose)...
+    assert "does not specify" in result.draft_text
+    # ...but every leak is recorded and surfaced to the chair as a warning.
+    leaks = result.generation_metadata["reply_leaks"]
+    assert any("not specify" in leak for leak in leaks)
+    assert any("look into" in leak for leak in leaks)
+    assert any("policy context" in leak for leak in leaks)
+    assert result.notes_for_chair is not None
+    assert "WARNING" in result.notes_for_chair
+
+
+async def test_leak_warning_appends_to_existing_notes(monkeypatch):
+    monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _OkClient)
+    monkeypatch.setattr(
+        _OkClient,
+        "content",
+        "=== REPLY ===\nWe will look into your account issue.\n"
+        "=== CITATIONS ===\nnone\n"
+        "=== NOTES FOR CHAIR ===\nVerify the account exists.",
+    )
+    result = await _draft_with(ResponseDrafter(provider="local"))
+    # Model-written notes come first; the automated warning is appended.
+    assert result.notes_for_chair.startswith("Verify the account exists.")
+    assert "WARNING" in result.notes_for_chair
+
+
+# ---------------------------------------------------------------------------
 # Bearer-auth for hosted OpenAI-compatible endpoints (Phase 7D)
 # ---------------------------------------------------------------------------
 async def test_local_provider_sends_bearer_header_when_key_set(monkeypatch):

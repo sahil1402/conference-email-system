@@ -21,6 +21,7 @@ from app.core.tracing import read_traces
 from app.db.database import get_db
 from app.pipeline.active_learning import build_flag_events
 from app.db.models import AuditLog, Email
+from app.pipeline.drafter import find_placeholders
 from app.pipeline.orchestrator import EmailPipeline
 from app.pipeline.rl_router import get_rl_router
 from app.repositories.audit_repository import AuditRepository
@@ -319,6 +320,19 @@ async def approve_email(
     original_text = draft.get("original_draft_text") or current_text
     final_text = payload.final_text
     edited = final_text is not None and final_text.strip() != current_text.strip()
+
+    # Send-gate: a reply may not go out while [CHAIR: ...] placeholders remain
+    # — the chair must replace each one with real content (or delete it) first.
+    unresolved = find_placeholders(final_text if final_text is not None else current_text)
+    if unresolved:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Draft still contains unresolved [CHAIR: ...] "
+                "placeholders; fill them in before approving.",
+                "placeholders": unresolved,
+            },
+        )
 
     updates: dict = {}
     details: dict = {"edited": edited}

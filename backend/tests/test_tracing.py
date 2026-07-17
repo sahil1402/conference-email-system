@@ -108,7 +108,12 @@ async def test_stage_summaries_capture_expected_fields(client):
     }
     assert set(by_stage["router"]["output_summary"]) == {"lane", "reason"}
     drafter_out = by_stage["drafter"]["output_summary"]
-    assert set(drafter_out) == {"draft_length", "provider", "model_used"}
+    assert set(drafter_out) == {
+        "draft_length",
+        "provider",
+        "model_used",
+        "placeholders",
+    }
     # The trace records the draft length, never the draft text itself.
     assert isinstance(drafter_out["draft_length"], int)
     assert "draft_text" not in drafter_out
