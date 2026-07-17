@@ -62,6 +62,40 @@ the exact gap point inside natural sentences; notes state gap type and a
 suggested resolution; a fully-answerable ticket produced a complete reply with
 zero placeholders and a caveat-only note (cycle-year mismatch).
 
+## Rounds 2–3: conciseness + contract/style split (same day)
+
+User review of round 1 flagged verbosity (labeled three-part notes, 14-word
+hints, per-sub-fact placeholders) and UI redundancy (same info shown three
+times). Two follow-up revisions, each re-validated on the same 37 tickets:
+
+- **Round 2 (concise prompt)**: short bracket hints, telegraphic one-line
+  notes (no category labels), placeholder economy — at most one per distinct
+  question the requester raised, merge related unknowns, single-placeholder
+  skeleton when the context supports almost nothing, never placeholder the
+  unasked.
+- **Round 3 (contract/style split)**: de-duplicated the system prompt vs.
+  style guide. Principle: **system prompt = contract** (grounding, output
+  structure, placeholder mechanics, no action claims/promises, no real names,
+  no past cycles — holds with any/no guide, enforced by code), **guide =
+  voice** (Marc-corpus conventions, swappable). Guide v2 lost §2.1 + all of
+  §3 (~40% shorter), gained a scope/subordination header; three invariants
+  moved into the drafter prompt.
+
+| Metric (37 tickets) | r1 | r2 | r3 |
+|---|---|---|---|
+| Total placeholders | 57 | 30 | 34 |
+| Drafts with >2 placeholders | 7 | 0 | 1 |
+| Avg hint length (words) | 14.4 | 8.0 | 9.0 |
+| Avg notes length (words) | 76 | 18 | 19 |
+| Chair-meta leaks | 0 | 0 | 0 |
+
+r2→r3 deltas are run-to-run variance: the split removed duplication without
+behavior change. UI simultaneously de-duplicated: placeholders are highlighted
+in place inside the draft editor (backdrop-overlay `<mark>`), the under-editor
+warning is one line with no hint listing, and the suggestions panel caption is
+one line. Raw rounds kept as `drafts_placeholder_r1.jsonl` / `_r2.jsonl` /
+`drafts_placeholder.jsonl` (r3) in `data/eval_real/`.
+
 ## Notes / follow-ups
 
 - Backfilled Phase 7D drafts in the app DB predate the contract and keep their

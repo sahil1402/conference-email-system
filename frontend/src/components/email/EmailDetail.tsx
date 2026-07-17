@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -289,10 +295,8 @@ export function EmailDetail({
             >
               {draft.notes_for_chair}
             </div>
-            <p className="pt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-              Internal guidance from the drafting pipeline — review it, resolve
-              any [CHAIR: …] placeholders in the draft below, then approve. This
-              text is never sent to the requester.
+            <p className="pt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+              Internal — not sent to the requester.
             </p>
           </Collapsible>
         )}
@@ -301,46 +305,21 @@ export function EmailDetail({
         <Collapsible title="AI Draft" icon={<FileText className="h-4 w-4" />} defaultOpen>
           {draft ? (
             <div className="space-y-2 pt-1">
-              <textarea
-                ref={textareaRef}
+              <HighlightedDraftEditor
                 value={editedDraft}
-                onChange={(e) => setEditedDraft(e.target.value)}
-                rows={8}
-                spellCheck
-                className="w-full resize-y rounded-lg border p-3 text-sm leading-relaxed outline-none transition-colors focus:border-[var(--accent)]"
-                style={{
-                  backgroundColor: "var(--surface-raised)",
-                  borderColor: "var(--border)",
-                  color: "var(--text-primary)",
-                }}
+                onChange={setEditedDraft}
+                textareaRef={textareaRef}
               />
               {unresolvedPlaceholders.length > 0 && (
-                <div
-                  className="flex items-start gap-2 rounded-lg border p-2.5 text-xs leading-relaxed"
-                  style={{
-                    backgroundColor: "var(--warning-subtle)",
-                    borderColor: "var(--warning)",
-                    color: "var(--text-primary)",
-                  }}
+                <p
+                  className="flex items-center gap-1.5 text-xs"
+                  style={{ color: "var(--warning)" }}
                 >
-                  <AlertTriangle
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                    style={{ color: "var(--warning)" }}
-                  />
-                  <span>
-                    {unresolvedPlaceholders.length} unresolved{" "}
-                    <code>[CHAIR: …]</code> placeholder
-                    {unresolvedPlaceholders.length > 1 ? "s" : ""} — replace{" "}
-                    {unresolvedPlaceholders.length > 1 ? "them" : "it"} with real
-                    content before approving:{" "}
-                    {unresolvedPlaceholders.map((hint, i) => (
-                      <em key={i}>
-                        {i > 0 && "; "}
-                        {hint}
-                      </em>
-                    ))}
-                  </span>
-                </div>
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {unresolvedPlaceholders.length} unresolved [CHAIR] placeholder
+                  {unresolvedPlaceholders.length > 1 ? "s" : ""} — resolve to
+                  enable Approve &amp; Send.
+                </p>
               )}
               <div className="flex items-center justify-between">
                 <button
@@ -600,6 +579,96 @@ export function EmailDetail({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Draft editor with [CHAIR: ...] placeholders highlighted in place (Phase 7F)
+// ---------------------------------------------------------------------------
+
+/** Identical box/typography on backdrop + textarea so their text overlays 1:1. */
+const _EDITOR_CLASSES =
+  "block w-full whitespace-pre-wrap break-words rounded-lg border p-3 text-sm leading-relaxed";
+
+/**
+ * A textarea whose [CHAIR: ...] tokens glow: a backdrop div paints the text
+ * (placeholders wrapped in <mark>), while the textarea on top keeps its text
+ * transparent — only the caret, selection, and native editing stay live.
+ */
+function HighlightedDraftEditor({
+  value,
+  onChange,
+  textareaRef,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
+}) {
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+
+  const segments: ReactNode[] = [];
+  let last = 0;
+  for (const m of value.matchAll(PLACEHOLDER_RE)) {
+    const at = m.index ?? 0;
+    if (at > last) segments.push(value.slice(last, at));
+    segments.push(
+      <mark
+        key={at}
+        style={{
+          backgroundColor: "var(--warning-subtle)",
+          color: "var(--warning)",
+          fontWeight: 600,
+          borderRadius: "3px",
+          boxShadow: "inset 0 0 0 1px var(--warning)",
+        }}
+      >
+        {m[0]}
+      </mark>
+    );
+    last = at + m[0].length;
+  }
+  segments.push(value.slice(last));
+
+  return (
+    <div className="relative">
+      <div
+        ref={backdropRef}
+        aria-hidden
+        className={cn(
+          _EDITOR_CLASSES,
+          "pointer-events-none absolute inset-0 overflow-hidden"
+        )}
+        style={{
+          backgroundColor: "var(--surface-raised)",
+          borderColor: "transparent",
+          color: "var(--text-primary)",
+        }}
+      >
+        {segments}
+        {"\n" /* trailing newline keeps backdrop scroll extent == textarea */}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={(e) => {
+          const backdrop = backdropRef.current;
+          if (backdrop) backdrop.scrollTop = e.currentTarget.scrollTop;
+        }}
+        rows={8}
+        spellCheck
+        className={cn(
+          _EDITOR_CLASSES,
+          "relative resize-y outline-none transition-colors focus:border-[var(--accent)]"
+        )}
+        style={{
+          backgroundColor: "transparent",
+          borderColor: "var(--border)",
+          color: "transparent",
+          caretColor: "var(--text-primary)",
+        }}
+      />
     </div>
   );
 }

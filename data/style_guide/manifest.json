@@ -27,6 +27,12 @@
       "rule 2.1 rewritten: never PROMISE an action either ('we will look into...'); operational steps become [CHAIR: ...] placeholders",
       "hard constraint 1 rewritten: unanswerable parts get an inline [CHAIR: ...] placeholder + a chair note, never 'the policy does not specify' in the reply",
       "motivation: 50/74 eval drafts leaked chair-facing meta language into the reply body; the drafter system prompt now carries the same placeholder contract (primary enforcement) and this guide must not contradict it"
+    ],
+    "revision_2026_07_17_contract_style_split": [
+      "principle: system prompt = contract (holds with any/no guide, code-enforced); guide = voice (Marc-corpus conventions, swappable/A-B-able)",
+      "removed as duplicated-or-contract: 2.1 (action claims/promises -> system prompt), all of section 3 (grounding + placeholder mechanics were duplicates; no-real-names and no-past-cycles moved to system prompt)",
+      "added scope + subordination header (restores the clause _system_prompt()'s docstring relies on, lost in the v1->v2 curation); '[Sender name] exactly as written' kept in section 1",
+      "behavioral rules renumbered 2-8 -> 1-7; guide ~40% shorter; guide-vs-none ablation is now voice-only"
     ]
   },
   "note": "Guides are style/behavior only; policy content comes from retrieval. Active version to be selected by the future STYLE_GUIDE_PATH setting."
