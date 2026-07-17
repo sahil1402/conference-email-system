@@ -116,12 +116,14 @@ class Settings(BaseSettings):
     LOCAL_MODEL_API_KEY: str | None = None
 
     # --- Style guide (Phase 7D) -------------------------------------------
-    # Optional path to a reply style/instruction guide (markdown, e.g.
-    # data/style_guide/style_guide_v2.md). When set and readable, its contents
-    # are appended to the drafter's system prompt for the AI providers. The
-    # guide is style/behavior only and stays subordinate to the grounding
-    # rules; None (default) leaves the prompt unchanged.
-    STYLE_GUIDE_PATH: str | None = None
+    # Path to a reply style/instruction guide (markdown). When set and readable,
+    # its contents are appended to the drafter's system prompt for the AI
+    # providers; the guide is style/behavior only and stays subordinate to the
+    # grounding rules. Path is resolved relative to the app's working directory
+    # (backend/), so the repo-root data/ dir is reached via "../data" — same
+    # convention as the SQLite DATABASE_URL default below. Set to None (or an
+    # unreadable path) to leave the prompt unchanged.
+    STYLE_GUIDE_PATH: str | None = "../data/style_guide/style_guide_v2.md"
 
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
