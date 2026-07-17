@@ -23,6 +23,7 @@ from app.core.config import settings
 from app.core.tracing import PipelineTracer
 from app.models.enums import EmailStatus
 from app.pipeline.classifier import ClassificationResult, IntentClassifier
+from app.pipeline.distiller import EmailDistiller
 from app.pipeline.drafter import DraftResponse, ResponseDrafter
 from app.pipeline.retriever import RetrievedChunk, get_retriever
 from app.pipeline.router import LANE_HUMAN_REVIEW, EmailRouter, RoutingDecision
@@ -38,8 +39,12 @@ _LIFECYCLE_STATUS = {
     "draft_failed": EmailStatus.ROUTED.value,
 }
 
-# How many leading characters of the body to use as the retrieval query.
+# How many leading characters of the body to use as the retrieval query
+# (legacy "prefix" strategy).
 _RETRIEVAL_QUERY_CHARS = 300
+# Fallback query when QUERY_STRATEGY == "distill" but distillation failed:
+# subject + this much body (E003 arm B — best non-distilled formulation).
+_FALLBACK_QUERY_BODY_CHARS = 600
 
 
 class PipelineResult(BaseModel):
@@ -66,6 +71,9 @@ class EmailPipeline:
         # email goes to. Independent of the lane router above and swappable via
         # its own flag.
         self.chair_router = get_chair_router(settings.CHAIR_ROUTING_STRATEGY)
+        # One model call producing retrieval queries + intent (E003). Only
+        # consulted when QUERY_STRATEGY == "distill"; always best-effort.
+        self.distiller = EmailDistiller()
         self.drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
         self.email_repo = EmailRepository()
         self.chair_repo = ChairRepository()
@@ -120,7 +128,6 @@ class EmailPipeline:
         # email is persisted (its id is unknown until then). Additive only — it
         # never alters stage inputs/outputs.
         tracer = PipelineTracer()
-        query = body[:_RETRIEVAL_QUERY_CHARS]
 
         # --- classify → retrieve → route (fatal on failure) ---------------
         try:
@@ -128,7 +135,25 @@ class EmailPipeline:
                 "classifier",
                 {"subject_length": len(subject), "body_length": len(body)},
             ) as st:
-                classification = await self.classifier.classify(body, subject)
+                # E003: one model call distills retrieval queries AND
+                # classifies intent. Best-effort — on any distiller failure
+                # the keyword/trainable backend classifies as before.
+                distilled = None
+                if settings.QUERY_STRATEGY == "distill":
+                    distilled = await self.distiller.distill(subject, body)
+                if distilled is not None and distilled.intent is not None:
+                    classification = ClassificationResult(
+                        intent=distilled.intent,
+                        confidence=(
+                            distilled.confidence
+                            if distilled.confidence is not None
+                            else 0.5
+                        ),
+                        reasoning="Distiller call (query distillation + intent).",
+                        method="llm_distiller",
+                    )
+                else:
+                    classification = await self.classifier.classify(body, subject)
                 st.output_summary = {
                     "intent": classification.intent,
                     "confidence": round(float(classification.confidence), 4),
@@ -143,10 +168,24 @@ class EmailPipeline:
                         float(classification.calibrated_confidence), 4
                     )
 
+            # Query formulation (E003): distilled queries joined into one
+            # string, with NO intent token (it hurts dense retrieval — E001).
+            # Distill-mode fallback is subject+body[:600]; the legacy prefix
+            # strategy keeps body[:300] + intent token, bit-for-bit.
+            if distilled is not None and distilled.queries:
+                query = " ".join(distilled.queries)
+                retrieval_intent = ""
+            elif settings.QUERY_STRATEGY == "distill":
+                query = f"{subject} {body[:_FALLBACK_QUERY_BODY_CHARS]}".strip()
+                retrieval_intent = ""
+            else:
+                query = body[:_RETRIEVAL_QUERY_CHARS]
+                retrieval_intent = classification.intent
+
             with tracer.stage("retriever", {"query": query}) as st:
                 retrieved_chunks = await self.retriever.retrieve(
                     query,
-                    classification.intent,
+                    retrieval_intent,
                     top_k=settings.MAX_RETRIEVED_CHUNKS,
                 )
                 st.output_summary = {

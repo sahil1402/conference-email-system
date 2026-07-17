@@ -10,8 +10,22 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.retriever import RetrievedChunk
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_model_settings(monkeypatch):
+    """Tests never call a hosted model, whatever the developer's backend/.env
+    says: force the deterministic fallback provider, drop the API key, and
+    keep the legacy prefix query so the distiller stays out of the pipeline.
+    Individual tests opt back in explicitly (monkeypatch or direct
+    construction, e.g. ResponseDrafter(provider="local") with mocked httpx).
+    """
+    monkeypatch.setattr(settings, "MODEL_PROVIDER", "fallback")
+    monkeypatch.setattr(settings, "LOCAL_MODEL_API_KEY", None)
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "prefix")
 
 
 @pytest.fixture

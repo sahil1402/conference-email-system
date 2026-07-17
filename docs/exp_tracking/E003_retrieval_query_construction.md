@@ -85,6 +85,14 @@ escalation if needed — it wasn't). Distillations cached in
    Cost: one extra model call per email; it could double as the intent
    classifier (the keyword classifier is the known weak stage) — design
    choice for adoption time.
+   - ✅ **IMPLEMENTED same day**: `app/pipeline/distiller.py` (one call →
+     INTENT/CONFIDENCE/QUERY lines; never raises), orchestrator gated by
+     `QUERY_STRATEGY=distill` (default "prefix" = legacy bit-for-bit), intent
+     from the same call rides `ClassificationResult(method="llm_distiller")`,
+     keyword classifier + subject+body[:600] on any failure.
+     `RETRIEVAL_BACKEND=fusion` + `QUERY_STRATEGY=distill` set in deploy .env.
+     Tests: `tests/test_distiller.py` (parse/failure/wiring/fallback/legacy);
+     conftest now forces hermetic model settings for the whole suite.
 2. `MAX_RETRIEVED_CHUNKS` 3 → 5 — still cheap and complementary (recall@5
    .698 under C).
 3. KB phrasing/enrichment for the 4-ticket tail (reviewer deadline

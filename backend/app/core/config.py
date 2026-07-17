@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     # FAQ threshold itself.
     CALIBRATION_ENABLED: bool = False
 
+    # Retrieval-query strategy (E003). "prefix" → legacy body[:300] query with
+    # the intent token appended (no model call). "distill" → one model call
+    # per email rewrites it into 1-3 compact policy-vocabulary queries AND
+    # classifies intent (hit@3 .649 → .892 on real tickets); on any distiller
+    # failure the pipeline falls back to the keyword classifier and a
+    # subject+body[:600] query. Default stays "prefix" (no behavior change
+    # without opting in).
+    QUERY_STRATEGY: Literal["prefix", "distill"] = "prefix"
+
     # --- Pipeline tuning --------------------------------------------------
     # Minimum classifier confidence for an email to qualify for the FAQ
     # auto-reply lane. Kept distinct from CONFIDENCE_THRESHOLD so the FAQ
