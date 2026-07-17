@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import get_event_broker
+from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
 from app.db.database import get_db
 from app.pipeline.active_learning import build_flag_events
@@ -367,6 +368,48 @@ async def approve_email(
         edited_text=final_text or "",
     )
     return _email_to_dict(updated)
+
+
+@router.post("/{email_id}/send")
+async def send_email_reply(
+    email_id: str, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Release an email's draft to the outbound transport — gate enforced.
+
+    This is the ONLY path a transport may ever hang off: the send gate
+    (app/core/send_gate.py) decides first, and both outcomes are audited.
+    With no transport configured yet, an authorized send answers 501 and the
+    draft stays queued — the gate contract is live before the transport is.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+
+    decision = authorize_send(email)
+    await audit_repo.log_action(
+        db, email_id,
+        "send_authorized" if decision.authorized else "send_blocked",
+        "send_gate",
+        {"mode": decision.mode, "reason": decision.reason},
+    )
+    if not decision.authorized:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Send refused by the send gate.",
+                    "reason": decision.reason},
+        )
+
+    # Authorized — but no outbound transport exists yet (Zendesk write-back
+    # will plug in here). The draft remains queued; status is unchanged.
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail={"message": "Send authorized, but no outbound transport is "
+                "configured; the draft remains queued.",
+                "mode": decision.mode},
+    )
 
 
 @router.patch("/{email_id}/reroute")

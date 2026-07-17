@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     # without opting in).
     QUERY_STRATEGY: Literal["prefix", "distill"] = "prefix"
 
+    # --- Outbound send policy (transport gate) -----------------------------
+    # Load-bearing precondition for ANY outbound transport (none exists yet;
+    # Zendesk write-back must go through app/core/send_gate.authorize_send).
+    # False (default) → every send requires a chair's explicit approval
+    # (status "approved"), REGARDLESS of lane. True → complete FAQ-lane
+    # drafts (no [CHAIR: ...] placeholders, no leak flags) may be released
+    # without approval; everything else still requires it. Human approval is
+    # policy, not accident — flipping this is an explicit product decision.
+    ALLOW_AUTO_SEND: bool = False
+
     # --- Pipeline tuning --------------------------------------------------
     # Minimum classifier confidence for an email to qualify for the FAQ
     # auto-reply lane. Kept distinct from CONFIDENCE_THRESHOLD so the FAQ
