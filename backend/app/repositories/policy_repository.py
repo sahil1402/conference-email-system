@@ -13,16 +13,19 @@ from app.db.models import PolicyDocument
 # Columns on PolicyDocument that a caller-supplied dict may populate. Incoming
 # dicts (e.g. raw policies.json with id/source/tags) are filtered to these, and
 # the knowledge-base "id" is accepted as an alias for the unique ``policy_key``.
-_POLICY_COLUMNS = {"policy_key", "title", "content", "category", "score"}
+_POLICY_COLUMNS = {
+    "policy_key", "title", "content", "category", "score", "tags", "source",
+}
 
 
 def _map_policy(raw: dict) -> dict:
     """Project an arbitrary policy dict onto valid ``PolicyDocument`` columns.
 
     Accepts ``id`` as an alias for ``policy_key`` so the project's
-    ``policies.json`` (which uses ``id``) can be loaded directly. Extra keys
-    such as ``source`` and ``tags`` are dropped — there are no columns for them
-    in the MVP schema.
+    ``policies.json`` (which uses ``id``) can be loaded directly. As of Phase E,
+    ``tags`` and ``source`` are real columns and pass through (previously they
+    were dropped) — this is what gives the DB-backed FAISS retriever tag parity
+    with BM25. Any other unrecognised key is still dropped.
     """
     mapped = {k: v for k, v in raw.items() if k in _POLICY_COLUMNS}
     if "policy_key" not in mapped and "id" in raw:

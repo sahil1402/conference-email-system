@@ -83,6 +83,9 @@ class FAISSRetriever:
                 "title": getattr(p, "title", "") or "",
                 "content": getattr(p, "content", "") or "",
                 "category": getattr(p, "category", "") or "",
+                # Phase E: read tags from the DB row (parity with BM25). None on
+                # pre-Phase-E rows that predate the column / a reseed → [].
+                "tags": getattr(p, "tags", None) or [],
             }
             for p in policies
         ]
@@ -154,7 +157,7 @@ class FAISSRetriever:
                     content=doc["content"],
                     score=float(score),
                     category=doc["category"],
-                    tags=[],
+                    tags=doc["tags"],
                 )
             )
 
