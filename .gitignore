@@ -80,6 +80,6 @@ data/knowledge_base/*.bak-*
 data/knowledge_base/*.db-export-*.json
 
 # Claude workflow
+# CLAUDE.md is tracked project memory (restored 2026-07-17); only the archived
+# history file stays ignored.
 claude_hist.md
-Claude.md
-CLAUDE.md
