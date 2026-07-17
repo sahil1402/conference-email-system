@@ -50,15 +50,42 @@ hit@3 to .622). This ticket is one of the documented ~⅓ of answerable tickets
 under the 0.65 hit@3 ceiling (E001) — a query-formulation limit, not a
 backend limit.
 
-## Recommendations (not yet implemented)
+## Distillation ablation (same day) — RESULT: adopt-worthy
 
-1. **Query distillation before retrieval** — strongest lever in this data: a
-   one-line "core ask" extraction moved gold from #32 to #1. Could ride the
-   existing classifier LLM call or a cheap dedicated one; needs a full
-   37-ticket ablation before adoption.
-2. **`MAX_RETRIEVED_CHUNKS` 3 → 5** with body[:600] — cheap standalone win
-   (hit@5 .730 vs .676); the drafter is grounded, so extra chunks are
-   low-risk.
-3. KB phrasing: gold chunk titles ("Paper Modification Guidelines") share
-   little vocabulary with how requesters actually ask; enrichment/retitling
-   helps lexical recall (ties into the E002/audit KB-enrichment track).
+`scripts/query_distill_ablation.py`: the external model turns each email
+(subject + full body, 4k cap) into 1–3 compact policy-vocabulary queries.
+Instruction: one line per distinct policy question — actor, action, object,
+process stage; bans greetings/backstory/names/paper ids/titles/years; email
+treated as data (injection guard). No corpus vocabulary given (round-two
+escalation if needed — it wasn't). Distillations cached in
+`data/eval_real/distilled_queries.jsonl`.
+
+37 gold tickets, fusion backend:
+
+| arm | hit@3 | hit@5 | recall@3 | recall@5 |
+|---|---|---|---|---|
+| A subject+body[:300] (current) | .649 | .676 | .441 | .477 |
+| B subject+body[:600] | .649 | .730 | .410 | .518 |
+| **C distilled, lines joined** | **.892** | **.892** | **.649** | **.698** |
+| D distilled, per-line RRF | .838 | .838 | .595 | .626 |
+
+- **+24 points hit@3** over the E001 ceiling; joining beats per-line RRF
+  (splitting dilutes signal when one line is off-target).
+- Ticket 16396 under C: gold at **#1 and #3** — the drafter would have had
+  the chair's exact ruling in context.
+- The 4 remaining misses (16720, 19702, 16701, 17871) all have *correct*
+  distilled queries; the gold chunks' vocabulary/coverage is the limiter →
+  the KB-enrichment tail, not query formulation.
+
+## Recommendations
+
+1. **Adopt distilled-joined queries in the orchestrator** (supersedes E001's
+   pending "subject+body, no intent token" change): distill → fusion
+   retrieval, falling back to subject+body[:600] on distillation failure.
+   Cost: one extra model call per email; it could double as the intent
+   classifier (the keyword classifier is the known weak stage) — design
+   choice for adoption time.
+2. `MAX_RETRIEVED_CHUNKS` 3 → 5 — still cheap and complementary (recall@5
+   .698 under C).
+3. KB phrasing/enrichment for the 4-ticket tail (reviewer deadline
+   extension, late submission, PC-member withdrawal, reviewer reassignment).
