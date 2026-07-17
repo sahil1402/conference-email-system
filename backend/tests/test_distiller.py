@@ -53,11 +53,11 @@ def test_parse_without_queries_is_unusable():
     assert _parse("INTENT: general_inquiry\nCONFIDENCE: 0.7\n") is None
 
 
-def test_parse_caps_queries_at_three():
+def test_parse_keeps_every_query_line():
     text = "INTENT: general_inquiry\nCONFIDENCE: 0.6\n" + "".join(
         f"QUERY: q{i}\n" for i in range(6)
     )
-    assert _parse(text).queries == ["q0", "q1", "q2"]
+    assert _parse(text).queries == [f"q{i}" for i in range(6)]
 
 
 # ---------------------------------------------------------------------------

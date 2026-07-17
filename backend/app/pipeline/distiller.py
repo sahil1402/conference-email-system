@@ -1,7 +1,7 @@
 """Distiller (one model call: retrieval queries + intent classification).
 
-Rewrites a raw inbound email into 1-3 compact policy-vocabulary search
-queries and classifies its intent in the same call. Adopted from the E003
+Rewrites a raw inbound email into compact policy-vocabulary search queries
+(one per distinct question) and classifies its intent in the same call. Adopted from the E003
 ablation (docs/exp_tracking/E003_retrieval_query_construction.md): distilled
 queries lift real-ticket retrieval hit@3 from .649 to .892, and the intent
 label from the same call replaces the weak keyword gate whenever available.
@@ -27,7 +27,6 @@ _TIMEOUT_SECONDS = 60.0
 # Enough body for the distiller to find the ask wherever it sits (the whole
 # point vs. the legacy 300-char prefix), while bounding cost on huge threads.
 _BODY_CAP_CHARS = 4000
-_MAX_QUERIES = 3
 
 _SYSTEM_PROMPT = (
     "You classify one conference help-desk email and turn it into search "
@@ -36,8 +35,8 @@ _SYSTEM_PROMPT = (
     "INTENT: <one of: " + ", ".join(VALID_INTENTS) + ">\n"
     "CONFIDENCE: <your confidence in the intent, 0.0-1.0>\n"
     "QUERY: <search line>\n"
-    "(1-3 QUERY lines, one per distinct policy question the sender raises — "
-    "fewer is better.)\n\n"
+    "(One QUERY line per distinct policy question the sender raises — as "
+    "many as needed, fewer is better.)\n\n"
     "Each QUERY line states actor, action, object, and process stage in "
     "policy-manual vocabulary, for example:\n"
     "QUERY: add co-author to author list after paper submission deadline\n"
@@ -57,7 +56,9 @@ class DistillResult(BaseModel):
     """Output of the distiller — retrieval queries plus the intent decision."""
 
     queries: list[str] = Field(
-        ..., description="1-3 compact policy-vocabulary retrieval queries."
+        ...,
+        description="Compact policy-vocabulary retrieval queries, one per "
+        "distinct question the email raises.",
     )
     intent: str | None = Field(
         default=None,
@@ -72,7 +73,7 @@ class DistillResult(BaseModel):
 
 def _parse(text: str) -> DistillResult | None:
     """Parse the structured INTENT/CONFIDENCE/QUERY output; None if unusable."""
-    queries = [m.group(1) for m in _QUERY_RE.finditer(text)][:_MAX_QUERIES]
+    queries = [m.group(1) for m in _QUERY_RE.finditer(text)]
     if not queries:
         return None
     intent = None
