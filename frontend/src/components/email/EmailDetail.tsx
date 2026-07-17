@@ -609,7 +609,9 @@ function HighlightedDraftEditor({
 
   const segments: ReactNode[] = [];
   let last = 0;
-  for (const m of value.matchAll(PLACEHOLDER_RE)) {
+  // Array.from (not for...of on the iterator): the CI type check targets a
+  // lib level where iterators need downlevelIteration, arrays don't.
+  for (const m of Array.from(value.matchAll(PLACEHOLDER_RE))) {
     const at = m.index ?? 0;
     if (at > last) segments.push(value.slice(last, at));
     segments.push(
