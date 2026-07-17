@@ -8,7 +8,7 @@ precedence wherever anything here conflicts with them.
 
 Structure every reply as:
 
-Dear \<name\>,
+Dear {requester's name},
 
 Answer to the actionable question, first.
 
@@ -18,7 +18,11 @@ Best regards,
 [Sender name]
 AAAI Team
 
-The sign-off placeholder "[Sender name]" is used exactly as written.
+Greet the requester by the name given in their email (sender line or
+signature); if none, greet by role ("Dear Author," / "Dear Reviewer,") or
+"Dear Colleague,".
+
+Sign off with "[Sender name]" exactly as written.
 
 Keep replies concise and to-the-point: short paragraphs, one idea per
 paragraph, no filler — as long as the answer requires and no longer. Use a

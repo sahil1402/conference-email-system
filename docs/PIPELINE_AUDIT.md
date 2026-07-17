@@ -177,6 +177,6 @@ Confidence calibration (opt-in, big measured routing win), chair routing + reass
 4. **Style guide**: ~~distill from `marc_threads.jsonl`~~ ✅ done (7C, v1 distilled + v2 curated); remaining: `STYLE_GUIDE_PATH` injection + structured `reply_text`/`notes_for_chair` output + A/B in the end-to-end eval.
 5. **Drafting provider auth**: bearer-token support on the chat-completions branch; key via `.env`; health-check branch.
 6. **Write-back behind a default-off flag**: explicit send action, internal-note mode first, `SENT` status + comment id in audit; verify OAuth write scope first (blocker check).
-7. **Hardening**: app auth, PostgreSQL, hosted deployment, then live shadow-run (drafts as internal notes) while measuring edit rates via the existing active-learning signals.
+7. **Hardening**: app auth, PostgreSQL, hosted deployment, then live shadow-run (drafts as internal notes) while measuring edit rates via the existing active-learning signals. The account system doubles as the `[Sender name]` resolver: once chairs authenticate, the sign-off placeholder is populated from the logged-in chair's account instead of being hand-edited (decision 2026-07-17; requester greetings are already populated by the drafter from the inquiry itself — placeholder greetings are banned).
 
 Steps 1–2 and 3–5 are independent tracks; 6 depends on 1; 7 gates real traffic.

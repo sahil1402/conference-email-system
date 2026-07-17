@@ -35,7 +35,7 @@ from app.pipeline.classifier import keyword_classify  # noqa: E402
 from app.pipeline.drafter import ResponseDrafter  # noqa: E402
 from app.pipeline.retriever import PolicyRetriever, RetrievedChunk  # noqa: E402
 from app.pipeline.router import EmailRouter  # noqa: E402
-from distill_style_guide import read_key, scrub  # noqa: E402
+from distill_style_guide import read_key  # noqa: E402
 
 KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
 EVAL_DIR = REPO_ROOT / "data" / "eval_real"
@@ -145,10 +145,12 @@ async def generate_drafts(model: str, backend: str) -> None:
     print(f"drafts: rows={len(rows)} configs={list(GUIDE_CONFIGS)} ({len(done)} already done)")
 
     async def one(row: dict, config: str) -> None:
+        # Raw ticket text, deliberately unscrubbed: the eval must exercise the
+        # system on exactly what requesters wrote (names, addresses included).
         email = {
             "from": "requester@example.org",
-            "subject": scrub(row["subject"]),
-            "body": scrub(row["question"]),
+            "subject": row["subject"],
+            "body": row["question"],
         }
         classification = keyword_classify(email["subject"], email["body"])
         # Ablation-winning retrieval config (real_eval report): subject included
@@ -220,9 +222,9 @@ def build_judge_packets(per_batch: int) -> None:
             items.append(
                 {
                     "ticket_id": tid,
-                    "inquiry_subject": scrub(s["subject"]),
-                    "inquiry_body": scrub(s["question"])[:1500],
-                    "reference_reply": scrub(s["reply"])[:1500],
+                    "inquiry_subject": s["subject"],
+                    "inquiry_body": s["question"][:1500],
+                    "reference_reply": s["reply"][:1500],
                     "retrieved_policy_context": [
                         {"id": cid, "title": chunks[cid]["title"], "content": chunks[cid]["content"]}
                         for cid in d0["retrieved_ids"]

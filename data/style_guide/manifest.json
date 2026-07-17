@@ -33,6 +33,11 @@
       "removed as duplicated-or-contract: 2.1 (action claims/promises -> system prompt), all of section 3 (grounding + placeholder mechanics were duplicates; no-real-names and no-past-cycles moved to system prompt)",
       "added scope + subordination header (restores the clause _system_prompt()'s docstring relies on, lost in the v1->v2 curation); '[Sender name] exactly as written' kept in section 1",
       "behavioral rules renumbered 2-8 -> 1-7; guide ~40% shorter; guide-vs-none ablation is now voice-only"
+    ],
+    "revision_2026_07_17_greeting_population": [
+      "greeting: address the requester by the name their email gives (sender line or signature); role-based greeting when unknown; never a placeholder/<name> token (user decision)",
+      "[Sender name] sign-off stays a literal placeholder for now; to be auto-populated from the authenticated chair account once the account system lands",
+      "companion change outside the guide: eval/test scripts stopped scrubbing ticket text — the system must be tested on exact emails"
     ]
   },
   "note": "Guides are style/behavior only; policy content comes from retrieval. Active version to be selected by the future STYLE_GUIDE_PATH setting."

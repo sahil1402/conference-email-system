@@ -265,6 +265,11 @@ def _build_user_prompt(
 ) -> str:
     """Assemble the grounded user prompt from all pipeline inputs."""
     sender = email.get("from") or email.get("sender") or "unknown"
+    # Surface the sender's display name when the ingest provided one, so the
+    # drafter can greet the requester by name (guide 1: never a placeholder).
+    sender_name = email.get("sender_name")
+    if sender_name:
+        sender = f"{sender_name} <{sender}>"
     subject = email.get("subject", "")
     body = email.get("body", "")
 

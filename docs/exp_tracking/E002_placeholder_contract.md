@@ -96,6 +96,23 @@ warning is one line with no hint listing, and the suggestions panel caption is
 one line. Raw rounds kept as `drafts_placeholder_r1.jsonl` / `_r2.jsonl` /
 `drafts_placeholder.jsonl` (r3) in `data/eval_real/`.
 
+## Round 4: raw test inputs + greeting population (same day)
+
+User decisions: eval/test sets must use **exact, unscrubbed ticket text**
+(scrubbing had masked greetings/addresses → `<name>`/`<email>` tokens in what
+the drafter saw; it now survives only in style-guide distillation), and
+**requester greetings are populated** from the inquiry (sender line or
+signature; role-based fallback), never a placeholder token. `[Sender name]`
+sign-off stays literal until the chair account system populates it.
+`_build_user_prompt` now surfaces `sender_name` when the ingest provides one
+(Zendesk requester profiles will, so named greetings are the production norm).
+
+Re-run on raw text: n=37, placeholders 33, >2-placeholder drafts 0, hint 8.3
+words, notes 19 words, leaks 0 — stable vs r2/r3. Greetings: 0 placeholder
+tokens, 3 by actual signature name, 34 role-based (eval rows carry no sender
+profile). Raw file: `drafts_placeholder.jsonl` (r4); prior rounds archived as
+`_r1/_r2/_r3`.
+
 ## Notes / follow-ups
 
 - Backfilled Phase 7D drafts in the app DB predate the contract and keep their

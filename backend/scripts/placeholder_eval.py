@@ -33,7 +33,7 @@ from app.core.config import settings  # noqa: E402
 from app.pipeline.classifier import keyword_classify  # noqa: E402
 from app.pipeline.drafter import _LEAK_PATTERNS, ResponseDrafter  # noqa: E402
 from app.pipeline.router import EmailRouter  # noqa: E402
-from distill_style_guide import read_key, scrub  # noqa: E402
+from distill_style_guide import read_key  # noqa: E402
 from draft_eval import DRAFTS_PATH, EVAL_DIR, Retriever, load_answerable  # noqa: E402
 
 OUT_PATH = EVAL_DIR / "drafts_placeholder.jsonl"
@@ -70,10 +70,12 @@ async def generate(model: str) -> None:
     print(f"placeholder drafts: {len(batch)} to do ({len(done)} already done)")
 
     async def one(row: dict) -> None:
+        # Raw ticket text, deliberately unscrubbed: the eval must exercise the
+        # system on exactly what requesters wrote (names, addresses included).
         email = {
             "from": "requester@example.org",
-            "subject": scrub(row["subject"]),
-            "body": scrub(row["question"]),
+            "subject": row["subject"],
+            "body": row["question"],
         }
         classification = keyword_classify(email["subject"], email["body"])
         chunks = await retriever.retrieve(
