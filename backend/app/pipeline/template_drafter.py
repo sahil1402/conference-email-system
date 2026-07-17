@@ -77,11 +77,10 @@ class TemplateDrafter:
 
         opening = _OPENINGS.get(intent, _DEFAULT_OPENING)
 
-        # Verbatim policy text, one paragraph per chunk, each tagged with its id
-        # so the citation is visible inline as well as in the citations list.
-        policy_blocks = [
-            f"{chunk.content} [{chunk.policy_id}]" for chunk in retrieved_chunks
-        ]
+        # Verbatim policy text, one paragraph per chunk. Ids are internal
+        # indexing and never appear in requester-facing text — provenance lives
+        # only in the citations list.
+        policy_blocks = [chunk.content for chunk in retrieved_chunks]
         citations = [chunk.policy_id for chunk in retrieved_chunks]
 
         draft_text = "\n\n".join([opening, *policy_blocks, _CLOSING])

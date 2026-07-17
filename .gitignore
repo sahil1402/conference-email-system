@@ -1,3 +1,6 @@
+# ===========================================================================
+# Python (backend)
+# ===========================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -11,9 +14,28 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Environment files (never commit secrets)
 .env
 .env.*
 !.env.example
+docs/secrets.txt
+
+# Pulled Zendesk ticket data (real user PII — never commit)
+data/tickets/
+
+# Style-guide distillation intermediates (ticket-derived text; the final
+# style_guide_v1.md + manifest.json ARE committable)
+data/style_guide/pairs.jsonl
+data/style_guide/batches.json
+data/style_guide/batches/
+
+# Real-ticket eval set (ticket-derived text — PII)
+data/eval_real/
+
+# ===========================================================================
+# Node / Next.js (frontend)
+# ===========================================================================
 node_modules/
 .next/
 out/
@@ -27,13 +49,31 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+
+# ===========================================================================
+# Runtime logs (pipeline tracing)
+# ===========================================================================
 backend/logs/
+
+# ===========================================================================
+# Databases
+# ===========================================================================
 *.db
 *.sqlite
 *.sqlite3
+
+# ===========================================================================
+# IDE / Editor
+# ===========================================================================
 .vscode/settings.json
 .idea/
+
+# ===========================================================================
+# OS
+# ===========================================================================
 .DS_Store
 Thumbs.db
+
+# Local backup artifacts (knowledge-base swaps)
 data/knowledge_base/*.bak-*
 data/knowledge_base/*.db-export-*.json

@@ -91,6 +91,18 @@ class Settings(BaseSettings):
     # are read here — never hardcoded in source.
     LOCAL_MODEL_BASE_URL: str = "http://localhost:11434/v1"
     LOCAL_MODEL_NAME: str = "llama3.1:8b"
+    # Optional bearer token for the endpoint above. Leave unset for
+    # unauthenticated local servers; set it when LOCAL_MODEL_BASE_URL points at
+    # a hosted keyed service that speaks the same chat-completions protocol.
+    LOCAL_MODEL_API_KEY: str | None = None
+
+    # --- Style guide (Phase 7D) -------------------------------------------
+    # Optional path to a reply style/instruction guide (markdown, e.g.
+    # data/style_guide/style_guide_v2.md). When set and readable, its contents
+    # are appended to the drafter's system prompt for the AI providers. The
+    # guide is style/behavior only and stays subordinate to the grounding
+    # rules; None (default) leaves the prompt unchanged.
+    STYLE_GUIDE_PATH: str | None = None
 
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None

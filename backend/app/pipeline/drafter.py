@@ -17,6 +17,7 @@ stays swappable and so design docs/source carry no fixed model name.
 
 import logging
 import re
+from pathlib import Path
 
 import httpx
 from pydantic import BaseModel, Field
@@ -24,6 +25,10 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Style-guide file contents cached per path; missing files warn once.
+_style_guide_cache: dict[str, str] = {}
+_style_guide_warned: set[str] = set()
 
 # Local-provider HTTP timeout (OpenAI-compatible endpoint, e.g. Ollama).
 _LOCAL_TIMEOUT_SECONDS = 60.0
@@ -40,20 +45,126 @@ Rules you must follow without exception:
 - Ground every statement in the policy context provided in the user message.
 - Never invent, assume, or generalize a policy that is not in that context.
 - If the context does not answer the question, say so plainly and do not guess.
-- Be concise (under 200 words), professional, and direct.
+- Be concise, professional, and direct.
 - For the FAQ lane: give a complete, final answer the author can act on.
-- For the human-review lane: write a starting draft for the chair and flag any \
-uncertainty or missing information the chair should confirm before sending.
-- Cite the policy ids you relied on (e.g. policy_004) inline where relevant."""
+- For the human-review lane: write the best reply the context supports; put \
+every uncertainty, caveat, or confirmation the chair should handle in the \
+NOTES FOR CHAIR section — never inside the reply.
+- The REPLY section must contain ONLY the email text the requester should \
+receive: no headers like "Draft reply:", no meta-commentary, no chair notes.
+- Never mention internal policy ids (like policy_004) in the reply — refer to \
+policies by their natural names (e.g. "the submission instructions").
+
+Output EXACTLY this structure:
+=== REPLY ===
+<the reply email text>
+=== CITATIONS ===
+<comma-separated internal ids of the policy chunks you relied on \
+(e.g. policy_004, policy_012), or "none">
+=== NOTES FOR CHAIR ===
+<anything the chair should verify or decide before sending, or "none">"""
+
+# Structured-output sections emitted per the system prompt above.
+_SECTION_RE = re.compile(
+    r"===\s*REPLY\s*===\s*(?P<reply>.*?)"
+    r"\s*===\s*CITATIONS\s*===\s*(?P<cites>.*?)"
+    r"\s*===\s*NOTES\s+FOR\s+CHAIR\s*===\s*(?P<notes>.*)",
+    re.DOTALL | re.IGNORECASE,
+)
+# Inline internal ids — parenthesized citation groups first, then bare ids.
+_INLINE_ID_RE = re.compile(
+    r"\s*\((?:see\s+)?policy_\d+(?:\s*,\s*policy_\d+)*\)|\bpolicy_\d+\b"
+)
+_SCAFFOLD_RE = re.compile(r"^\s*(?:draft\s+reply|reply|draft)\s*:\s*\n+", re.IGNORECASE)
+
+
+def _sanitize_reply(reply: str) -> str:
+    """Deterministically enforce reply hygiene, whatever the model produced.
+
+    Strips leading scaffold headers ("Draft reply:") and any internal policy
+    ids — those are internal indexing and must never reach a requester.
+    """
+    reply = _SCAFFOLD_RE.sub("", reply)
+    reply = _INLINE_ID_RE.sub("", reply)
+    reply = re.sub(r"[ \t]+([.,;:!?])", r"\1", reply)  # tidy space before punct
+    reply = re.sub(r"[ \t]{2,}", " ", reply)
+    return reply.strip()
+
+
+def _split_structured(text: str) -> tuple[str, list[str], str | None]:
+    """Split model output into (reply, citations, notes_for_chair).
+
+    Falls back gracefully on unstructured output (older prompts, small local
+    models): the whole text is treated as the reply and citations are parsed
+    from it before sanitization strips them.
+    """
+    match = _SECTION_RE.search(text)
+    if not match:
+        return _sanitize_reply(text), _parse_citations(text), None
+    citations: list[str] = []
+    for cid in _CITATION_PATTERN.findall(match.group("cites")):
+        if cid not in citations:
+            citations.append(cid)
+    notes = match.group("notes").strip()
+    if notes.lower() in ("", "none", "n/a", "none."):
+        notes = None
+    return _sanitize_reply(match.group("reply")), citations, notes
+
+
+def _load_style_guide() -> str | None:
+    """Return the configured style guide's text, or None when absent.
+
+    Cached per path so the file is read once per process. An unreadable path
+    logs one warning and drafting proceeds without a guide — never raises.
+    """
+    path = settings.STYLE_GUIDE_PATH
+    if not path:
+        return None
+    if path in _style_guide_cache:
+        return _style_guide_cache[path]
+    try:
+        text = Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        if path not in _style_guide_warned:
+            _style_guide_warned.add(path)
+            logger.warning(
+                "STYLE_GUIDE_PATH %r is not readable; drafting without a style guide.",
+                path,
+            )
+        return None
+    _style_guide_cache[path] = text
+    return text
+
+
+def _system_prompt() -> str:
+    """Base grounding rules, plus the style guide when one is configured.
+
+    The guide is appended AFTER the grounding rules — it carries an explicit
+    subordination clause, and the rules above always take precedence.
+    """
+    guide = _load_style_guide()
+    if not guide:
+        return _SYSTEM_PROMPT
+    return f"{_SYSTEM_PROMPT}\n\n--- REPLY STYLE & INSTRUCTION GUIDE ---\n{guide}"
 
 
 class DraftResponse(BaseModel):
     """Output of the drafter — the reply text and provenance metadata."""
 
-    draft_text: str = Field(..., description="The generated reply text.")
+    draft_text: str = Field(
+        ...,
+        description="The reply text only — requester-safe, no internal policy "
+        "ids, no chair-facing commentary.",
+    )
+    notes_for_chair: str | None = Field(
+        default=None,
+        description="Chair-facing caveats/confirmations, kept STRICTLY out of "
+        "draft_text so they can never be sent to a requester.",
+    )
     citations: list[str] = Field(
         default_factory=list,
-        description="Policy ids referenced in the draft (e.g. ['policy_004']).",
+        description="Policy ids the draft relied on (e.g. ['policy_004']); "
+        "internal provenance, never shown in the reply text.",
     )
     model_used: str = Field(
         ..., description='Model id used, or "none" when no draft was generated.'
@@ -192,17 +303,19 @@ class ResponseDrafter:
             message = await client.messages.create(
                 model=settings.DRAFT_MODEL,
                 max_tokens=settings.DRAFTER_MAX_TOKENS,
-                system=_SYSTEM_PROMPT,
+                system=_system_prompt(),
                 messages=[{"role": "user", "content": user_prompt}],
             )
 
-            draft_text = "".join(
+            raw_text = "".join(
                 block.text for block in message.content if block.type == "text"
             )
+            reply, citations, notes = _split_structured(raw_text)
 
             return DraftResponse(
-                draft_text=draft_text,
-                citations=_parse_citations(draft_text),
+                draft_text=reply,
+                notes_for_chair=notes,
+                citations=citations,
                 model_used=settings.DRAFT_MODEL,
                 generation_metadata={
                     "lane": routing.lane,
@@ -231,20 +344,37 @@ class ResponseDrafter:
         payload = {
             "model": settings.LOCAL_MODEL_NAME,
             "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": _system_prompt()},
                 {"role": "user", "content": user_prompt},
             ],
             "max_tokens": settings.DRAFTER_MAX_TOKENS,
             "stream": False,
         }
+        # Bearer auth when the endpoint is a hosted keyed service; local
+        # unauthenticated servers leave LOCAL_MODEL_API_KEY unset.
+        headers = (
+            {"Authorization": f"Bearer {settings.LOCAL_MODEL_API_KEY}"}
+            if settings.LOCAL_MODEL_API_KEY
+            else None
+        )
 
         try:
             async with httpx.AsyncClient(timeout=_LOCAL_TIMEOUT_SECONDS) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
+                # Some hosted chat-completions services reject "max_tokens" in
+                # favor of "max_completion_tokens"; swap the key and retry once.
+                if (
+                    response.status_code == 400
+                    and "max_completion_tokens" in response.text
+                    and "max_tokens" in payload
+                ):
+                    payload["max_completion_tokens"] = payload.pop("max_tokens")
+                    response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
 
-            draft_text = data["choices"][0]["message"]["content"]
+            raw_text = data["choices"][0]["message"]["content"]
+            reply, citations, notes = _split_structured(raw_text)
             metadata = {"lane": routing.lane, "provider": "local"}
             usage = data.get("usage")
             if isinstance(usage, dict):
@@ -252,8 +382,9 @@ class ResponseDrafter:
                 metadata["output_tokens"] = usage.get("completion_tokens")
 
             return DraftResponse(
-                draft_text=draft_text,
-                citations=_parse_citations(draft_text),
+                draft_text=reply,
+                notes_for_chair=notes,
+                citations=citations,
                 model_used=settings.LOCAL_MODEL_NAME,
                 generation_metadata=metadata,
             )

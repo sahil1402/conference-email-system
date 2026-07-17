@@ -1,0 +1,28 @@
+{
+  "v1": {
+    "file": "style_guide_v1.md",
+    "generated_at_utc": "2026-07-17T00:11:45Z",
+    "method": "map-reduce distillation (backend/scripts/distill_style_guide.py)",
+    "source": "data/tickets/marc_threads.jsonl (PII-scrubbed pairs)",
+    "pairs": 702,
+    "batch_profiles": 15,
+    "model": "gpt-5.5",
+    "post_edit": "sign-off restored to 'AAAI Team' (reduce over-generalized to 'Conference Team')"
+  },
+  "v2": {
+    "file": "style_guide_v2.md",
+    "created_at_utc": "2026-07-17",
+    "method": "manual curation of v1 per review (see Claude.md Phase 7C/7D)",
+    "changes": [
+      "~1,100 -> ~460 words; 20 behavioral rules -> 8; 10 hard constraints -> 3",
+      "INVERTED v1 rules 13-14: never claim an action was taken (drafter cannot act); phrase operational steps as pending",
+      "refusal rules made conditional on retrieved context (outcome from retrieval, phrasing from guide)",
+      "dropped distillation-artifact constraints (helpdesk/merge/typo rules the drafter never encounters)",
+      "dropped edge-case voice rules (informal greetings, internal confirmations)",
+      "single unified grounding constraint instead of overlapping restatements",
+      "no hard word cap (was 'usually under 150 words') — length is the model's call, but concise/to-the-point/no-filler kept (user direction 2026-07-17)"
+    ],
+    "eval_plan": "A/B v1 vs v2 (vs no guide) in the held-out eval against real chair replies once retrieval bench + drafter auth fix land"
+  },
+  "note": "Guides are style/behavior only; policy content comes from retrieval. Active version to be selected by the future STYLE_GUIDE_PATH setting."
+}

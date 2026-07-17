@@ -1,0 +1,314 @@
+{
+  "generated_at_utc": "2026-07-17T01:36:39Z",
+  "kb": "policies_aaai27.json",
+  "n_scored_retrieval": 37,
+  "coverage": {
+    "overall": 0.183,
+    "n_labeled": 202,
+    "n_answerable": 37,
+    "by_llm_intent": {
+      "review_assignment": {
+        "answerable": 12,
+        "total": 68,
+        "rate": 0.18
+      },
+      "technical_issue": {
+        "answerable": 0,
+        "total": 53,
+        "rate": 0.0
+      },
+      "formatting_requirements": {
+        "answerable": 7,
+        "total": 17,
+        "rate": 0.41
+      },
+      "ethics_concern": {
+        "answerable": 7,
+        "total": 16,
+        "rate": 0.44
+      },
+      "general_inquiry": {
+        "answerable": 4,
+        "total": 16,
+        "rate": 0.25
+      },
+      "other": {
+        "answerable": 2,
+        "total": 15,
+        "rate": 0.13
+      },
+      "submission_withdrawal": {
+        "answerable": 0,
+        "total": 9,
+        "rate": 0.0
+      },
+      "authorship_dispute": {
+        "answerable": 4,
+        "total": 6,
+        "rate": 0.67
+      },
+      "submission_deadline": {
+        "answerable": 1,
+        "total": 2,
+        "rate": 0.5
+      }
+    }
+  },
+  "retrieval_ablation": {
+    "body300": {
+      "bm25": {
+        "hit@1": 0.2432,
+        "recall@1": 0.1171,
+        "ndcg@1": 0.2432,
+        "hit@3": 0.3784,
+        "recall@3": 0.1847,
+        "ndcg@3": 0.1978,
+        "hit@5": 0.4865,
+        "recall@5": 0.2883,
+        "ndcg@5": 0.2525
+      },
+      "dense": {
+        "hit@1": 0.3514,
+        "recall@1": 0.1937,
+        "ndcg@1": 0.3514,
+        "hit@3": 0.5676,
+        "recall@3": 0.3559,
+        "ndcg@3": 0.3444,
+        "hit@5": 0.6216,
+        "recall@5": 0.4144,
+        "ndcg@5": 0.3722
+      },
+      "fusion": {
+        "hit@1": 0.3514,
+        "recall@1": 0.1847,
+        "ndcg@1": 0.3514,
+        "hit@3": 0.5405,
+        "recall@3": 0.3694,
+        "ndcg@3": 0.3505,
+        "hit@5": 0.5946,
+        "recall@5": 0.4144,
+        "ndcg@5": 0.3713
+      }
+    },
+    "body300+kw_intent": {
+      "bm25": {
+        "hit@1": 0.2432,
+        "recall@1": 0.1171,
+        "ndcg@1": 0.2432,
+        "hit@3": 0.3784,
+        "recall@3": 0.1847,
+        "ndcg@3": 0.1978,
+        "hit@5": 0.4865,
+        "recall@5": 0.2883,
+        "ndcg@5": 0.2525
+      },
+      "dense": {
+        "hit@1": 0.3514,
+        "recall@1": 0.1802,
+        "ndcg@1": 0.3514,
+        "hit@3": 0.4865,
+        "recall@3": 0.2973,
+        "ndcg@3": 0.3025,
+        "hit@5": 0.7297,
+        "recall@5": 0.536,
+        "ndcg@5": 0.4142
+      },
+      "fusion": {
+        "hit@1": 0.3243,
+        "recall@1": 0.1757,
+        "ndcg@1": 0.3243,
+        "hit@3": 0.5405,
+        "recall@3": 0.3829,
+        "ndcg@3": 0.3506,
+        "hit@5": 0.5946,
+        "recall@5": 0.4054,
+        "ndcg@5": 0.3632
+      }
+    },
+    "subject+body300": {
+      "bm25": {
+        "hit@1": 0.2432,
+        "recall@1": 0.1171,
+        "ndcg@1": 0.2432,
+        "hit@3": 0.4865,
+        "recall@3": 0.2613,
+        "ndcg@3": 0.2444,
+        "hit@5": 0.5405,
+        "recall@5": 0.3423,
+        "ndcg@5": 0.286
+      },
+      "dense": {
+        "hit@1": 0.2703,
+        "recall@1": 0.1622,
+        "ndcg@1": 0.2703,
+        "hit@3": 0.5946,
+        "recall@3": 0.3874,
+        "ndcg@3": 0.3482,
+        "hit@5": 0.7027,
+        "recall@5": 0.5,
+        "ndcg@5": 0.4035
+      },
+      "fusion": {
+        "hit@1": 0.2973,
+        "recall@1": 0.1441,
+        "ndcg@1": 0.2973,
+        "hit@3": 0.6486,
+        "recall@3": 0.4324,
+        "ndcg@3": 0.3656,
+        "hit@5": 0.6757,
+        "recall@5": 0.4775,
+        "ndcg@5": 0.3913
+      }
+    }
+  },
+  "classifier": {
+    "n_in_taxonomy": 187,
+    "intent_accuracy": 0.578,
+    "chair_routing_accuracy": 0.85,
+    "taxonomy_gap_rate": 0.074,
+    "other_intents_top": [
+      [
+        "dual_submission_policy",
+        1
+      ],
+      [
+        "presentation_schedule_change",
+        1
+      ],
+      [
+        "session chair staffing",
+        1
+      ],
+      [
+        "volunteer_role_filled",
+        1
+      ],
+      [
+        "volunteer_staffing",
+        1
+      ],
+      [
+        "author_modification",
+        1
+      ],
+      [
+        "camera_ready_author_info_update",
+        1
+      ],
+      [
+        "decision_appeal",
+        1
+      ],
+      [
+        "session chair nomination",
+        1
+      ],
+      [
+        "session_chair_volunteering",
+        1
+      ]
+    ],
+    "per_intent": {
+      "review_assignment": {
+        "precision": 0.667,
+        "recall": 0.588,
+        "f1": 0.625,
+        "support": 68
+      },
+      "technical_issue": {
+        "precision": 0.85,
+        "recall": 0.321,
+        "f1": 0.466,
+        "support": 53
+      },
+      "formatting_requirements": {
+        "precision": 0.636,
+        "recall": 0.824,
+        "f1": 0.718,
+        "support": 17
+      },
+      "ethics_concern": {
+        "precision": 0.733,
+        "recall": 0.688,
+        "f1": 0.71,
+        "support": 16
+      },
+      "general_inquiry": {
+        "precision": 0.44,
+        "recall": 0.688,
+        "f1": 0.537,
+        "support": 16
+      },
+      "submission_withdrawal": {
+        "precision": 0.643,
+        "recall": 1.0,
+        "f1": 0.783,
+        "support": 9
+      },
+      "authorship_dispute": {
+        "precision": 0.833,
+        "recall": 0.833,
+        "f1": 0.833,
+        "support": 6
+      },
+      "submission_deadline": {
+        "precision": 0.043,
+        "recall": 0.5,
+        "f1": 0.08,
+        "support": 2
+      }
+    },
+    "top_confusions": [
+      {
+        "llm": "technical_issue",
+        "kw": "review_assignment",
+        "n": 18
+      },
+      {
+        "llm": "technical_issue",
+        "kw": "submission_deadline",
+        "n": 13
+      },
+      {
+        "llm": "review_assignment",
+        "kw": "general_inquiry",
+        "n": 8
+      },
+      {
+        "llm": "review_assignment",
+        "kw": "submission_deadline",
+        "n": 8
+      },
+      {
+        "llm": "review_assignment",
+        "kw": "formatting_requirements",
+        "n": 3
+      },
+      {
+        "llm": "general_inquiry",
+        "kw": "formatting_requirements",
+        "n": 3
+      },
+      {
+        "llm": "review_assignment",
+        "kw": "ethics_concern",
+        "n": 3
+      },
+      {
+        "llm": "ethics_concern",
+        "kw": "submission_withdrawal",
+        "n": 3
+      },
+      {
+        "llm": "technical_issue",
+        "kw": "general_inquiry",
+        "n": 2
+      },
+      {
+        "llm": "technical_issue",
+        "kw": "formatting_requirements",
+        "n": 2
+      }
+    ]
+  }
+}
