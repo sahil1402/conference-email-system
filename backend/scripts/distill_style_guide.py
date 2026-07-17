@@ -76,16 +76,23 @@ def scrub(text: str) -> str:
     return _GREETING_RE.sub(lambda m: f"{m.group(1)} <name>{m.group(2)}", text)
 
 
-def strip_quoted_tail(text: str) -> str:
-    """Cut an inquiry body at quoted history or the requester's sign-off."""
+def strip_quoted_tail(text: str, cut_signoff: bool = True) -> str:
+    """Cut an inquiry body at quoted history (and, optionally, the sign-off).
+
+    ``cut_signoff=True`` (style distillation): signature blocks — name,
+    affiliation, phone — never reach the external API. Eval/test paths pass
+    ``False``: the system is tested on the exact email, sign-off included,
+    and greeting population needs the requester's name.
+    """
     cut = len(text)
     for marker in _QUOTE_MARKERS:
         idx = text.find(marker)
         if idx != -1:
             cut = min(cut, idx)
-    m = _SIGNOFF_RE.search(text)
-    if m:
-        cut = min(cut, m.start())
+    if cut_signoff:
+        m = _SIGNOFF_RE.search(text)
+        if m:
+            cut = min(cut, m.start())
     return text[:cut]
 
 

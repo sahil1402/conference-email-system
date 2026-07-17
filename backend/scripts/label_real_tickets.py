@@ -133,7 +133,9 @@ def load_threads() -> list[dict]:
             ),
             "",
         )
-        question = strip_quoted_tail(question).strip()
+        # Keep the sign-off/signature: eval inquiries must be the exact email
+        # (only quoted reply history is trimmed).
+        question = strip_quoted_tail(question, cut_signoff=False).strip()
         if len(question) < MIN_QUESTION_CHARS or len(reply) < MIN_REPLY_CHARS:
             continue
         rows.append(
