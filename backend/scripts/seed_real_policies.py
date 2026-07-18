@@ -27,13 +27,13 @@ _POLICIES_PATH = _ROOT_DIR / "data" / "knowledge_base" / "policies.json"
 async def main() -> None:
     policies = json.loads(_POLICIES_PATH.read_text(encoding="utf-8"))
     repo = PolicyRepository()
+    inserted = updated = 0
     async with async_session_factory() as db:
-        existing = await repo.get_all_policies(db)
-        if existing:
-            print(f"Policies already present ({len(existing)}); skipping insert.")
-            return
-        inserted = await repo.bulk_insert_policies(db, policies)
-        print(f"Inserted {inserted} real policy chunks from {_POLICIES_PATH.name}.")
+        for p in policies:
+            outcome = await repo.upsert_by_key(db, p, source="aaai_scrape")
+            inserted += outcome == "inserted"
+            updated += outcome == "updated"
+    print(f"Public layer synced from {_POLICIES_PATH.name}: {inserted} inserted, {updated} updated.")
 
 
 if __name__ == "__main__":

@@ -45,3 +45,23 @@ async def test_list_for_index_filters_status_and_visibility(session):
 
     pub_only = await repo.list_for_index(session, visibilities=("public",))
     assert {p.policy_key for p in pub_only} == {"policy_101"}    # internal excluded
+
+
+async def test_upsert_by_key_updates_content_but_preserves_governance_fields(session):
+    repo = PolicyRepository()
+
+    assert await repo.upsert_by_key(session, {"id": "policy_101", "title": "v1", "content": "a"}, source="aaai_scrape") == "inserted"
+
+    # a chair retires it (governance field)
+    row = (await repo.list_for_index(session, visibilities=("public",)))[0]
+    row.status = "inactive"
+    await session.commit()
+
+    # re-scrape changes the content
+    assert await repo.upsert_by_key(session, {"id": "policy_101", "title": "v2", "content": "b"}, source="aaai_scrape") == "updated"
+
+    from sqlalchemy import select
+    from app.db.models import PolicyDocument
+    got = (await session.execute(select(PolicyDocument).where(PolicyDocument.policy_key == "policy_101"))).scalar_one()
+    assert got.title == "v2"            # content refreshed
+    assert got.status == "inactive"     # governance field NOT resurrected

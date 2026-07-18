@@ -37,6 +37,10 @@ def _map_policy(raw: dict) -> dict:
 class PolicyRepository:
     """Async data-access methods for the ``policy_documents`` table."""
 
+    # Content fields the importer owns. status/visibility are chair-owned and are
+    # never written on update (prevents a re-scrape resurrecting a retired policy).
+    _IMPORTER_FIELDS = ("title", "content", "category", "tags")
+
     async def get_all_policies(self, db: AsyncSession) -> list[PolicyDocument]:
         """Return every policy document, ordered by id."""
         result = await db.execute(select(PolicyDocument).order_by(PolicyDocument.id))
@@ -86,3 +90,30 @@ class PolicyRepository:
             .order_by(PolicyDocument.id)
         )
         return list(result.scalars().all())
+
+    async def upsert_by_key(self, db: AsyncSession, raw: dict, *, source: str) -> str:
+        """Insert a new public policy or refresh an existing one's content.
+
+        Returns "inserted" or "updated". On update, only content fields change;
+        status/visibility are left as-is.
+        """
+        mapped = _map_policy(raw)
+        key = mapped.get("policy_key")
+        if not key:
+            raise ValueError("policy dict needs 'policy_key' or 'id'")
+
+        existing = (
+            await db.execute(select(PolicyDocument).where(PolicyDocument.policy_key == key))
+        ).scalar_one_or_none()
+
+        if existing is None:
+            db.add(PolicyDocument(visibility="public", status="active", source=source, **mapped))
+            await db.commit()
+            return "inserted"
+
+        for field in self._IMPORTER_FIELDS:
+            if field in mapped:
+                setattr(existing, field, mapped[field])
+        existing.source = source
+        await db.commit()
+        return "updated"
