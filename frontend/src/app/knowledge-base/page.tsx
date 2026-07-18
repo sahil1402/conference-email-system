@@ -6,6 +6,7 @@ import { BookOpen, Plus } from "lucide-react";
 import { usePolicies, useReactivatePolicy, useRetirePolicy } from "@/hooks";
 import { AddPolicyPanel } from "@/components/kb/AddPolicyPanel";
 import { PolicyFilters } from "@/components/kb/PolicyFilters";
+import { PolicyHistory } from "@/components/kb/PolicyHistory";
 import { PolicyList } from "@/components/kb/PolicyList";
 import { Button, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -102,13 +103,7 @@ export default function KnowledgeBasePage() {
       </div>
 
       {view === "history" ? (
-        // History view lands in a later task — placeholder for now.
-        <div
-          className="rounded-lg border p-6 text-sm"
-          style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-        >
-          Coming in the History task
-        </div>
+        <PolicyHistory />
       ) : (
         <div className="flex flex-col gap-6">
           <div className="flex justify-end">
