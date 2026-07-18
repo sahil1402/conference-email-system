@@ -15,11 +15,14 @@ AI-powered conference email management for AAAI/NeurIPS/ICML/ICLR. Two-lane work
 
 ## Branch / State Note (2026-07-17)
 `main` now includes Jiacheng's Phase 7 work (fast-forward merge, HEAD `c4ed3f5`).
-**Not on main yet** (pending re-application on a fresh branch): the SQLite→PostgreSQL
-migration, the production Docker Postgres `db` service, and the `external_api`
-drafter provider. Those were prototyped on `feature/production-hosting`; `main`
-today is **SQLite-only**, drafter Literal has **no `external_api`**, and
-`SYNC_DATABASE_URL` is still present. Do not document them as done here until merged.
+**Not on main yet** (implemented on `feature/production-hosting-v2`, cut from
+`main`, pending review/merge): the SQLite→PostgreSQL migration, the Docker
+Postgres `db` service, and full `SYNC_DATABASE_URL` removal. The `external_api`
+drafter is **deliberately excluded** on v2 (the `local` OpenAI-compatible
+provider covers that use case with zero new code). `main` today is still
+**SQLite-only**, drafter Literal has **no `external_api`**, and
+`SYNC_DATABASE_URL` is still present — do not mark these done for `main` until
+`feature/production-hosting-v2` is merged.
 
 ## Tech Stack
 | Layer | Technology |
@@ -150,9 +153,21 @@ Jiacheng's track, now on `main`. Zero model names in code/docs (data quotes AAAI
 - `STYLE_GUIDE_PATH` default `None` → `../data/style_guide/style_guide_v2.md` (config.py + .env.example), commit **`c4ed3f5`**. Uses the backend/-relative `../data` form so it resolves from the app CWD (Docker WORKDIR /app/backend, local `cd backend`, pytest rootdir backend/) — a bare `data/...` would silently no-op. Drafter loader / v1 / manifest untouched. Verified: default loads the real 2789-char v2 guide into the system prompt; **184/184 tests pass**.
 - **Minor future cleanup (flagged, not done)**: `test_no_style_guide_by_default` in `test_drafter_local.py` is now a mild misnomer — it monkeypatches `STYLE_GUIDE_PATH=None` (testing the explicit-None override), which is still valid and passing, but the default is no longer None. Rename later (keep the intent), low priority.
 
+### 2026-07-17 (later) — SQLite→PostgreSQL migration — Complete on `feature/production-hosting-v2` (branch; NOT merged to main)
+Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestrator`/`seed.py`/migration files unchanged). `external_api` drafter **deliberately excluded** (`MODEL_PROVIDER=local` at an OpenAI-compatible endpoint already covers it — zero new code).
+- **Docker Postgres**: `db` service `postgres:16-alpine` in `docker-compose.yml` — named volume `postgres-data`, `pg_isready` healthcheck, port bound **127.0.0.1:5432 only** (never 0.0.0.0). Backend `DATABASE_URL` built from the **same `${POSTGRES_*}`** values as `db` (single source of truth), asyncpg driver, `depends_on: db {condition: service_healthy}`. Dropped the now-dead SQLite `backend-db` volume/mount.
+- **`SYNC_DATABASE_URL` removed entirely** (config.py, docker-compose.yml, .env.example, stale Dockerfile comment) — grep-confirmed read nowhere; Alembic reads the async `DATABASE_URL` via `migrations/env.py`. config.py `DATABASE_URL` default kept SQLite (safe test/local/CI default; Postgres injected via compose env).
+- **Postgres-compat fix (`func.json_extract` → dialect-agnostic accessor)**: both call sites — `email_repository._queue_conditions` → `Email.routing["lane"].as_string()`; `audit_repository.count_reassignments_by_original_chair` → `AuditLog.extra_metadata["original_chair_id"].as_integer()`. `func.json_extract` is SQLite-only (`UndefinedFunctionError` on Postgres). Repo-wide grep confirmed exactly these two.
+- **Migrations on Postgres**: `alembic upgrade head` clean through `988d40d1a9ee → 507ef4c2d805 → 1f51f0224943 → b8d3f6a1c204`; PG schema **byte-identical** to a fresh-migrated SQLite (incl. `policy_documents.tags`/`source`, `audit_logs.metadata`). Reseeded via `seed.py`.
+- **Tests (+8, 184→192, all green)**: `tests/test_postgres_migration.py` (skipif unless `TEST_DATABASE_URL` is a pg DSN) — driver/dialect resolution, schema assertion, CRUD, and **two json_extract regression tests** (fail if either call site reverts). Fixture: schema provisioned once per module **synchronously via psycopg2 (no event loop)**; async engine/session **per test** (avoids cross-loop asyncpg "another operation is in progress"). `tests/test_env_example_config.py` — every `.env.example` `MODEL_PROVIDER` is a valid config Literal (guards the `external_api`-not-in-Literal bug). CI backend job gains a **secret-free `postgres:16-alpine` service** + `TEST_DATABASE_URL`.
+- **Verified**: alembic head on PG · PG-vs-SQLite schema diff identical · 3-way (raw psql · `async_session_factory` · live HTTP `/queue?lane=` + `/analytics/summary` reassignment aggregate) exercising both fixed queries · full suite **192 passed / 0 failed** (6 PG tests: 6-pass-with / 6-skip-without `TEST_DATABASE_URL`).
+- **Deviations / flags**: (1) PG test suite gated on `TEST_DATABASE_URL` **only** — dropped the `DATABASE_URL` fallback so the `drop_all`/`create_all` suite can never target a real/dev DB. (2) `scripts/generate_progress_pdf.py` still carries historical `SYNC_DATABASE_URL` narrative (Phase-3C record, out of scope). (3) ⚠️ `backend/.env` (gitignored) holds a live-looking OpenAI key (`sk-proj-…`) under `LOCAL_MODEL_API_KEY` — recommend rotation.
+- **Demo data (volume state only, not repo)**: this branch's Postgres volume reset to the full **47-email** demo set — 30 `toy_dataset.json` via `seed.py` + 17 `toy_multichair.json` via the live `/ingest` pipeline (real `local` drafter). Citations draw from the real 93-chunk corpus (`policy_101`–`192`); per-chair Program 26 / D&E 8 / Local Arr 8 / Pub-Spon 4 / General **0** (expected — general_inquiry FAQ-lane + low-signal → Local Arr).
+- **Proposed commit (NOT committed)**: `feat(db): migrate SQLite→PostgreSQL — Docker Postgres service, single-source DATABASE_URL, drop SYNC_DATABASE_URL, dialect-agnostic JSON accessors, PG test suite + CI Postgres service`
+
 ---
 
-## Current Status — Phases 0–6C COMPLETE · Real-Corpus + Phase 7 COMPLETE (on main) · 184/184 backend tests · frontend build clean
+## Current Status — Phases 0–6C COMPLETE · Real-Corpus + Phase 7 COMPLETE (on main) · main 184/184 · `feature/production-hosting-v2` 192/192 · frontend build clean
 | Phase | Status | Summary |
 |---|---|---|
 | 0–2 | Complete | Scaffold/config/DB/frontend shell · data+pipeline+v1 API · full Next.js frontend |
@@ -162,9 +177,10 @@ Jiacheng's track, now on `main`. Zero model names in code/docs (data quotes AAAI
 | 6A/6B/6C | Complete | multi-chair routing (11 intents, chair_router, reassign) · frontend · paginated-aggregate bug-class fix |
 | Real-Corpus + 7 | Complete | 93-chunk real AAAI-27 corpus (56-chunk archived) · query distiller (`QUERY_STRATEGY`) · placeholder reply contract · send gate (`ALLOW_AUTO_SEND`) · style guide v2 · hermetic conftest · Zendesk groundwork |
 | Today | Complete | style_guide_v2 committed default (`c4ed3f5`) |
+| PG migration (v2) | Complete on branch (unmerged) | SQLite→Postgres on `feature/production-hosting-v2`: Docker `db` service (loopback, healthcheck) · single-source `DATABASE_URL` · `SYNC_DATABASE_URL` removed · dialect-agnostic JSON (`json_extract` fix, both sites) · PG test suite + CI Postgres · 192/192 · `external_api` excluded by design |
 
 ## Open Blockers (active)
-- **Postgres / Docker-Postgres / external_api NOT on main** — prototyped on `feature/production-hosting`; must be re-applied on a fresh branch and merged. Until then `main` is SQLite-only with no `external_api` provider (its `.env` value fails the Literal — a local dev must use a provider that exists in main's Literal).
+- **Postgres / Docker-Postgres implemented on `feature/production-hosting-v2` — NOT merged** — SQLite→Postgres migration, Docker `db` service, single-source `DATABASE_URL`, `SYNC_DATABASE_URL` removal, `func.json_extract` fix, PG test suite + CI Postgres service all done on the branch (192/192); awaiting review/merge to `main`. `external_api` drafter **deliberately excluded** (the `local` OpenAI-compatible provider covers it). Until merged, `main` stays SQLite-only with `SYNC_DATABASE_URL` present and no `external_api` in the Literal.
 - **NCSA Delta GPU access pending** — the self-hosted (`MODEL_PROVIDER=local`) drafter is implemented + mock-tested but not run on real GPU hardware.
 - **Synthetic email dataset** — the policy corpus is real (93 chunks) but `data/emails/toy_dataset.json` and `data/eval/ground_truth.json` remain hand-written synthetic; eval numbers are on synthetic traffic. Real-ticket eval (Phase 7) uses gitignored PII data under `data/eval_real/`.
 - **Zendesk fetch/write-back missing** — read-only OAuth + pull script exist; no poller, no `zendesk_ticket_id` on `emails`, no send transport (send gate contract is live, transport is not).

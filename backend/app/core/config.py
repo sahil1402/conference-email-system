@@ -127,15 +127,14 @@ class Settings(BaseSettings):
 
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
-    # Primary async connection string used by the app's async engine.
+    # Primary async connection string used by BOTH the app's async engine and
+    # Alembic. migrations/env.py injects this same async URL into Alembic's
+    # sqlalchemy.url (see backend/migrations/env.py), so migrations run over the
+    # async driver too — there is NO separate sync connection string.
     #   PostgreSQL: postgresql+asyncpg://user:password@localhost:5432/confmail
     #   SQLite (tests): sqlite+aiosqlite:///./test.db
     # Defaults to local SQLite so dev/tests work with no .env present.
     DATABASE_URL: str = "sqlite:///./conference_email.db"
-    # Synchronous connection string — used only by Alembic / sync tooling
-    # (psycopg2 for PostgreSQL). The async app never reads this.
-    #   PostgreSQL: postgresql+psycopg2://user:password@localhost:5432/confmail
-    SYNC_DATABASE_URL: str = "sqlite:///./conference_email.db"
 
 
 @lru_cache

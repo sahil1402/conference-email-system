@@ -1,13 +1,39 @@
 # One-command local spin-up: `docker compose up --build`
-# → backend on http://localhost:8000, frontend on http://localhost:3000
+# → backend on http://localhost:8000, frontend on http://localhost:3000,
+#   db (PostgreSQL) on 127.0.0.1:5432
 #
-# SQLite is the default persistence (per backend/app/core/config.py); no
-# Postgres service is included. To add Postgres later: add a `db` service
-# (image: postgres:16), then set DATABASE_URL=postgresql+asyncpg://... and
-# SYNC_DATABASE_URL=postgresql+psycopg2://... on the backend service (asyncpg +
-# psycopg2 are already backend dependencies) and add `depends_on: [db]`.
+# Persistence is PostgreSQL (the `db` service). The backend's DATABASE_URL is
+# built from the SAME POSTGRES_* values as the db service (single source of
+# truth), using the asyncpg driver. The app's async engine AND Alembic both read
+# that one URL — there is no separate sync URL. Override POSTGRES_USER /
+# POSTGRES_PASSWORD / POSTGRES_DB via the shell or a repo-root .env; each
+# defaults to `confmail`.
 
 services:
+  db:
+    image: postgres:16-alpine
+    # These POSTGRES_* values are the single source of truth for the database
+    # credentials. The backend service (see TASK 2) builds its DATABASE_URL from
+    # the SAME ${POSTGRES_*} interpolation, so one place drives both.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-confmail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-confmail}
+      POSTGRES_DB: ${POSTGRES_DB:-confmail}
+    ports:
+      # Bind to loopback ONLY — never 0.0.0.0. The DB must not be reachable from
+      # other hosts on the network; only the compose backend (same network) and
+      # localhost tooling need it.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Named volume → Postgres data survives `docker compose down`.
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready gates dependents (backend depends_on: service_healthy).
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-confmail} -d ${POSTGRES_DB:-confmail}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       # Context is the repo root so the image can include <root>/data, which the
@@ -17,20 +43,24 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Point SQLite at the mounted volume dir so data survives restarts. These
-      # override the config defaults (which write to the cwd). aiosqlite/psycopg2
-      # normalization happens in the app/alembic.
-      - DATABASE_URL=sqlite:///./dbdata/conference_email.db
-      - SYNC_DATABASE_URL=sqlite:///./dbdata/conference_email.db
+      # Single source of truth: built from the SAME ${POSTGRES_*} values the db
+      # service uses, with the asyncpg driver. The app's async engine and Alembic
+      # both read this one URL. `db` is the compose-network hostname for the
+      # Postgres service (NOT 127.0.0.1 — that binding is for host access only).
+      # Set here in `environment:` so it takes precedence over any DATABASE_URL
+      # that might be present in backend/.env under compose.
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-confmail}:${POSTGRES_PASSWORD:-confmail}@db:5432/${POSTGRES_DB:-confmail}
     # Optional local overrides (secrets, provider selection). Not required —
     # with no .env the app runs on its safe defaults (keyword classifier, BM25
     # retriever, no-key drafter fallback), which need zero external services.
     env_file:
       - path: backend/.env
         required: false
-    volumes:
-      # Named volume for the SQLite file → persists across `docker compose down`.
-      - backend-db:/app/backend/dbdata
+    depends_on:
+      # Wait for Postgres to pass its pg_isready healthcheck before the backend
+      # starts (the Dockerfile CMD runs `alembic upgrade head` on boot).
+      db:
+        condition: service_healthy
 
   frontend:
     build:
@@ -46,4 +76,4 @@ services:
       - backend
 
 volumes:
-  backend-db:
+  postgres-data:
