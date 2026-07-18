@@ -65,3 +65,30 @@ async def test_upsert_by_key_updates_content_but_preserves_governance_fields(ses
     got = (await session.execute(select(PolicyDocument).where(PolicyDocument.policy_key == "policy_101"))).scalar_one()
     assert got.title == "v2"            # content refreshed
     assert got.status == "inactive"     # governance field NOT resurrected
+
+
+async def test_upsert_by_key_insert_handles_real_shaped_raw_dict_with_source(session):
+    """Real policies.json rows carry a 'source' key (and _map_policy retains it,
+    since 'source' is a valid PolicyDocument column). The INSERT branch must not
+    pass it twice to PolicyDocument(**kwargs) — the explicit source= kwarg wins."""
+    repo = PolicyRepository()
+
+    raw = {
+        "id": "policy_101",
+        "title": "v1",
+        "content": "a",
+        "source": "AAAI-27 — x.md",
+        "tags": ["t"],
+    }
+    assert await repo.upsert_by_key(session, raw, source="aaai_scrape") == "inserted"
+
+    from sqlalchemy import select
+    from app.db.models import PolicyDocument
+    got = (
+        await session.execute(select(PolicyDocument).where(PolicyDocument.policy_key == "policy_101"))
+    ).scalar_one()
+    assert got.visibility == "public"
+    assert got.status == "active"
+    assert got.source == "aaai_scrape"   # explicit source arg wins over raw dict's source
+    assert got.title == "v1"
+    assert got.tags == ["t"]

@@ -1,10 +1,13 @@
 """Seed the REAL AAAI-27 policy corpus (93 chunks) into policy_documents.
 
 Replaces the toy-KB seeding for deployments: loads
-data/knowledge_base/policies.json (produced by chunk_policies.py) and
-bulk-inserts it via PolicyRepository. Idempotent — skips when the table is
-already populated. The FAISS retriever reads this table; run this before
-starting the app with RETRIEVAL_BACKEND=faiss.
+data/knowledge_base/policies.json (produced by chunk_policies.py) and syncs it
+via PolicyRepository.upsert_by_key — new policy_keys are inserted as public/
+active, existing rows have only their content fields (title/content/category/
+tags) refreshed. Safe to re-run: it never skips based on the table already
+being populated, and it never resurrects a chair-retired (inactive) policy.
+The FAISS retriever reads this table; run this before starting the app with
+RETRIEVAL_BACKEND=faiss.
 
 Run with:  cd backend && python scripts/seed_real_policies.py
 """
