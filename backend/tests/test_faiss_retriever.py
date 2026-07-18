@@ -84,6 +84,9 @@ class _FakePolicyRepo:
     async def get_all_policies(self, db) -> list:
         return _fake_policies()
 
+    async def list_for_index(self, db, visibilities=("public", "internal")) -> list:
+        return _fake_policies()
+
 
 class _DummySession:
     """No-op async context manager used as the session factory."""
