@@ -1,18 +1,17 @@
 """Policy retriever (grounding source for the drafter).
 
-BM25 keyword retrieval over the FAQ / policy knowledge base. The corpus and the
-BM25 index are built lazily on first use and cached on the instance, so the
-JSON file is read and tokenised once. The `backend` flag and the
-`RetrievedChunk` contract are the seams for swapping in vector retrieval later.
+BM25 keyword retrieval over the FAQ / policy knowledge base. The corpus is
+loaded from the DB (active rows in public/internal visibility, via
+``PolicyRepository.list_for_index``) and the BM25 index is built lazily on
+first use and cached on the instance, mirroring the FAISS retriever's
+DB-backed pattern. The `backend` flag and the `RetrievedChunk` contract are
+the seams for swapping in vector retrieval later.
 
-The knowledge base JSON (data/knowledge_base/policies.json) uses these fields
-per chunk: id, category, title, content, source, tags. We index title +
-content + tags and return chunks ranked by BM25 relevance.
+Indexed documents carry: policy_key (id), category, title, content, tags. We
+index title + content + tags and return chunks ranked by BM25 relevance.
 """
 
-import json
 import logging
-from pathlib import Path
 
 from pydantic import BaseModel, Field
 from rank_bm25 import BM25Okapi
@@ -20,12 +19,6 @@ from rank_bm25 import BM25Okapi
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-
-# data/knowledge_base/policies.json lives at the project root. This file is at
-# backend/app/pipeline/retriever.py → parents[3] is the repo root.
-_DEFAULT_KB_PATH = (
-    Path(__file__).resolve().parents[3] / "data" / "knowledge_base" / "policies.json"
-)
 
 # Minimal English stopword list removed before BM25 tokenisation.
 _STOPWORDS = {
@@ -53,68 +46,77 @@ class RetrievedChunk(BaseModel):
 class PolicyRetriever:
     """BM25 retriever over the policy knowledge base (swappable backend)."""
 
-    def __init__(self, backend: str = "bm25", kb_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        backend: str = "bm25",
+        policy_repo=None,
+        session_factory=None,
+    ) -> None:
+        from app.db.database import async_session_factory
+        from app.repositories.policy_repository import PolicyRepository
+
         self.backend = backend
-        self._kb_path = kb_path or _DEFAULT_KB_PATH
+        self._policy_repo = policy_repo or PolicyRepository()
+        self._session_factory = session_factory or async_session_factory
         # Cached on first retrieve(); cleared by rebuild_index().
         self._policies: list[dict] | None = None
         self._index: BM25Okapi | None = None
 
-    def _ensure_loaded(self) -> None:
-        """Load policies and build the BM25 index if not already cached."""
+    async def _ensure_loaded(self) -> None:
+        """Load the active corpus from the DB and build the BM25 index (once)."""
         if self._index is not None and self._policies is not None:
             return
-        with open(self._kb_path, encoding="utf-8") as fh:
-            self._policies = json.load(fh)
+        async with self._session_factory() as db:
+            rows = await self._policy_repo.list_for_index(db)
+        self._policies = [
+            {
+                "id": r.policy_key or "",
+                "title": r.title or "",
+                "content": r.content or "",
+                "category": r.category or "",
+                "tags": r.tags or [],
+            }
+            for r in rows
+        ]
         corpus = [
-            _tokenize(
-                f"{p.get('title', '')} {p.get('content', '')} "
-                f"{' '.join(p.get('tags', []))}"
-            )
+            _tokenize(f"{p['title']} {p['content']} {' '.join(p['tags'])}")
             for p in self._policies
         ]
-        self._index = BM25Okapi(corpus)
+        # rank_bm25 requires a non-empty corpus; guard the empty-KB case.
+        self._index = BM25Okapi(corpus) if corpus else None
 
     def rebuild_index(self) -> None:
-        """Clear the cache so the next retrieve() reloads from disk."""
+        """Clear the cache so the next retrieve() reloads from the DB."""
         self._policies = None
         self._index = None
 
     @property
     def document_count(self) -> int:
-        """Number of policy chunks in the corpus (loads the KB if needed)."""
-        self._ensure_loaded()
+        """Number of documents currently indexed (0 until first load)."""
         return len(self._policies or [])
 
     async def retrieve(
         self, query: str, intent: str, top_k: int = 3
     ) -> list[RetrievedChunk]:
-        """Return up to ``top_k`` policy chunks most relevant to the query.
-
-        The intent is appended to the query text so intent vocabulary
-        influences ranking. Chunks scoring > 0 are preferred; if nothing
-        scores above zero, the top_k highest-scored chunks are returned anyway
-        as a fallback so the drafter always has some grounding context.
-        """
-        self._ensure_loaded()
-        assert self._policies is not None and self._index is not None
+        """Return up to ``top_k`` active policy chunks most relevant to the query."""
+        await self._ensure_loaded()
+        if not self._policies or self._index is None:
+            return []
 
         query_tokens = _tokenize(f"{query} {intent}")
         scores = self._index.get_scores(query_tokens)
-
-        # Indices ranked by score, highest first.
         ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
         positive = [i for i in ranked if scores[i] > 0]
         chosen = (positive or ranked)[:top_k]
 
         return [
             RetrievedChunk(
-                policy_id=self._policies[i].get("id", ""),
-                title=self._policies[i].get("title", ""),
-                content=self._policies[i].get("content", ""),
+                policy_id=self._policies[i]["id"],
+                title=self._policies[i]["title"],
+                content=self._policies[i]["content"],
                 score=float(scores[i]),
-                category=self._policies[i].get("category", ""),
-                tags=self._policies[i].get("tags", []),
+                category=self._policies[i]["category"],
+                tags=self._policies[i]["tags"],
             )
             for i in chosen
         ]
