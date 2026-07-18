@@ -7,6 +7,12 @@ name: CI
 # fallback), which needs no external API. Do NOT add a job that depends on an
 # external provider API key here; the drafter degrades to a safe fallback with no
 # key, so all three jobs below run on a fresh fork with zero secrets configured.
+#
+# The backend job runs a throwaway Postgres SERVICE CONTAINER (local, not an
+# external API) with fixed non-secret test creds, so the Postgres migration /
+# dialect tests (tests/test_postgres_migration.py) run in CI too. Those tests
+# self-skip when TEST_DATABASE_URL is unset, so the suite stays green with no
+# Postgres present (e.g. a plain local run).
 
 on:
   push:
@@ -22,6 +28,26 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # Throwaway Postgres for the migration/dialect tests. Fixed non-secret creds;
+    # a local service container, not an external provider — keeps the pipeline
+    # secret-free. tests/test_postgres_migration.py self-skips without this.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: confmail
+          POSTGRES_PASSWORD: confmail
+          POSTGRES_DB: confmail_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U confmail -d confmail_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Enables the Postgres migration suite; other tests ignore it.
+      TEST_DATABASE_URL: postgresql+asyncpg://confmail:confmail@localhost:5432/confmail_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

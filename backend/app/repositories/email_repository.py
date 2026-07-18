@@ -34,7 +34,11 @@ def _queue_conditions(
     """
     conditions: list = []
     if lane is not None:
-        conditions.append(func.json_extract(Email.routing, "$.lane") == lane)
+        # Dialect-agnostic JSON access: SQLAlchemy renders JSON_EXTRACT on
+        # SQLite and the ->> / #>> operators on PostgreSQL. A bare
+        # func.json_extract() is SQLite-only and raises UndefinedFunctionError
+        # on Postgres.
+        conditions.append(Email.routing["lane"].as_string() == lane)
     if chair_id is not None:
         conditions.append(Email.assigned_chair_id == chair_id)
     if unassigned:

@@ -25,5 +25,6 @@ RUN pip install --upgrade pip && pip install -e .
 EXPOSE 8000
 
 # Apply migrations, then serve. Shell form so both run in sequence.
-# alembic reads SYNC_DATABASE_URL; uvicorn serves the async app on 0.0.0.0.
+# alembic and uvicorn both read DATABASE_URL (the async URL — migrations/env.py
+# injects it into Alembic's sqlalchemy.url); uvicorn serves on 0.0.0.0.
 CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]

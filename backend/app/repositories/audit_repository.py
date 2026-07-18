@@ -184,7 +184,10 @@ class AuditRepository:
         JSON metadata column; a ``None`` key means the email had no chair before
         the reassignment (the "Unassigned" bucket).
         """
-        original = func.json_extract(AuditLog.extra_metadata, "$.original_chair_id")
+        # Dialect-agnostic JSON access: SQLAlchemy renders JSON_EXTRACT on
+        # SQLite and a ->> cast on PostgreSQL. A bare func.json_extract() is
+        # SQLite-only and raises UndefinedFunctionError on Postgres.
+        original = AuditLog.extra_metadata["original_chair_id"].as_integer()
         stmt = (
             select(original, func.count(AuditLog.id))
             .where(AuditLog.action == "chair_reassigned")
