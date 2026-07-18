@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.db.models import Base, PolicyDocument
+from app.repositories.policy_repository import PolicyRepository
 
 
 @pytest_asyncio.fixture
@@ -28,3 +29,19 @@ async def test_policy_document_defaults_public_active(session):
     await session.refresh(row)
     assert row.visibility == "public"
     assert row.status == "active"
+
+
+async def test_list_for_index_filters_status_and_visibility(session):
+    repo = PolicyRepository()
+    session.add_all([
+        PolicyDocument(policy_key="policy_101", title="pub", content="c", visibility="public", status="active"),
+        PolicyDocument(policy_key="int_x", title="int", content="c", visibility="internal", status="active"),
+        PolicyDocument(policy_key="policy_102", title="off", content="c", visibility="public", status="inactive"),
+    ])
+    await session.commit()
+
+    keys = {p.policy_key for p in await repo.list_for_index(session)}
+    assert keys == {"policy_101", "int_x"}                       # inactive excluded
+
+    pub_only = await repo.list_for_index(session, visibilities=("public",))
+    assert {p.policy_key for p in pub_only} == {"policy_101"}    # internal excluded

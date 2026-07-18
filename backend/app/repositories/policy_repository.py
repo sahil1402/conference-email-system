@@ -15,6 +15,7 @@ from app.db.models import PolicyDocument
 # the knowledge-base "id" is accepted as an alias for the unique ``policy_key``.
 _POLICY_COLUMNS = {
     "policy_key", "title", "content", "category", "score", "tags", "source",
+    "visibility", "status",
 }
 
 
@@ -67,3 +68,21 @@ class PolicyRepository:
         db.add_all(rows)
         await db.commit()
         return len(rows)
+
+    async def list_for_index(
+        self,
+        db: AsyncSession,
+        visibilities: tuple[str, ...] = ("public", "internal"),
+    ) -> list[PolicyDocument]:
+        """Return active policies whose visibility is in ``visibilities``.
+
+        This is the single corpus query every retriever indexes, so the
+        visibility/status filter lives in exactly one place.
+        """
+        result = await db.execute(
+            select(PolicyDocument)
+            .where(PolicyDocument.status == "active")
+            .where(PolicyDocument.visibility.in_(visibilities))
+            .order_by(PolicyDocument.id)
+        )
+        return list(result.scalars().all())
