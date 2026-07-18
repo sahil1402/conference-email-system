@@ -33,9 +33,10 @@ _style_guide_warned: set[str] = set()
 # Local-provider HTTP timeout (OpenAI-compatible endpoint, e.g. Ollama).
 _LOCAL_TIMEOUT_SECONDS = 60.0
 
-# Matches knowledge-base policy ids like "policy_001" wherever they appear in
-# the generated draft, so we can surface them as explicit citations.
-_CITATION_PATTERN = re.compile(r"policy_\d+")
+# Matches knowledge-base policy ids like "policy_001" or internal policy keys like
+# "int_deadline-extended" wherever they appear in the generated draft, so we can
+# surface them as explicit citations or scrub them from requester-facing text.
+_CITATION_PATTERN = re.compile(r"(?:policy_\d+|int_[a-z0-9-]+)")
 
 _SYSTEM_PROMPT = """\
 You are a professional assistant to a conference program chair, drafting replies \
@@ -91,8 +92,11 @@ _SECTION_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 # Inline internal ids — parenthesized citation groups first, then bare ids.
+# Matches both policy_NNN and int_<slug> keys for scrubbing from requester text.
 _INLINE_ID_RE = re.compile(
-    r"\s*\((?:see\s+)?policy_\d+(?:\s*,\s*policy_\d+)*\)|\bpolicy_\d+\b"
+    r"\s*\((?:see\s+)?(?:policy_\d+|int_[a-z0-9-]+)"
+    r"(?:\s*,\s*(?:policy_\d+|int_[a-z0-9-]+))*\)"
+    r"|\b(?:policy_\d+|int_[a-z0-9-]+)\b"
 )
 _SCAFFOLD_RE = re.compile(r"^\s*(?:draft\s+reply|reply|draft)\s*:\s*\n+", re.IGNORECASE)
 

@@ -364,3 +364,14 @@ async def test_model_health_returns_provider(client):
     body = resp.json()
     assert "provider" in body
     assert body["status"] in {"configured", "unreachable"}
+
+
+# ---------------------------------------------------------------------------
+# Internal policy key scrubbing (Task 9)
+# ---------------------------------------------------------------------------
+def test_internal_keys_scrubbed_from_reply():
+    text = "Per the deadline policy (int_deadline-extended), you may proceed."
+    cleaned = drafter_module._INLINE_ID_RE.sub("", text)
+    assert "int_deadline-extended" not in cleaned
+    # existing behavior still holds
+    assert "policy_" not in drafter_module._INLINE_ID_RE.sub("", "see policy_101 here")
