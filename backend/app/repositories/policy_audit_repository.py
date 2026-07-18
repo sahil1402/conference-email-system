@@ -1,5 +1,6 @@
 """Append-only persistence for KB governance actions (policy_audit_logs)."""
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import PolicyAuditLog
@@ -26,3 +27,15 @@ class PolicyAuditRepository:
         await db.commit()
         await db.refresh(entry)
         return entry
+
+    async def list(
+        self, db: AsyncSession, *, limit: int = 200, offset: int = 0
+    ) -> list[PolicyAuditLog]:
+        """Return governance history, newest first."""
+        stmt = (
+            select(PolicyAuditLog)
+            .order_by(PolicyAuditLog.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list((await db.execute(stmt)).scalars().all())

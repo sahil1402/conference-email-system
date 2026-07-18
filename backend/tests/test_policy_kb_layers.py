@@ -108,3 +108,27 @@ async def test_create_internal_and_retire(session):
     retired = await repo.retire(session, "int_deadline-extended")
     assert retired.status == "inactive"
     assert await repo.retire(session, "does_not_exist") is None
+
+
+async def test_list_filters_and_search(session):
+    repo = PolicyRepository()
+    session.add_all([
+        PolicyDocument(policy_key="policy_1", title="Submission deadline", content="deadline info", visibility="public", status="active"),
+        PolicyDocument(policy_key="int_x", title="Internal ruling", content="chair note", visibility="internal", status="active"),
+        PolicyDocument(policy_key="policy_2", title="Old rule", content="retired", visibility="public", status="inactive"),
+    ])
+    await session.commit()
+
+    assert {p.policy_key for p in await repo.list(session)} == {"policy_1", "int_x", "policy_2"}      # no filter → all
+    assert {p.policy_key for p in await repo.list(session, status="active")} == {"policy_1", "int_x"}
+    assert {p.policy_key for p in await repo.list(session, visibility="internal")} == {"int_x"}
+    assert {p.policy_key for p in await repo.list(session, search="DEADLINE")} == {"policy_1"}          # case-insensitive
+
+
+async def test_reactivate(session):
+    repo = PolicyRepository()
+    session.add(PolicyDocument(policy_key="int_y", title="t", content="c", visibility="internal", status="inactive"))
+    await session.commit()
+    row = await repo.reactivate(session, "int_y")
+    assert row is not None and row.status == "active"
+    assert await repo.reactivate(session, "missing") is None

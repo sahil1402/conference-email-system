@@ -165,3 +165,38 @@ class PolicyRepository:
         await db.commit()
         await db.refresh(row)
         return row
+
+    async def list(
+        self,
+        db: AsyncSession,
+        *,
+        visibility: str | None = None,
+        status: str | None = None,
+        search: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[PolicyDocument]:
+        """Filtered browse of the KB (exact visibility/status; case-insensitive
+        substring search over title+content), ordered by id."""
+        stmt = select(PolicyDocument)
+        if visibility is not None:
+            stmt = stmt.where(PolicyDocument.visibility == visibility)
+        if status is not None:
+            stmt = stmt.where(PolicyDocument.status == status)
+        if search:
+            like = f"%{search}%"
+            stmt = stmt.where(
+                PolicyDocument.title.ilike(like) | PolicyDocument.content.ilike(like)
+            )
+        stmt = stmt.order_by(PolicyDocument.id).limit(limit).offset(offset)
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def reactivate(self, db: AsyncSession, policy_key: str) -> PolicyDocument | None:
+        """Undo a retirement: set status='active'. Returns the row or None."""
+        row = await self.get_by_key(db, policy_key)
+        if row is None:
+            return None
+        row.status = "active"
+        await db.commit()
+        await db.refresh(row)
+        return row

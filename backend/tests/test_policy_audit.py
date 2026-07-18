@@ -28,3 +28,11 @@ async def test_policy_audit_log_persists(session):
     assert len(rows) == 1
     assert rows[0].action == "policy_created"
     assert rows[0].after == {"title": "T"}
+
+
+async def test_policy_audit_list_newest_first(session):
+    repo = PolicyAuditRepository()
+    await repo.log(session, policy_key="a", action="policy_created", actor="chair:1")
+    await repo.log(session, policy_key="a", action="policy_retired", actor="chair:1")
+    entries = await repo.list(session)
+    assert [e.action for e in entries] == ["policy_retired", "policy_created"]   # newest first
