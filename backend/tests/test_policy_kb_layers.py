@@ -92,3 +92,19 @@ async def test_upsert_by_key_insert_handles_real_shaped_raw_dict_with_source(ses
     assert got.source == "aaai_scrape"   # explicit source arg wins over raw dict's source
     assert got.title == "v1"
     assert got.tags == ["t"]
+
+
+async def test_create_internal_and_retire(session):
+    repo = PolicyRepository()
+
+    row = await repo.create_internal(session, title="Deadline Extended!", content="now March 5", actor="1")
+    assert row.policy_key == "int_deadline-extended"
+    assert row.visibility == "internal" and row.status == "active"
+    assert row.source == "chair:1"
+
+    dup = await repo.create_internal(session, title="Deadline Extended!", content="again", actor="1")
+    assert dup.policy_key == "int_deadline-extended-2"     # collision → counter
+
+    retired = await repo.retire(session, "int_deadline-extended")
+    assert retired.status == "inactive"
+    assert await repo.retire(session, "does_not_exist") is None

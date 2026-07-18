@@ -5,6 +5,8 @@ table goes through this repository. Reads return ``[]`` on miss; the bulk insert
 commits once and returns the number of rows written.
 """
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,3 +120,48 @@ class PolicyRepository:
         existing.source = source
         await db.commit()
         return "updated"
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+        return slug or "policy"
+
+    async def get_by_key(self, db: AsyncSession, policy_key: str) -> PolicyDocument | None:
+        return (
+            await db.execute(select(PolicyDocument).where(PolicyDocument.policy_key == policy_key))
+        ).scalar_one_or_none()
+
+    async def create_internal(
+        self,
+        db: AsyncSession,
+        *,
+        title: str,
+        content: str,
+        category: str | None = None,
+        tags: list | None = None,
+        actor: str,
+    ) -> PolicyDocument:
+        """Insert a chair-authored internal policy with a generated unique key."""
+        base = f"int_{self._slugify(title)}"
+        key, n = base, 1
+        while await self.get_by_key(db, key) is not None:
+            n += 1
+            key = f"{base}-{n}"
+        row = PolicyDocument(
+            policy_key=key, title=title, content=content, category=category,
+            tags=tags or [], source=f"chair:{actor}", visibility="internal", status="active",
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row
+
+    async def retire(self, db: AsyncSession, policy_key: str) -> PolicyDocument | None:
+        """Soft-retire a policy (status='inactive'). Returns the row or None."""
+        row = await self.get_by_key(db, policy_key)
+        if row is None:
+            return None
+        row.status = "inactive"
+        await db.commit()
+        await db.refresh(row)
+        return row
