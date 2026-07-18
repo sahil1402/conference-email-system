@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.models import Base, PolicyDocument
 from app.pipeline.retriever import PolicyRetriever
+from app.pipeline.faiss_retriever import FAISSRetriever
 
 
 @pytest_asyncio.fixture
@@ -47,3 +48,12 @@ async def test_bm25_retrieves_active_public_and_internal_excludes_inactive(facto
     keys = {h.policy_id for h in hits}
     assert "int_ext" in keys           # internal is retrievable
     assert "policy_102" not in keys    # inactive is excluded
+
+
+@pytest.mark.ml
+async def test_faiss_excludes_inactive(factory):
+    r = FAISSRetriever(session_factory=factory)
+    await r.build()
+    keys = {d["policy_id"] for d in r._docs}
+    assert "int_ext" in keys
+    assert "policy_102" not in keys   # inactive excluded via list_for_index
