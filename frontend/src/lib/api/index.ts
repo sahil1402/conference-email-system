@@ -3,3 +3,4 @@ export * from "./emails";
 export * from "./analytics";
 export * from "./audit";
 export * from "./chairs";
+export * from "./knowledgeBase";
