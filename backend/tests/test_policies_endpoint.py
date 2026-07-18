@@ -93,3 +93,62 @@ async def test_retire_is_idempotent_and_audits_only_once(client):
             await s.execute(select(PolicyDocument).where(PolicyDocument.policy_key == policy_key))
         ).scalar_one()
         assert row.status == "inactive"
+
+
+async def test_create_with_retire_keys_supersedes_and_audits(client):
+    c, factory = client
+
+    async with factory() as s:
+        s.add(PolicyDocument(
+            policy_key="policy_200",
+            title="Active policy",
+            content="Old content",
+            visibility="public",
+            status="active",
+        ))
+        s.add(PolicyDocument(
+            policy_key="policy_201",
+            title="Another active policy",
+            content="More content",
+            visibility="public",
+            status="active",
+        ))
+        s.add(PolicyDocument(
+            policy_key="policy_202",
+            title="Inactive policy",
+            content="Already inactive",
+            visibility="public",
+            status="inactive",
+        ))
+        await s.commit()
+
+    resp = await c.post("/api/v1/policies", json={
+        "title": "New ruling",
+        "content": "New content",
+        "actor": "1",
+        "retire_keys": ["policy_200", "policy_202", "missing_key"],
+    })
+    assert resp.status_code == 201
+    new_key = resp.json()["policy_key"]
+
+    async with factory() as s:
+        policy_200 = (
+            await s.execute(select(PolicyDocument).where(PolicyDocument.policy_key == "policy_200"))
+        ).scalar_one()
+        assert policy_200.status == "inactive"
+
+        policy_202 = (
+            await s.execute(select(PolicyDocument).where(PolicyDocument.policy_key == "policy_202"))
+        ).scalar_one()
+        assert policy_202.status == "inactive"
+
+        audit_rows = (await s.execute(select(PolicyAuditLog))).scalars().all()
+        policy_created = [a for a in audit_rows if a.action == "policy_created"]
+        policy_retired = [a for a in audit_rows if a.action == "policy_retired"]
+
+        assert len(policy_created) == 1
+        assert policy_created[0].policy_key == new_key
+
+        assert len(policy_retired) == 1
+        assert policy_retired[0].policy_key == "policy_200"
+        assert policy_retired[0].before == {"status": "active"}
