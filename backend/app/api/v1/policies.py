@@ -60,25 +60,32 @@ async def create_policy(payload: CreatePolicyRequest, db: AsyncSession = Depends
     await _audit.log(db, policy_key=row.policy_key, action="policy_created",
                      actor=f"chair:{payload.actor}", after={"title": row.title})
     for key in payload.retire_keys:
-        retired = await _policies.retire(db, key)
-        if retired is not None:
-            await _audit.log(db, policy_key=key, action="policy_retired",
-                             actor=f"chair:{payload.actor}", before={"status": "active"},
-                             after={"status": "inactive", "superseded_by": row.policy_key})
+        existing = await _policies.get_by_key(db, key)
+        if existing is None or existing.status == "inactive":
+            continue
+        prior = existing.status
+        await _policies.retire(db, key)
+        await _audit.log(db, policy_key=key, action="policy_retired",
+                         actor=f"chair:{payload.actor}", before={"status": prior},
+                         after={"status": "inactive", "superseded_by": row.policy_key})
     await _rebuild_index()
     return {"policy_key": row.policy_key, "visibility": row.visibility, "status": row.status}
 
 
 @router.patch("/{policy_key}/retire")
 async def retire_policy(policy_key: str, payload: RetireRequest, db: AsyncSession = Depends(get_db)) -> dict:
-    row = await _policies.retire(db, policy_key)
+    row = await _policies.get_by_key(db, policy_key)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"policy {policy_key} not found")
+    prior = row.status
+    if prior == "inactive":
+        return {"policy_key": policy_key, "status": "inactive"}
+    await _policies.retire(db, policy_key)
     await _audit.log(db, policy_key=policy_key, action="policy_retired",
-                     actor=f"chair:{payload.actor}", before={"status": "active"},
+                     actor=f"chair:{payload.actor}", before={"status": prior},
                      after={"status": "inactive"})
     await _rebuild_index()
-    return {"policy_key": policy_key, "status": row.status}
+    return {"policy_key": policy_key, "status": "inactive"}
 
 
 @router.post("/similar")

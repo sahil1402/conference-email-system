@@ -36,7 +36,7 @@ _LOCAL_TIMEOUT_SECONDS = 60.0
 # Matches knowledge-base policy ids like "policy_001" or internal policy keys like
 # "int_deadline-extended" wherever they appear in the generated draft, so we can
 # surface them as explicit citations or scrub them from requester-facing text.
-_CITATION_PATTERN = re.compile(r"(?:policy_\d+|int_[a-z0-9-]+)")
+_CITATION_PATTERN = re.compile(r"\b(?:policy_\d+|int_[a-z0-9-]+)")
 
 _SYSTEM_PROMPT = """\
 You are a professional assistant to a conference program chair, drafting replies \

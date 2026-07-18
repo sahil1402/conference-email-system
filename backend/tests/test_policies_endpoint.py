@@ -49,3 +49,47 @@ async def test_retire_missing_returns_404(client):
     c, _ = client
     resp = await c.patch("/api/v1/policies/nope/retire", json={"actor": "1"})
     assert resp.status_code == 404
+
+
+async def test_retire_is_idempotent_and_audits_only_once(client):
+    c, factory = client
+    create_resp = await c.post("/api/v1/policies", json={
+        "title": "Idempotent retire test", "content": "content here", "actor": "1"})
+    assert create_resp.status_code == 201
+    policy_key = create_resp.json()["policy_key"]
+
+    resp1 = await c.patch(f"/api/v1/policies/{policy_key}/retire", json={"actor": "1"})
+    assert resp1.status_code == 200
+    assert resp1.json() == {"policy_key": policy_key, "status": "inactive"}
+
+    async with factory() as s:
+        audit_rows = (
+            await s.execute(
+                select(PolicyAuditLog).where(
+                    PolicyAuditLog.policy_key == policy_key,
+                    PolicyAuditLog.action == "policy_retired",
+                )
+            )
+        ).scalars().all()
+        assert len(audit_rows) == 1
+        assert audit_rows[0].before == {"status": "active"}
+
+    resp2 = await c.patch(f"/api/v1/policies/{policy_key}/retire", json={"actor": "1"})
+    assert resp2.status_code == 200
+    assert resp2.json() == {"policy_key": policy_key, "status": "inactive"}
+
+    async with factory() as s:
+        audit_rows = (
+            await s.execute(
+                select(PolicyAuditLog).where(
+                    PolicyAuditLog.policy_key == policy_key,
+                    PolicyAuditLog.action == "policy_retired",
+                )
+            )
+        ).scalars().all()
+        assert len(audit_rows) == 1
+
+        row = (
+            await s.execute(select(PolicyDocument).where(PolicyDocument.policy_key == policy_key))
+        ).scalar_one()
+        assert row.status == "inactive"

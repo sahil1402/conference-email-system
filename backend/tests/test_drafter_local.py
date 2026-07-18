@@ -375,3 +375,15 @@ def test_internal_keys_scrubbed_from_reply():
     assert "int_deadline-extended" not in cleaned
     # existing behavior still holds
     assert "policy_" not in drafter_module._INLINE_ID_RE.sub("", "see policy_101 here")
+
+
+def test_citation_pattern_does_not_match_mid_word():
+    # "endpoint_v2" and "point_release" contain "int_" mid-word; the pattern
+    # must not treat that as a citation.
+    assert drafter_module._CITATION_PATTERN.findall(
+        "the endpoint_v2 and point_release fields"
+    ) == []
+    # Real citations at a word boundary are still matched.
+    assert drafter_module._CITATION_PATTERN.findall(
+        "see policy_101 and int_deadline-extended"
+    ) == ["policy_101", "int_deadline-extended"]
