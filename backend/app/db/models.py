@@ -157,3 +157,19 @@ class PolicyDocument(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class PolicyAuditLog(Base):
+    """Append-only record of KB governance actions (create / edit / retire)."""
+
+    __tablename__ = "policy_audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    policy_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
