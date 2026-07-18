@@ -136,6 +136,18 @@ class PolicyDocument(Base):
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Phase F (layered KB): the layer/trust axis and the soft on/off lifecycle.
+    # visibility: "public" (official corpus, freely citable) | "internal"
+    # (chair-authored, not on the public site — retrievable & citable, marked for
+    # provenance). status: "active" (indexed) | "inactive" (retired, not indexed).
+    # Both DB + Python defaults so raw migrations and ORM inserts agree.
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="public", server_default="public", index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active", index=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
