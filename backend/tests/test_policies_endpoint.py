@@ -152,3 +152,49 @@ async def test_create_with_retire_keys_supersedes_and_audits(client):
         assert len(policy_retired) == 1
         assert policy_retired[0].policy_key == "policy_200"
         assert policy_retired[0].before == {"status": "active"}
+
+
+async def test_list_policies_filters(client):
+    c, factory = client
+    async with factory() as s:
+        from app.db.models import PolicyDocument
+        s.add_all([
+            PolicyDocument(policy_key="policy_1", title="Deadline", content="x", visibility="public", status="active"),
+            PolicyDocument(policy_key="int_a", title="Ruling", content="y", visibility="internal", status="inactive"),
+        ])
+        await s.commit()
+    r = await c.get("/api/v1/policies", params={"visibility": "public"})
+    assert r.status_code == 200
+    keys = [p["policy_key"] for p in r.json()["policies"]]
+    assert keys == ["policy_1"]
+
+
+async def test_reactivate_missing_and_success_and_noop(client):
+    c, factory = client
+    async with factory() as s:
+        from app.db.models import PolicyDocument
+        s.add(PolicyDocument(policy_key="int_b", title="t", content="c", visibility="internal", status="inactive"))
+        await s.commit()
+    assert (await c.patch("/api/v1/policies/nope/reactivate", json={"actor": "Chair1"})).status_code == 404
+    ok = await c.patch("/api/v1/policies/int_b/reactivate", json={"actor": "Chair1"})
+    assert ok.status_code == 200 and ok.json()["status"] == "active"
+    from sqlalchemy import select
+    from app.db.models import PolicyAuditLog
+    async with factory() as s:
+        acts = [a.action for a in (await s.execute(select(PolicyAuditLog))).scalars().all()]
+    assert acts.count("policy_reactivated") == 1
+    # second call: already active → no-op, no new audit row
+    await c.patch("/api/v1/policies/int_b/reactivate", json={"actor": "Chair1"})
+    async with factory() as s:
+        acts2 = [a.action for a in (await s.execute(select(PolicyAuditLog))).scalars().all()]
+    assert acts2.count("policy_reactivated") == 1
+
+
+async def test_policy_audit_endpoint(client):
+    c, factory = client
+    await c.post("/api/v1/policies", json={"title": "New", "content": "z", "actor": "Chair1"})
+    r = await c.get("/api/v1/policies/audit")
+    assert r.status_code == 200
+    entries = r.json()["entries"]
+    assert any(e["action"] == "policy_created" for e in entries)
+    assert "timestamp" in entries[0]

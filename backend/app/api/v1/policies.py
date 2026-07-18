@@ -38,6 +38,10 @@ class SimilarRequest(BaseModel):
     content: str
 
 
+class ReactivateRequest(BaseModel):
+    actor: str
+
+
 async def _rebuild_index() -> None:
     """Clear the active retriever's cache so the next retrieve() reloads the KB.
 
@@ -49,6 +53,43 @@ async def _rebuild_index() -> None:
     result = get_retriever().rebuild_index()
     if inspect.isawaitable(result):
         await result
+
+
+def _policy_dict(p) -> dict:
+    return {
+        "policy_key": p.policy_key, "title": p.title, "content": p.content,
+        "category": p.category, "tags": p.tags or [], "visibility": p.visibility,
+        "status": p.status, "source": p.source,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+@router.get("")
+async def list_policies(
+    visibility: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = await _policies.list(
+        db, visibility=visibility, status=status, search=search, limit=limit, offset=offset
+    )
+    return {"policies": [_policy_dict(p) for p in rows]}
+
+
+@router.get("/audit")
+async def list_policy_audit(
+    limit: int = 200, offset: int = 0, db: AsyncSession = Depends(get_db)
+) -> dict:
+    rows = await _audit.list(db, limit=limit, offset=offset)
+    return {"entries": [
+        {"id": e.id, "policy_key": e.policy_key, "action": e.action, "actor": e.actor,
+         "before": e.before, "after": e.after,
+         "timestamp": e.timestamp.isoformat() if e.timestamp else None}
+        for e in rows
+    ]}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -86,6 +127,23 @@ async def retire_policy(policy_key: str, payload: RetireRequest, db: AsyncSessio
                      after={"status": "inactive"})
     await _rebuild_index()
     return {"policy_key": policy_key, "status": "inactive"}
+
+
+@router.patch("/{policy_key}/reactivate")
+async def reactivate_policy(
+    policy_key: str, payload: ReactivateRequest, db: AsyncSession = Depends(get_db)
+) -> dict:
+    existing = await _policies.get_by_key(db, policy_key)
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"policy {policy_key} not found")
+    if existing.status == "active":  # no-op, don't audit/rebuild
+        return {"policy_key": policy_key, "status": "active"}
+    row = await _policies.reactivate(db, policy_key)
+    await _audit.log(db, policy_key=policy_key, action="policy_reactivated",
+                     actor=f"chair:{payload.actor}", before={"status": "inactive"},
+                     after={"status": "active"})
+    await _rebuild_index()
+    return {"policy_key": policy_key, "status": row.status}
 
 
 @router.post("/similar")
