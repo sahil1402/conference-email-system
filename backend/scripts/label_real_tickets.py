@@ -39,8 +39,8 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.pipeline.classifier import keyword_classify  # noqa: E402
-from app.pipeline.retriever import PolicyRetriever  # noqa: E402
 from distill_style_guide import chat, scrub, strip_quoted_tail  # noqa: E402
+from scripts._kb_retriever import build_retriever_from_kb  # noqa: E402
 
 THREADS_PATH = REPO_ROOT / "data" / "tickets" / "marc_threads.jsonl"
 KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
@@ -185,7 +185,7 @@ def build_sample() -> None:
     from sentence_transformers import SentenceTransformer  # heavy; import late
     import numpy as np
 
-    bm25 = PolicyRetriever(kb_path=KB_PATH)
+    bm25 = build_retriever_from_kb(KB_PATH)
     chunks = json.load(open(KB_PATH, encoding="utf-8"))
     embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
     doc_vecs = embedder.encode(

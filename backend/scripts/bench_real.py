@@ -35,7 +35,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from app.pipeline.retriever import PolicyRetriever  # noqa: E402
+from scripts._kb_retriever import build_retriever_from_kb  # noqa: E402
 
 KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
 SAMPLE_PATH = REPO_ROOT / "data" / "eval_real" / "sample.jsonl"
@@ -70,7 +70,7 @@ class Rankers:
     def __init__(self) -> None:
         self.chunks = json.load(open(KB_PATH, encoding="utf-8"))
         self.ids = [c["id"] for c in self.chunks]
-        self._bm25 = PolicyRetriever(kb_path=KB_PATH)
+        self._bm25 = build_retriever_from_kb(KB_PATH)
         from sentence_transformers import SentenceTransformer
 
         self._embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")

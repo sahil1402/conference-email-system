@@ -33,9 +33,10 @@ from app.core.config import settings  # noqa: E402
 from app.pipeline import drafter as drafter_module  # noqa: E402
 from app.pipeline.classifier import keyword_classify  # noqa: E402
 from app.pipeline.drafter import ResponseDrafter  # noqa: E402
-from app.pipeline.retriever import PolicyRetriever, RetrievedChunk  # noqa: E402
+from app.pipeline.retriever import RetrievedChunk  # noqa: E402
 from app.pipeline.router import EmailRouter  # noqa: E402
 from distill_style_guide import read_key  # noqa: E402
+from scripts._kb_retriever import build_retriever_from_kb  # noqa: E402
 
 KB_PATH = REPO_ROOT / "data" / "knowledge_base" / "policies.json"
 EVAL_DIR = REPO_ROOT / "data" / "eval_real"
@@ -71,7 +72,7 @@ class Retriever:
     def __init__(self, backend: str) -> None:
         self.backend = backend
         self.chunks = json.load(open(KB_PATH, encoding="utf-8"))
-        self._bm25 = PolicyRetriever(kb_path=KB_PATH)
+        self._bm25 = build_retriever_from_kb(KB_PATH)
         self._by_id = {c["id"]: c for c in self.chunks}
         if backend in ("dense", "fusion"):
             import torch
