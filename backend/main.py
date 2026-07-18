@@ -15,6 +15,7 @@ from app.api.routes.training import router as training_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.chairs import router as chairs_router
 from app.api.v1.emails import router as emails_router
+from app.api.v1.policies import router as policies_router
 from app.api.v1.retrieval import router as retrieval_router
 from app.core.config import settings
 
@@ -62,6 +63,7 @@ app.include_router(audit.router, prefix="/api/v1")
 app.include_router(training_router, prefix="/api/v1")
 app.include_router(retrieval_router, prefix="/api/v1")
 app.include_router(chairs_router, prefix="/api/v1")
+app.include_router(policies_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])
