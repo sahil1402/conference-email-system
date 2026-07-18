@@ -155,7 +155,28 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
             variant="secondary"
             size="sm"
             disabled={!canCheckSimilar || findSimilar.isPending}
-            onClick={() => findSimilar.mutate({ title, content })}
+            onClick={() => {
+              findSimilar.mutate({ title, content }, {
+                onSuccess: (data) => {
+                  // Prune retireKeys to only include keys present in new results
+                  const similarKeys = new Set<string>();
+                  if (data?.similar) {
+                    data.similar.forEach((policy) => {
+                      similarKeys.add(policy.policy_key);
+                    });
+                  }
+                  setRetireKeys((prev) => {
+                    const pruned = new Set<string>();
+                    prev.forEach((key) => {
+                      if (similarKeys.has(key)) {
+                        pruned.add(key);
+                      }
+                    });
+                    return pruned;
+                  });
+                },
+              });
+            }}
           >
             {findSimilar.isPending ? <LoadingSpinner size="sm" /> : null}
             Check for related policies
