@@ -512,7 +512,11 @@ Add to `PolicyRepository` in `backend/app/repositories/policy_repository.py`:
         ).scalar_one_or_none()
 
         if existing is None:
-            db.add(PolicyDocument(visibility="public", status="active", source=source, **mapped))
+            # Strip keys we set explicitly — real policies.json rows carry
+            # their own "source" (and mapped may carry visibility/status), which
+            # would collide with the explicit kwargs below (TypeError).
+            content = {k: v for k, v in mapped.items() if k not in ("source", "visibility", "status")}
+            db.add(PolicyDocument(visibility="public", status="active", source=source, **content))
             await db.commit()
             return "inserted"
 
