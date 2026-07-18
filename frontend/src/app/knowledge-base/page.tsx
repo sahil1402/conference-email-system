@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Plus } from "lucide-react";
 
 import { usePolicies, useReactivatePolicy, useRetirePolicy } from "@/hooks";
+import { AddPolicyPanel } from "@/components/kb/AddPolicyPanel";
 import { PolicyFilters } from "@/components/kb/PolicyFilters";
 import { PolicyList } from "@/components/kb/PolicyList";
 import { Button, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
@@ -118,13 +119,10 @@ export default function KnowledgeBasePage() {
           </div>
 
           {addOpen && (
-            // The add-policy panel lands in a later task — placeholder for now.
-            <div
-              className="rounded-lg border p-4 text-sm"
-              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-            >
-              Coming in the Add Policy task
-            </div>
+            <AddPolicyPanel
+              onClose={() => setAddOpen(false)}
+              onCreated={() => refetch()}
+            />
           )}
 
           <PolicyFilters
