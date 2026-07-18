@@ -38,12 +38,13 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
   const findSimilar = useFindSimilar();
   const createPolicy = useCreatePolicy();
 
-  const canCheckSimilar = title.trim().length > 0 && content.trim().length > 0;
+  const canCheckSimilar = title.trim().length > 0 || content.trim().length > 0;
   const similar = findSimilar.data?.similar ?? [];
   // useCreatePolicy()/useFindSimilar() don't pin the mutation's TError, so it
   // defaults to `Error` — the client interceptor always rejects with ApiError
   // at runtime (see lib/api/client.ts), same cast EmailDetail.tsx uses.
   const createError = createPolicy.error as ApiError | null;
+  const findSimilarError = findSimilar.error as ApiError | null;
 
   function toggleRetireKey(key: string) {
     setRetireKeys((prev) => {
@@ -90,8 +91,8 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
 
           createPolicy.mutate(
             {
-              title,
-              content,
+              title: title.trim(),
+              content: content.trim(),
               category: category.trim() || null,
               tags,
               actor: ACTOR,
@@ -164,6 +165,19 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
             Create internal policy
           </Button>
         </div>
+
+        {findSimilarError && (
+          <div
+            className="rounded-lg px-3 py-2 text-xs"
+            style={{
+              color: "var(--danger)",
+              backgroundColor: "var(--surface)",
+              borderLeft: "3px solid var(--danger)",
+            }}
+          >
+            {findSimilarError.detail || "Couldn't check for related policies."}
+          </div>
+        )}
 
         {findSimilar.isSuccess && (
           <div
