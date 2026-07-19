@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     # gate can be tuned independently of the general confidence floor.
     FAQ_CONFIDENCE_THRESHOLD: float = 0.65
     # Max policy chunks the retriever returns as grounding context.
-    MAX_RETRIEVED_CHUNKS: int = 3
+    MAX_RETRIEVED_CHUNKS: int = 5
 
     # --- Active learning (Phase 5G) ---------------------------------------
     # A chair-approved/rerouted email whose router-used confidence sat within
