@@ -103,6 +103,21 @@ export interface RetrievedChunk {
 }
 
 /**
+ * Full policy chunk returned by GET /api/v1/policies/{key} (policies.py::
+ * PolicyDetail). Read-only citation-detail lookup — the persisted email row does
+ * not carry retrieved chunks, so the review UI resolves a cited id to this.
+ */
+export interface PolicyDetail {
+  policy_key: string;
+  title: string;
+  content: string;
+  category: string | null;
+  tags: string[];
+  source: string | null;
+  score: number | null;
+}
+
+/**
  * orchestrator.py::PipelineResult — the response body of POST /emails/ingest.
  * (Note: the ingest endpoint returns THIS, not an Email row.)
  */

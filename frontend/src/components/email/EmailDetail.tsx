@@ -29,6 +29,7 @@ import {
   ErrorBanner,
   LoadingSpinner,
 } from "@/components/ui";
+import { PolicyDetailModal } from "./PolicyDetailModal";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
@@ -800,45 +801,83 @@ function PolicyCitations({
   chunks: RetrievedChunk[] | null;
   citationIds: string[];
 }) {
+  // The cited policy key whose full detail is open in the modal (null = closed).
+  const [openPolicyKey, setOpenPolicyKey] = useState<string | null>(null);
+
+  let body: ReactNode;
   if (chunks && chunks.length > 0) {
-    return (
+    body = (
       <div className="space-y-3 pt-1">
         {chunks.slice(0, 3).map((chunk) => (
-          <CitationCard key={chunk.policy_id} chunk={chunk} />
+          <CitationCard
+            key={chunk.policy_id}
+            chunk={chunk}
+            onOpen={() => setOpenPolicyKey(chunk.policy_id)}
+          />
         ))}
       </div>
     );
-  }
-
-  if (citationIds.length > 0) {
-    return (
+  } else if (citationIds.length > 0) {
+    body = (
       <div className="space-y-2 pt-1">
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Policies cited in the draft:
+          Policies cited in the draft (click for full text):
         </p>
         <div className="flex flex-wrap gap-2">
           {citationIds.map((id) => (
-            <Badge key={id} variant="neutral" size="sm">
-              {id}
-            </Badge>
+            <button
+              key={id}
+              type="button"
+              onClick={() => setOpenPolicyKey(id)}
+              aria-label={`View policy ${id}`}
+              className="rounded-full outline-none transition-transform hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              <Badge variant="neutral" size="sm">
+                {id}
+              </Badge>
+            </button>
           ))}
         </div>
       </div>
     );
+  } else {
+    body = (
+      <p className="pt-1 text-sm" style={{ color: "var(--text-muted)" }}>
+        No policy citations for this email.
+      </p>
+    );
   }
 
   return (
-    <p className="pt-1 text-sm" style={{ color: "var(--text-muted)" }}>
-      No policy citations for this email.
-    </p>
+    <>
+      {body}
+      <PolicyDetailModal
+        policyKey={openPolicyKey}
+        onClose={() => setOpenPolicyKey(null)}
+      />
+    </>
   );
 }
 
-function CitationCard({ chunk }: { chunk: RetrievedChunk }) {
-  const [expanded, setExpanded] = useState(false);
+/**
+ * A retrieved-chunk card. The whole card is a button: clicking (or Enter/Space)
+ * opens the full-detail modal (source, id, tags, full text). Content is clamped
+ * to a 3-line preview here; the modal carries the complete text, so no separate
+ * inline expander is needed (and nesting a button inside a button is invalid).
+ */
+function CitationCard({
+  chunk,
+  onOpen,
+}: {
+  chunk: RetrievedChunk;
+  onOpen: () => void;
+}) {
   return (
-    <div
-      className="rounded-lg border p-3"
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`View policy ${chunk.title || chunk.policy_id}`}
+      className="block w-full rounded-lg border p-3 text-left outline-none transition-colors hover:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       style={{
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-raised)",
@@ -858,21 +897,11 @@ function CitationCard({ chunk }: { chunk: RetrievedChunk }) {
         )}
       </div>
       <p
-        className={cn("text-xs leading-relaxed", !expanded && "line-clamp-3")}
+        className="text-xs leading-relaxed line-clamp-3"
         style={{ color: "var(--text-secondary)" }}
       >
         {chunk.content}
       </p>
-      {chunk.content.length > 160 && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="mt-1.5 text-xs font-medium transition-opacity hover:opacity-80"
-          style={{ color: "var(--accent)" }}
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      )}
-    </div>
+    </button>
   );
 }

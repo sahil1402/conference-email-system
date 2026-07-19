@@ -41,6 +41,19 @@ class PolicyRepository:
         result = await db.execute(select(PolicyDocument).order_by(PolicyDocument.id))
         return list(result.scalars().all())
 
+    async def get_by_key(
+        self, db: AsyncSession, policy_key: str
+    ) -> PolicyDocument | None:
+        """Return a single policy document by its unique ``policy_key``, or None.
+
+        Backs the read-only citation-detail lookup (``GET /api/v1/policies/{key}``).
+        ``policy_key`` is the knowledge-base id (e.g. ``policy_117``).
+        """
+        result = await db.execute(
+            select(PolicyDocument).where(PolicyDocument.policy_key == policy_key)
+        )
+        return result.scalar_one_or_none()
+
     async def get_policies_by_category(
         self, db: AsyncSession, category: str
     ) -> list[PolicyDocument]:
