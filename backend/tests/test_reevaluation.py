@@ -1,0 +1,135 @@
+"""The re-evaluate-open-tickets sweep: gate + re-draft + audit + flag."""
+
+from contextlib import asynccontextmanager
+
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
+from app.db.models import Base, Email
+from app.models.enums import EmailStatus
+from app.pipeline.reevaluation import reevaluate_open_tickets
+from app.repositories.audit_repository import AuditRepository
+from app.repositories.email_repository import EmailRepository
+
+
+@pytest_asyncio.fixture
+async def session():
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as s:
+        yield s
+    await engine.dispose()
+
+
+def _factory(session):
+    """A session_factory that yields the test's OWN session (so the sweep's
+    writes are visible to the assertions) and never closes it."""
+
+    @asynccontextmanager
+    async def factory():
+        yield session
+
+    return factory
+
+
+def _open_email(**ctx_over) -> Email:
+    """An open ticket with a stored draft + retrieval context."""
+    ctx = {"query": "deadline extension", "intent": "", "retrieved_ids": ["policy_101"]}
+    ctx.update(ctx_over)
+    return Email(
+        sender="a@b.com",
+        subject="Deadline?",
+        body="Can I get a deadline extension?",
+        status=EmailStatus.DRAFT_GENERATED.value,
+        classification={"intent": "deadlines", "confidence": 0.6,
+                        "reasoning": "x", "method": "keyword"},
+        routing={"lane": "human_review", "reason": "x"},
+        draft={"draft_text": "old", "notes_for_chair": None, "placeholders": [],
+               "citations": ["policy_101"], "model_used": "fallback",
+               "generation_metadata": {}},
+        retrieval_context=ctx,
+    )
+
+
+class _StubRetriever:
+    """Returns a fixed id list regardless of query, to drive the gate."""
+
+    def __init__(self, ids):
+        from app.pipeline.retriever import RetrievedChunk
+        self._chunks = [
+            RetrievedChunk(policy_id=i, title=i, content=f"body {i}", score=1.0)
+            for i in ids
+        ]
+
+    async def retrieve(self, query, intent, top_k=3):
+        return self._chunks[:top_k]
+
+
+async def test_unaffected_ticket_is_not_redrafted(session, monkeypatch):
+    session.add(_open_email())
+    await session.commit()
+
+    # Fresh retrieval returns the SAME id set as stored → not affected.
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_101"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats == {"open": 1, "redrafted": 0, "skipped_edited": 0, "unaffected": 1}
+
+
+async def test_affected_ticket_is_redrafted_and_context_updated(session, monkeypatch):
+    session.add(_open_email())
+    await session.commit()
+
+    # Fresh retrieval surfaces a different policy → affected → re-draft.
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["redrafted"] == 1
+
+    email = (await EmailRepository().get_open_tickets(session))[0]
+    assert email.retrieval_context["retrieved_ids"] == ["policy_999"]
+    assert email.redrafting is False
+    trail = await AuditRepository().get_audit_trail(session, str(email.id))
+    assert any(a.action == "ticket_redrafted" for a in trail)
+
+
+async def test_chair_edited_ticket_is_skipped(session, monkeypatch):
+    e = _open_email()
+    e.draft = {**e.draft, "is_edited": True}
+    session.add(e)
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["skipped_edited"] == 1
+    assert stats["redrafted"] == 0
+
+    email = (await EmailRepository().get_open_tickets(session))[0]
+    assert email.draft["draft_text"] == "old"  # untouched
+    trail = await AuditRepository().get_audit_trail(session, str(email.id))
+    assert any(a.action == "ticket_redraft_skipped_edited" for a in trail)
+
+
+async def test_repeat_sweep_is_noop_after_redraft(session, monkeypatch):
+    session.add(_open_email())
+    await session.commit()
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    first = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert first["redrafted"] == 1
+    # Second sweep: stored ids now equal fresh ids → nothing to do.
+    second = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert second["redrafted"] == 0
+    assert second["unaffected"] == 1
