@@ -36,10 +36,11 @@ class Settings(BaseSettings):
         "anthropic_api", "anthropic", "local", "template", "fallback"
     ] = "anthropic_api"
     CONFIDENCE_THRESHOLD: float = 0.75
-    # Retriever backend: "bm25" → keyword BM25 over the KB (default); "faiss" →
-    # dense sentence-embedding retrieval (FAISS IndexFlatIP, cosine); "fusion" →
-    # Reciprocal Rank Fusion over both. Default stays "bm25".
-    RETRIEVAL_BACKEND: Literal["bm25", "faiss", "fusion"] = "bm25"
+    # Retriever backend: "bm25" → keyword BM25 over the KB; "faiss" → dense
+    # sentence-embedding retrieval (FAISS IndexFlatIP, cosine); "fusion" →
+    # Reciprocal Rank Fusion over both. Default is "fusion": E003 validated the
+    # distill+fusion recipe (hit@3 .649 → .892 on real tickets).
+    RETRIEVAL_BACKEND: Literal["bm25", "faiss", "fusion"] = "fusion"
     ROUTING_STRATEGY: Literal["rule_based", "rl"] = "rule_based"
     # Chair router backend (Phase 6A): the SECOND routing decision — which chair
     # a human_review email is assigned to, distinct from the lane decision above.
@@ -65,9 +66,9 @@ class Settings(BaseSettings):
     # per email rewrites it into 1-3 compact policy-vocabulary queries AND
     # classifies intent (hit@3 .649 → .892 on real tickets); on any distiller
     # failure the pipeline falls back to the keyword classifier and a
-    # subject+body[:600] query. Default stays "prefix" (no behavior change
-    # without opting in).
-    QUERY_STRATEGY: Literal["prefix", "distill"] = "prefix"
+    # subject+body[:600] query. Default is "distill" (E003-validated; pairs with
+    # RETRIEVAL_BACKEND=fusion).
+    QUERY_STRATEGY: Literal["prefix", "distill"] = "distill"
 
     # --- Outbound send policy (transport gate) -----------------------------
     # Load-bearing precondition for ANY outbound transport (none exists yet;
