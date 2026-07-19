@@ -45,4 +45,13 @@ async def sync_zendesk(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Zendesk sync failed: {exc}",
         ) from exc
+    # Overlap guard: another cycle already running → clear 409, no work done.
+    if result.skipped:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "A Zendesk sync is already in progress; this trigger was skipped.",
+                "reason": result.skipped_reason,
+            },
+        )
     return result.model_dump()

@@ -53,6 +53,10 @@ COMMENT_SLEEP_SECONDS = 0.2
 # Transient-failure retry budget for a single HTTP call.
 MAX_HTTP_ATTEMPTS = 6
 DEFAULT_RETRY_AFTER_SECONDS = 30
+# Overlap guard: a claimed sync whose lock hasn't refreshed in this long is
+# assumed crashed, so a new cycle may reclaim it (well above a normal cycle's
+# duration — 10 req/min pacing means even a large cycle finishes well inside it).
+SYNC_LOCK_STALE_SECONDS = 900
 
 
 class ZendeskAdapterError(RuntimeError):
@@ -72,6 +76,10 @@ class SyncResult(BaseModel):
     # chair to review; never auto-redrafted — see the follow-up policy below).
     customer_replies: int = 0
     failed: int = 0
+    # True when this trigger was refused because another cycle already holds the
+    # single-flight lock (overlap guard) — no work was done.
+    skipped: bool = False
+    skipped_reason: str | None = None
     cursor: str | None = None
     errors: list[str] = Field(default_factory=list)
 
@@ -375,7 +383,24 @@ class ZendeskIngestAdapter:
         state = await self.state_repo.get_or_create(
             db, subdomain, settings.ZENDESK_SYNC_START_TIME
         )
-        result = SyncResult(cursor=state.cursor)
+        # Snapshot fields we need before acquiring the lock: the reject path
+        # rolls back (releasing the row lock), which expires `state`, so reading
+        # its attributes afterward would trigger a lazy reload.
+        initial_cursor = state.cursor
+        start_time = state.start_time
+        # Overlap guard: single-flight per account. If another cycle holds the
+        # lock, skip rather than race (both the manual endpoint and the poll loop
+        # funnel through here, so this covers every trigger).
+        if not await self.state_repo.try_acquire_lock(
+            db, subdomain, stale_after_seconds=SYNC_LOCK_STALE_SECONDS
+        ):
+            logger.info("Zendesk sync skipped: another cycle already holds the lock.")
+            return SyncResult(
+                skipped=True,
+                skipped_reason="another sync cycle is already in progress",
+                cursor=initial_cursor,
+            )
+        result = SyncResult(cursor=initial_cursor)
         owns_client = client is None
         if owns_client:
             client = httpx.AsyncClient(timeout=60)
@@ -383,7 +408,7 @@ class ZendeskIngestAdapter:
         base = self._provider_obj().base_url
         page_limit = max_pages if max_pages is not None else settings.ZENDESK_MAX_PAGES_PER_CYCLE
         page_size = per_page if per_page is not None else settings.ZENDESK_SYNC_PER_PAGE
-        cursor = state.cursor
+        cursor = initial_cursor
         try:
             pages_done = 0
             while pages_done < page_limit:
@@ -394,7 +419,7 @@ class ZendeskIngestAdapter:
                 if cursor:
                     params["cursor"] = cursor
                 else:
-                    params["start_time"] = state.start_time or 1
+                    params["start_time"] = start_time or 1
 
                 data = await self._get(client, base + INCREMENTAL_PATH, params, sleep)
                 users_map = _index_users(data.get("users", []))
@@ -442,6 +467,9 @@ class ZendeskIngestAdapter:
         finally:
             if owns_client:
                 await client.aclose()
+            # Always release the single-flight lock, even on failure, so a crash
+            # doesn't strand it (the staleness takeover is only the backstop).
+            await self.state_repo.release_lock(db, subdomain)
 
         return result
 

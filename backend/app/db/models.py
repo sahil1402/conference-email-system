@@ -215,6 +215,19 @@ class ZendeskSyncState(Base):
         nullable=False, default=0, server_default="0"
     )
 
+    # --- Overlap guard (single-flight lock) -------------------------------
+    # A cycle sets ``is_running`` True (stamping ``running_since``) while it
+    # holds the row; a second trigger sees the flag and skips instead of racing.
+    # ``running_since`` also powers a staleness takeover: if a claimed run went
+    # quiet longer than the stale window (a crash mid-cycle), a new run may
+    # reclaim the lock rather than staying blocked forever.
+    is_running: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    running_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -6,7 +6,7 @@ repositories). One logical row per Zendesk account (keyed by subdomain) holds
 the incremental-export resume cursor and light bookkeeping.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,3 +64,70 @@ class ZendeskSyncStateRepository:
         await db.commit()
         await db.refresh(state)
         return state
+
+    async def try_acquire_lock(
+        self,
+        db: AsyncSession,
+        subdomain: str,
+        *,
+        stale_after_seconds: int,
+        now: datetime | None = None,
+    ) -> bool:
+        """Atomically claim the single-flight sync lock for ``subdomain``.
+
+        Returns True if the lock was acquired (and stamps ``is_running`` +
+        ``running_since``), False if a live cycle already holds it. The row is
+        selected ``FOR UPDATE`` so two concurrent acquirers serialize on
+        PostgreSQL — the first wins, the second reads ``is_running=True`` and is
+        refused (``FOR UPDATE`` is a harmless no-op on SQLite, which is
+        single-writer anyway). A claim whose ``running_since`` is older than
+        ``stale_after_seconds`` is treated as a crashed run and reclaimed, so a
+        mid-cycle crash can never lock out future syncs permanently.
+        """
+        now = now or datetime.now(timezone.utc)
+        result = await db.execute(
+            select(ZendeskSyncState)
+            .where(ZendeskSyncState.subdomain == subdomain)
+            .with_for_update()
+        )
+        state = result.scalar_one_or_none()
+        if state is None:
+            # No checkpoint row yet — callers create it via get_or_create first.
+            await db.rollback()
+            return False
+
+        if state.is_running:
+            since = state.running_since
+            if since is not None:
+                if since.tzinfo is None:
+                    since = since.replace(tzinfo=timezone.utc)
+                age = (now - since).total_seconds()
+                if age < stale_after_seconds:
+                    # A live cycle holds the lock — refuse and release the row.
+                    await db.rollback()
+                    return False
+            # is_running with a stale/absent timestamp → crashed; reclaim it.
+
+        state.is_running = True
+        state.running_since = now
+        await db.commit()
+        return True
+
+    async def release_lock(self, db: AsyncSession, subdomain: str) -> None:
+        """Release the sync lock for ``subdomain`` (idempotent, resilient).
+
+        Rolls back any half-open transaction first so the release can still
+        commit even if the cycle failed mid-flight, then clears ``is_running``.
+        """
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001 - releasing must not raise
+            pass
+        result = await db.execute(
+            select(ZendeskSyncState).where(ZendeskSyncState.subdomain == subdomain)
+        )
+        state = result.scalar_one_or_none()
+        if state is not None:
+            state.is_running = False
+            state.running_since = None
+            await db.commit()
