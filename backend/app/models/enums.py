@@ -45,6 +45,10 @@ class EmailStatus(str, Enum):
     DRAFT_GENERATED = "DRAFT_GENERATED"
     APPROVED = "APPROVED"
     SENT = "SENT"
+    # A transport (e.g. Zendesk write-back) was attempted but failed; the draft
+    # is preserved and the send is re-triable. Stored as a plain string in the
+    # String(32) status column, so no migration is required to add it.
+    SEND_FAILED = "SEND_FAILED"
     ARCHIVED = "ARCHIVED"
 
 

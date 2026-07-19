@@ -224,6 +224,53 @@ async def test_upsert_creates_then_updates_without_reclassifying(adb):
 
 
 @pytest.mark.asyncio
+async def test_new_customer_reply_surfaced_without_redraft(adb):
+    """Follow-up policy (a): a NEW public end-user comment on an already-processed
+    ticket is surfaced via an audit signal — never auto-reclassified/redrafted.
+    """
+    from app.db.models import AuditLog
+
+    requester = _user(500, "end-user")
+    pipeline = FakePipeline()
+    adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
+
+    # First poll: initial inquiry -> create + classify once.
+    page1 = _incremental_page([_ticket(100, status="open")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
+
+    # Second poll: same ticket, plus a NEW public end-user comment (9002).
+    page2 = _incremental_page(
+        [_ticket(100, status="open", updated="2026-07-15T11:00:00Z")], users=[requester]
+    )
+    comments2 = {
+        100: {
+            "comments": [
+                _comment(9001, 500),
+                _comment(9002, 500, body="Any update on this?", created="2026-07-15T11:00:00Z"),
+            ],
+            "users": [requester],
+        }
+    }
+    res2 = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
+    )
+
+    # Surfaced as a customer reply; NOT reclassified/redrafted.
+    assert res2.customer_replies == 1
+    assert res2.classified == 0
+    assert len(pipeline.calls) == 1  # no redraft
+
+    audits = (
+        await adb.execute(
+            select(AuditLog).where(AuditLog.action == "customer_reply_received")
+        )
+    ).scalars().all()
+    assert len(audits) == 1
+    assert 9002 in audits[0].extra_metadata["comment_ids"]
+
+
+@pytest.mark.asyncio
 async def test_deleted_tickets_filtered_out(adb):
     requester = _user(500, "end-user")
     page = _incremental_page(
@@ -332,7 +379,7 @@ async def test_comment_fetch_error_isolated_to_one_ticket(adb):
 async def test_run_sync_cycle_delegates_to_adapter(adb, monkeypatch):
     seen = {}
 
-    async def spy(self, db, *, client=None, max_pages=None):
+    async def spy(self, db, *, client=None, max_pages=None, per_page=None):
         seen["called"] = True
         return SyncResult(pages=1)
 

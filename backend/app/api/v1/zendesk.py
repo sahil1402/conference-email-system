@@ -8,7 +8,7 @@ Read-only: this triggers a pull cycle, never a write back to Zendesk.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
@@ -20,10 +20,25 @@ router = APIRouter(prefix="/zendesk", tags=["zendesk"])
 
 
 @router.post("/sync")
-async def sync_zendesk(db: AsyncSession = Depends(get_db)) -> dict:
-    """Trigger one Zendesk polling cycle on demand and return its counts."""
+async def sync_zendesk(
+    db: AsyncSession = Depends(get_db),
+    max_pages: int | None = Query(
+        None, ge=1, description="Cap pages this cycle (default: configured limit)."
+    ),
+    per_page: int | None = Query(
+        None,
+        ge=1,
+        le=1000,
+        description="Tickets per page (default: configured per-page). Zendesk caps at 1000.",
+    ),
+) -> dict:
+    """Trigger one Zendesk polling cycle on demand and return its counts.
+
+    ``max_pages``/``per_page`` bound the cycle for controlled HTTP-triggered test
+    runs (Piece 4 follow-up); both are optional and fall back to config defaults.
+    """
     try:
-        result = await run_sync_cycle(db)
+        result = await run_sync_cycle(db, max_pages=max_pages, per_page=per_page)
     except Exception as exc:  # noqa: BLE001 - surface an adapter failure as 502
         logger.exception("Manual Zendesk sync failed.")
         raise HTTPException(

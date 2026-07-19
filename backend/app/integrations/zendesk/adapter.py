@@ -36,6 +36,7 @@ from app.integrations.zendesk.credential_provider import (
 )
 from app.models.enums import EmailSource, EmailStatus, MessageAuthorRole
 from app.pipeline.orchestrator import EmailPipeline
+from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
 from app.repositories.zendesk_repository import ZendeskSyncStateRepository
 
@@ -67,6 +68,9 @@ class SyncResult(BaseModel):
     updated: int = 0
     skipped_deleted: int = 0
     classified: int = 0
+    # New public end-user replies on already-processed tickets (surfaced for a
+    # chair to review; never auto-redrafted — see the follow-up policy below).
+    customer_replies: int = 0
     failed: int = 0
     cursor: str | None = None
     errors: list[str] = Field(default_factory=list)
@@ -98,6 +102,7 @@ class ZendeskIngestAdapter:
         pipeline: EmailPipeline | None = None,
         email_repo: EmailRepository | None = None,
         state_repo: ZendeskSyncStateRepository | None = None,
+        audit_repo: AuditRepository | None = None,
     ) -> None:
         # Provider and pipeline are built lazily so constructing the adapter is
         # cheap and credential/pipeline setup only happens on a real sync.
@@ -105,6 +110,7 @@ class ZendeskIngestAdapter:
         self._pipeline = pipeline
         self.email_repo = email_repo or EmailRepository()
         self.state_repo = state_repo or ZendeskSyncStateRepository()
+        self.audit_repo = audit_repo or AuditRepository()
 
     def _provider_obj(self) -> ZendeskCredentialProvider:
         if self._provider is None:
@@ -257,7 +263,55 @@ class ZendeskIngestAdapter:
                 },
             )
             # No reclassification: the initial inquiry is unchanged (§10).
+            # Redraft-on-follow-up policy = option (a): if a NEW public end-user
+            # comment arrived on an already-processed ticket, surface it for a
+            # chair (audit signal) — never auto-reclassify or auto-redraft.
+            new_customer = [
+                m
+                for m in new_messages
+                if m.get("public")
+                and m.get("author_role") == MessageAuthorRole.END_USER.value
+            ]
+            if new_customer:
+                await self._record_customer_reply(db, email_id, ticket_id, new_customer)
+                result.customer_replies += 1
             result.updated += 1
+
+    async def _record_customer_reply(
+        self,
+        db: AsyncSession,
+        email_id: str,
+        ticket_id: int,
+        new_customer: list[dict],
+    ) -> None:
+        """Surface a new end-user reply on an already-processed ticket (option a).
+
+        Writes an append-only ``customer_reply_received`` audit entry (the signal
+        the UI/audit view reads to badge "new customer reply") and does nothing
+        else — no reclassification, no new draft. Best-effort: a logging failure
+        must never abort the sync cycle.
+        """
+        try:
+            await self.audit_repo.log_action(
+                db,
+                email_id,
+                "customer_reply_received",
+                "zendesk_sync",
+                {
+                    "zendesk_ticket_id": ticket_id,
+                    "comment_ids": [
+                        m.get("zendesk_comment_id") for m in new_customer
+                    ],
+                    "note": "New public end-user reply after processing; awaiting "
+                    "chair review (no automatic redraft).",
+                },
+            )
+        except Exception:  # noqa: BLE001 - the signal is best-effort
+            logger.warning(
+                "Failed to record customer_reply_received for ticket %s.",
+                ticket_id,
+                exc_info=True,
+            )
 
     async def _ingest_new_ticket(
         self,
@@ -308,6 +362,7 @@ class ZendeskIngestAdapter:
         *,
         client: httpx.AsyncClient | None = None,
         max_pages: int | None = None,
+        per_page: int | None = None,
         sleep=asyncio.sleep,
     ) -> SyncResult:
         """Run ONE polling cycle: page the incremental export, upsert tickets.
@@ -327,13 +382,14 @@ class ZendeskIngestAdapter:
 
         base = self._provider_obj().base_url
         page_limit = max_pages if max_pages is not None else settings.ZENDESK_MAX_PAGES_PER_CYCLE
+        page_size = per_page if per_page is not None else settings.ZENDESK_SYNC_PER_PAGE
         cursor = state.cursor
         try:
             pages_done = 0
             while pages_done < page_limit:
                 params: dict = {
                     "include": "users",
-                    "per_page": settings.ZENDESK_SYNC_PER_PAGE,
+                    "per_page": page_size,
                 }
                 if cursor:
                     params["cursor"] = cursor
@@ -395,14 +451,18 @@ async def run_sync_cycle(
     *,
     client: httpx.AsyncClient | None = None,
     max_pages: int | None = None,
+    per_page: int | None = None,
 ) -> SyncResult:
     """Run one Zendesk poll cycle. The SHARED entry point.
 
     Both the manual ``POST /api/v1/zendesk/sync`` endpoint and the background
     polling loop call this — so a future webhook trigger is just one more caller,
-    not a redesign.
+    not a redesign. ``max_pages``/``per_page`` allow a caller (e.g. a controlled
+    HTTP test run) to bound the cycle; both default to the configured values.
     """
-    return await ZendeskIngestAdapter().sync(db, client=client, max_pages=max_pages)
+    return await ZendeskIngestAdapter().sync(
+        db, client=client, max_pages=max_pages, per_page=per_page
+    )
 
 
 async def zendesk_poll_loop(

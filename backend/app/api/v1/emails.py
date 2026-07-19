@@ -8,18 +8,26 @@ repositories, all processing through EmailPipeline.
 """
 
 import asyncio
+import html as _html
 import json
 import logging
+from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.events import get_event_broker
 from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
 from app.db.database import get_db
+from app.integrations.zendesk.sender import (
+    ZendeskSender,
+    ZendeskSendError,
+)
+from app.models.enums import EmailSource, EmailStatus
 from app.pipeline.active_learning import build_flag_events
 from app.db.models import AuditLog, Email
 from app.pipeline.drafter import find_placeholders
@@ -36,6 +44,41 @@ router = APIRouter(prefix="/emails", tags=["emails"])
 email_repo = EmailRepository()
 audit_repo = AuditRepository()
 chair_repo = ChairRepository()
+# Module-level so tests can monkeypatch the transport without real HTTP.
+zendesk_sender = ZendeskSender()
+
+
+class SendRequest(BaseModel):
+    """Options for releasing a draft (Zendesk write-back)."""
+
+    # Default is the safe internal note. A public reply also requires
+    # ALLOW_AUTO_SEND=True (enforced in the endpoint), per ZENDESK_API.md §4.
+    public: bool = Field(
+        default=False,
+        description="True = public reply to the requester (needs ALLOW_AUTO_SEND); "
+        "False = internal note (default, safe).",
+    )
+    sent_by: str = Field(default="chair", description="Actor recorded in the audit log.")
+
+
+def _text_to_html(text: str) -> str:
+    """Render a plain-text draft as minimal safe HTML (preferred body per §4).
+
+    Escapes the text, then maps blank lines to paragraph breaks and single
+    newlines to ``<br>`` so the reply keeps its shape in Agent Workspace.
+    """
+    escaped = _html.escape(text or "").strip()
+    if not escaped:
+        return "<p></p>"
+    paragraphs = [p.replace("\n", "<br>") for p in escaped.split("\n\n")]
+    return "".join(f"<p>{p}</p>" for p in paragraphs)
+
+
+def _iso_z(dt) -> str | None:
+    """Format an aware datetime as a Zendesk ISO-8601 ``...Z`` stamp, or None."""
+    if dt is None:
+        return None
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _record_rl_feedback(email: Email, lane: str | None, outcome: str) -> None:
@@ -372,15 +415,20 @@ async def approve_email(
 
 @router.post("/{email_id}/send")
 async def send_email_reply(
-    email_id: str, db: AsyncSession = Depends(get_db)
+    email_id: str,
+    payload: SendRequest | None = None,
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Release an email's draft to the outbound transport — gate enforced.
 
-    This is the ONLY path a transport may ever hang off: the send gate
-    (app/core/send_gate.py) decides first, and both outcomes are audited.
-    With no transport configured yet, an authorized send answers 501 and the
-    draft stays queued — the gate contract is live before the transport is.
+    The send gate (app/core/send_gate.py) always decides first, and both
+    outcomes are audited. For a Zendesk-sourced email the authorized draft is
+    then written back to the ticket (internal note by default; public reply only
+    when ALLOW_AUTO_SEND is on AND explicitly requested — §4). Non-Zendesk emails
+    have no transport yet and still answer 501. A Zendesk write failure marks the
+    email ``send_failed`` (re-triable) rather than falsely showing it as sent.
     """
+    payload = payload or SendRequest()
     email = await email_repo.get_email_by_id(db, email_id)
     if email is None:
         raise HTTPException(
@@ -402,14 +450,106 @@ async def send_email_reply(
                     "reason": decision.reason},
         )
 
-    # Authorized — but no outbound transport exists yet (Zendesk write-back
-    # will plug in here). The draft remains queued; status is unchanged.
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={"message": "Send authorized, but no outbound transport is "
-                "configured; the draft remains queued.",
-                "mode": decision.mode},
+    # Non-Zendesk emails: no outbound transport exists yet — behavior unchanged.
+    if (email.source or "") != EmailSource.ZENDESK.value or not email.zendesk_ticket_id:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={"message": "Send authorized, but no outbound transport is "
+                    "configured for this source; the draft remains queued.",
+                    "mode": decision.mode},
+        )
+
+    # Closed tickets are immutable (§2) — never attempt a write; report clearly.
+    if (email.zendesk_status or "").lower() == "closed":
+        await audit_repo.log_action(
+            db, email_id, "send_blocked_closed", payload.sent_by,
+            {"zendesk_ticket_id": email.zendesk_ticket_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Zendesk ticket is closed and immutable; cannot "
+                    "write. Annotate via a follow-up ticket instead.",
+                    "zendesk_status": email.zendesk_status},
+        )
+
+    # A public reply is an extra gate on top of the send gate: it requires the
+    # ALLOW_AUTO_SEND policy AND an explicit request. Otherwise we only ever post
+    # an internal note (which does not notify the requester).
+    want_public = bool(payload.public)
+    if want_public and not settings.ALLOW_AUTO_SEND:
+        await audit_repo.log_action(
+            db, email_id, "send_blocked_public_disabled", payload.sent_by,
+            {"reason": "public reply requested but ALLOW_AUTO_SEND is False"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"message": "Public reply requires ALLOW_AUTO_SEND=True. Send "
+                    "as an internal note (public=false), or enable the policy."},
+        )
+
+    draft_text = (email.draft or {}).get("draft_text", "") or ""
+    html_body = _text_to_html(draft_text)
+    # §4: public reply → set status "solved" in the same call; internal note →
+    # leave status unchanged. Tags track state via the dedicated tag endpoint.
+    set_status = "solved" if want_public else None
+    tags = ["ai_auto_replied"] if want_public else ["ai_drafted"]
+    updated_stamp = _iso_z(email.zendesk_updated_at)
+
+    try:
+        outcome = await zendesk_sender.send_reply(
+            ticket_id=int(email.zendesk_ticket_id),
+            html_body=html_body,
+            public=want_public,
+            set_status=set_status,
+            tags=tags,
+            updated_stamp=updated_stamp,
+        )
+    except ZendeskSendError as exc:
+        # Transport failed — record the failure locally so it never reads as
+        # "sent", and keep the draft intact so the chair can retry.
+        send_meta = {
+            "state": "failed",
+            "public": want_public,
+            "error": str(exc),
+            "status_code": exc.status_code,
+        }
+        failed_draft = {**(email.draft or {}), "send": send_meta}
+        await email_repo.update_email_status(
+            db, email_id, EmailStatus.SEND_FAILED.value, {"draft": failed_draft}
+        )
+        await audit_repo.log_action(
+            db, email_id, "send_failed", payload.sent_by, send_meta
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "Zendesk write failed; email marked send_failed "
+                    "and left re-triable.", "error": str(exc)},
+        ) from exc
+
+    # Success — record what was sent and flip status to sent.
+    send_meta = {
+        "state": "sent",
+        "mode": outcome.mode,
+        "public": outcome.public,
+        "status_set": outcome.status_set,
+        "tags_added": outcome.tags_added,
+        "tag_conflict": outcome.tag_conflict,
+    }
+    sent_draft = {**(email.draft or {}), "send": send_meta}
+    updated = await email_repo.update_email_status(
+        db, email_id, EmailStatus.SENT.value, {"draft": sent_draft}
     )
+    await audit_repo.log_action(
+        db, email_id, "zendesk_sent", payload.sent_by, send_meta
+    )
+    result = _email_to_dict(updated)
+    result["send"] = send_meta
+    if outcome.tag_conflict:
+        result["warning"] = (
+            "Reply sent, but the state-tag write hit a 409 (ticket changed "
+            "concurrently); the tag was NOT overwritten. Re-tag or re-sync."
+        )
+    return result
 
 
 @router.patch("/{email_id}/reroute")
