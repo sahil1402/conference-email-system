@@ -83,3 +83,7 @@ data/knowledge_base/*.db-export-*.json
 # CLAUDE.md is tracked project memory (restored 2026-07-17); only the archived
 # history file stays ignored.
 claude_hist.md
+
+# SDD (subagent-driven-development) scratch: ledger, task briefs, review packages.
+# Root-anchored so it never matches docs/superpowers/ (tracked plans live there).
+/.superpowers/

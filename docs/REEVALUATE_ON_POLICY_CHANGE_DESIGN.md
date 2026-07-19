@@ -1,6 +1,6 @@
 # Re-evaluate Open Tickets on Policy Change — Design
 
-Status: **DRAFT for review** · Date: 2026-07-19 · Builds on: `main` (layered KB + chair governance)
+Status: **IMPLEMENTED** (2026-07-19) · Builds on: `main` (layered KB + chair governance) · Branch: `feature/reevaluate-on-policy-change`
 
 ## 1. Problem
 
