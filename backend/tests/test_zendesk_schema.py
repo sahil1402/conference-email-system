@@ -213,10 +213,18 @@ def _run_alembic(args, db_url: str):
     )
 
 
-def test_migration_upgrade_and_downgrade_roundtrip(tmp_path):
-    """`alembic upgrade head` creates the schema; `downgrade -1` reverses it.
+# The revision just before the Piece-3 Zendesk schema migration. Downgrading to
+# it reverses the whole Zendesk schema stack (Piece 3 emails/thread tables AND
+# the Piece 4 zendesk_sync_state table), so this round-trip stays correct as the
+# head advances past Piece 3.
+_PRE_ZENDESK_REVISION = "a7b8c9d0e1f2"
 
-    Runs against a throwaway SQLite file — never the real/demo database.
+
+def test_migration_upgrade_and_downgrade_roundtrip(tmp_path):
+    """`alembic upgrade head` creates the Zendesk schema; downgrade reverses it.
+
+    Runs against a throwaway SQLite file — never the real/demo database. Covers
+    both the Piece-3 tables and the Piece-4 zendesk_sync_state table.
     """
     db_file = tmp_path / "roundtrip.db"
     db_url = f"sqlite:///{db_file.as_posix()}"
@@ -228,19 +236,21 @@ def test_migration_upgrade_and_downgrade_roundtrip(tmp_path):
     try:
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert "email_thread_messages" in tables
+        assert "zendesk_sync_state" in tables
         email_cols = {r[1] for r in con.execute("PRAGMA table_info(emails)")}
         assert {"source", "zendesk_ticket_id", "last_processed_comment_id"} <= email_cols
     finally:
         con.close()
 
-    # Reverse only our migration (down one revision).
-    down = _run_alembic(["downgrade", "-1"], db_url)
+    # Reverse the entire Zendesk schema stack.
+    down = _run_alembic(["downgrade", _PRE_ZENDESK_REVISION], db_url)
     assert down.returncode == 0, f"downgrade failed:\n{down.stderr}"
 
     con = sqlite3.connect(db_file)
     try:
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert "email_thread_messages" not in tables
+        assert "zendesk_sync_state" not in tables
         email_cols = {r[1] for r in con.execute("PRAGMA table_info(emails)")}
         assert "zendesk_ticket_id" not in email_cols
         assert "source" not in email_cols

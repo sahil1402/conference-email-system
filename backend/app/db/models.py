@@ -173,6 +173,48 @@ class EmailThreadMessage(Base):
     )
 
 
+class ZendeskSyncState(Base):
+    """Checkpoint for the Zendesk incremental-export poller (Piece 4).
+
+    One row per Zendesk account (keyed by ``subdomain``). Holds the resume
+    ``cursor`` (the incremental export's ``after_cursor``; NULL → the next poll
+    starts from ``start_time``) plus light bookkeeping. Persisting the cursor in
+    the DB (not a local file like the one-off pull script) is what lets the poll
+    survive restarts and, later, be made multi-instance-safe by row-locking this
+    single well-known row (``SELECT ... FOR UPDATE``). See ZENDESK_API.md §2/§10.
+    """
+
+    __tablename__ = "zendesk_sync_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    subdomain: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )
+    # Incremental export resume point; NULL means "first run — use start_time".
+    cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Unix epoch for the initial call before any cursor exists.
+    start_time: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # When the last successful cycle completed, and the last error (if any).
+    last_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Cumulative count of tickets seen across cycles (bookkeeping only).
+    tickets_seen: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default="0"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Chair(Base):
     """A conference chair who can be assigned human-review emails (Phase 6A).
 

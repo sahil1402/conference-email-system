@@ -155,6 +155,24 @@ class Settings(BaseSettings):
     ZENDESK_OAUTH_CLIENT_SECRET: str | None = None
     ZENDESK_OAUTH_SCOPE: str = "read"
 
+    # --- Zendesk ingest poller (Piece 4, read-only) -----------------------
+    # Master switch for the background polling loop. Default False so the loop
+    # NEVER starts on its own (tests, CI, or any environment) unless explicitly
+    # enabled — the manual POST /api/v1/zendesk/sync endpoint works regardless.
+    ZENDESK_POLLING_ENABLED: bool = False
+    # Seconds between background poll cycles (incremental export tolerates a
+    # 2–5 min cadence comfortably within its 10 req/min ceiling; see §7).
+    ZENDESK_POLL_INTERVAL_SECONDS: int = 300
+    # Unix epoch for the VERY FIRST incremental call (must be ≥ 1 min in the
+    # past). Later calls use the stored cursor. Default 1 = "everything the
+    # account has"; set a recent epoch to bound an initial live pull.
+    ZENDESK_SYNC_START_TIME: int = 1
+    # Page size for the incremental export (max 1000; kept modest by default).
+    ZENDESK_SYNC_PER_PAGE: int = 100
+    # Safety bound on pages fetched per cycle so a cold start can't pull the
+    # whole account (and hammer per-ticket comment fetches) in one pass.
+    ZENDESK_MAX_PAGES_PER_CYCLE: int = 10
+
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
     # Primary async connection string used by BOTH the app's async engine and
