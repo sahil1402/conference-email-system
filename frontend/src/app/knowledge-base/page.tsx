@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Plus } from "lucide-react";
 
-import { usePolicies, useReactivatePolicy, useRetirePolicy } from "@/hooks";
+import {
+  usePolicies,
+  useReactivatePolicy,
+  useReevaluatePolicies,
+  useRetirePolicy,
+} from "@/hooks";
 import { AddPolicyPanel } from "@/components/kb/AddPolicyPanel";
 import { PolicyFilters } from "@/components/kb/PolicyFilters";
 import { PolicyHistory } from "@/components/kb/PolicyHistory";
@@ -50,6 +55,7 @@ export default function KnowledgeBasePage() {
   const { policies, isLoading, isError, refetch } = usePolicies(params);
   const retireMutation = useRetirePolicy();
   const reactivateMutation = useReactivatePolicy();
+  const reevaluate = useReevaluatePolicies();
 
   const pendingKey = retireMutation.isPending
     ? retireMutation.variables ?? null
@@ -106,7 +112,24 @@ export default function KnowledgeBasePage() {
         <PolicyHistory />
       ) : (
         <div className="flex flex-col gap-6">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {reevaluate.isSuccess && (
+              <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                {reevaluate.data.open === 0
+                  ? "No open tickets to re-evaluate."
+                  : `Re-evaluating ${reevaluate.data.open} open ticket${
+                      reevaluate.data.open === 1 ? "" : "s"
+                    }…`}
+              </span>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => reevaluate.mutate()}
+              disabled={reevaluate.isPending}
+            >
+              {reevaluate.isPending ? "Starting…" : "Re-evaluate open tickets"}
+            </Button>
             <Button type="button" onClick={() => setAddOpen((v) => !v)}>
               <Plus className="h-4 w-4" />
               Add internal policy
