@@ -156,3 +156,15 @@ async def model_health() -> dict:
         "local_model_name": settings.LOCAL_MODEL_NAME,
         "status": status_value,
     }
+
+
+@app.get("/api/v1/config", tags=["system"])
+async def app_config() -> dict:
+    """UI-relevant runtime flags.
+
+    ``allow_auto_send`` is the transport gate: when False (the default), every
+    outbound email — FAQ lane included — waits on a chair decision, so the review
+    UI shows the approve/send controls rather than an 'auto-replied' state. Only
+    when True may a complete FAQ draft be released without human approval.
+    """
+    return {"allow_auto_send": settings.ALLOW_AUTO_SEND}
