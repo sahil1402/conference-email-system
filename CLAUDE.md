@@ -187,3 +187,9 @@ Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestra
 
 ## Session Update Instructions
 At the end of EVERY session: (1) append/compress the phase entry under Phase History; (2) update the Current Status table; (3) run `type CLAUDE.md` to confirm the save; (4) report "CLAUDE.md updated — [phase] logged". Not optional — skipping it breaks project memory.
+
+## Codebase Navigation
+Before exploring unfamiliar code or checking cross-module calls, use codebase-memory-mcp's 
+search_graph / trace_path / get_architecture tools instead of grep/read-by-file. 
+Especially verify module boundaries (classifier/retriever/router/drafter/persistence/UI) 
+via trace_path before changes that could cross them.
