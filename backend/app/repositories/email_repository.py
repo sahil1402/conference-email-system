@@ -15,6 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Email
+from app.models.enums import EmailStatus
 
 
 def _queue_conditions(
@@ -131,6 +132,52 @@ class EmailRepository:
         await db.refresh(email)
         return email
 
+    async def set_redrafting(
+        self, db: AsyncSession, email_id: str, value: bool
+    ) -> Email | None:
+        """Set/clear the transient ``redrafting`` flag. Returns None if absent."""
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(select(Email).where(Email.id == pk))
+        email = result.scalar_one_or_none()
+        if email is None:
+            return None
+        email.redrafting = value
+        await db.commit()
+        await db.refresh(email)
+        return email
+
+    async def save_redraft(
+        self,
+        db: AsyncSession,
+        email_id: str,
+        *,
+        draft: dict,
+        routing: dict,
+        retrieval_context: dict,
+    ) -> Email | None:
+        """Persist a re-drafted ticket: overwrite draft + routing + retrieval
+        context in one commit and clear ``redrafting``. Returns None if absent.
+
+        Status is left as-is (draft_generated) — a re-draft replaces the pending
+        draft in place; it does not change the lifecycle stage.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(select(Email).where(Email.id == pk))
+        email = result.scalar_one_or_none()
+        if email is None:
+            return None
+        email.draft = draft
+        email.routing = routing
+        email.retrieval_context = retrieval_context
+        email.redrafting = False
+        await db.commit()
+        await db.refresh(email)
+        return email
+
     # --- reads ------------------------------------------------------------
     async def get_email_by_id(
         self, db: AsyncSession, email_id: str
@@ -215,6 +262,19 @@ class EmailRepository:
         stmt = select(func.count()).select_from(Email).where(*conditions)
         result = await db.execute(stmt)
         return int(result.scalar_one())
+
+    async def get_open_tickets(self, db: AsyncSession) -> list[Email]:
+        """Return every open ticket (status draft_generated), oldest id first.
+
+        "Open" = has an auto-draft awaiting chair action and not yet approved or
+        sent. These are the only tickets a KB-change sweep re-evaluates.
+        """
+        result = await db.execute(
+            select(Email)
+            .where(Email.status == EmailStatus.DRAFT_GENERATED.value)
+            .order_by(Email.id)
+        )
+        return list(result.scalars().all())
 
     async def count_by_chair(self, db: AsyncSession) -> dict[int, int]:
         """Return a mapping of ``assigned_chair_id`` -> count over ALL emails.
