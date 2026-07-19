@@ -133,9 +133,18 @@ async def model_health() -> dict:
 
     base = settings.LOCAL_MODEL_BASE_URL.rstrip("/")
     status_value = "configured"
+    # Authenticate the probe. Hosted endpoints (e.g. OpenAI) require the bearer
+    # token — an unauthenticated GET /models returns 401, which would make a
+    # perfectly reachable, working endpoint report "unreachable". Unauthenticated
+    # local servers (LOCAL_MODEL_API_KEY unset) send no header, as before.
+    headers = (
+        {"Authorization": f"Bearer {settings.LOCAL_MODEL_API_KEY}"}
+        if settings.LOCAL_MODEL_API_KEY
+        else None
+    )
     try:
         async with httpx.AsyncClient(timeout=_MODEL_PROBE_TIMEOUT_SECONDS) as client:
-            response = await client.get(f"{base}/models")
+            response = await client.get(f"{base}/models", headers=headers)
         if response.status_code != 200:
             status_value = "unreachable"
     except Exception:  # noqa: BLE001 - any failure means the endpoint is unreachable
