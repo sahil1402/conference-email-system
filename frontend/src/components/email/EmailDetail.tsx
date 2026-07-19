@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  AlertOctagon,
   ChevronDown,
   FileText,
   Send,
@@ -83,6 +84,10 @@ export function EmailDetail({
 }: EmailDetailProps) {
   const lane = email.routing?.lane ?? null;
   const draft = email.draft;
+
+  // Chair-facing notes (7F): a newline-delimited blob → structured, severity-
+  // aware items. Computed here so the section can be omitted entirely when empty.
+  const chairNotes = parseChairNotes(draft?.notes_for_chair);
 
   const [editedDraft, setEditedDraft] = useState(draft?.draft_text ?? "");
   const [rerouteOpen, setRerouteOpen] = useState(false);
@@ -228,27 +233,15 @@ export function EmailDetail({
           />
         </Collapsible>
 
-        {/* CHAIR SUGGESTIONS — drafter notes + gaps, never part of the reply */}
-        {draft?.notes_for_chair && (
+        {/* CHAIR SUGGESTIONS — drafter notes + gaps, never part of the reply.
+            Empty → the whole section is omitted (no empty box). */}
+        {chairNotes.length > 0 && (
           <Collapsible
             title="Chair Suggestions"
             icon={<AlertTriangle className="h-4 w-4" style={{ color: "var(--warning)" }} />}
             defaultOpen
           >
-            <div
-              className="mt-1 rounded-lg border p-3 text-sm leading-relaxed"
-              style={{
-                backgroundColor: "var(--warning-subtle)",
-                borderColor: "var(--warning)",
-                color: "var(--text-primary)",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {draft.notes_for_chair}
-            </div>
-            <p className="pt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
-              Internal — not sent to the requester.
-            </p>
+            <ChairNotesPanel notes={chairNotes} />
           </Collapsible>
         )}
 
@@ -696,6 +689,103 @@ function Collapsible({
         </div>
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Chair notes — structured, severity-aware view of drafter.notes_for_chair (7F)
+// ---------------------------------------------------------------------------
+
+type ChairNoteSeverity = "advisory" | "urgent";
+
+interface ChairNote {
+  text: string;
+  severity: ChairNoteSeverity;
+}
+
+/**
+ * The backend appends automated leak-check flags to notes_for_chair with this
+ * exact prefix (drafter._apply_reply_contract). It's the one severity signal in
+ * the blob today: such a line means possible chair-facing meta language leaking
+ * into the requester reply → urgent. A dedicated backend `severity` field would
+ * be cleaner than sniffing the prefix, but this keeps the change frontend-only.
+ */
+const URGENT_NOTE_PREFIX_RE = /^WARNING \(automated check\):\s*/i;
+
+/**
+ * Split the newline-delimited notes blob into per-line items (one caveat/gap per
+ * line, per the drafter contract), tagging each with a severity. Blank lines
+ * (incl. the \n\n gap before an appended warning) are dropped; the urgent prefix
+ * is stripped from the displayed text since the styling already conveys it.
+ * Empty / whitespace-only / nullish input → [] (caller omits the section).
+ */
+function parseChairNotes(raw: string | null | undefined): ChairNote[] {
+  if (!raw) return [];
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const urgent = URGENT_NOTE_PREFIX_RE.test(line);
+      return {
+        text: urgent ? line.replace(URGENT_NOTE_PREFIX_RE, "").trim() : line,
+        severity: urgent ? "urgent" : "advisory",
+      } satisfies ChairNote;
+    });
+}
+
+/**
+ * Renders parsed chair notes as distinct rows, escalating amber (advisory) →
+ * red (urgent). Returns null when there are none so no empty box appears.
+ */
+function ChairNotesPanel({ notes }: { notes: ChairNote[] }) {
+  if (notes.length === 0) return null;
+  return (
+    <div className="space-y-2 pt-1">
+      {notes.map((note, i) => (
+        <ChairNoteRow key={i} note={note} />
+      ))}
+      <p className="pt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+        Internal — not sent to the requester.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * One note: a left accent bar + tinted surface carry the severity (restrained,
+ * not a full-bleed alert). Urgent rows add a small label so the escalation reads
+ * even for a colorblind chair — color is never the only signal.
+ */
+function ChairNoteRow({ note }: { note: ChairNote }) {
+  const urgent = note.severity === "urgent";
+  const accent = urgent ? "var(--danger)" : "var(--warning)";
+  const tint = urgent ? "var(--danger-subtle)" : "var(--warning-subtle)";
+  const Icon = urgent ? AlertOctagon : AlertTriangle;
+  return (
+    <div
+      className="flex items-start gap-2.5 rounded-md border-l-[3px] p-2.5 pl-3 text-sm leading-relaxed"
+      style={{
+        backgroundColor: tint,
+        borderColor: accent,
+        color: "var(--text-primary)",
+      }}
+    >
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" style={{ color: accent }} />
+      <div className="min-w-0 space-y-0.5">
+        {urgent && (
+          <span
+            className="block text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: accent }}
+          >
+            Automated leak check
+          </span>
+        )}
+        <p style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {note.text}
+        </p>
+      </div>
+    </div>
   );
 }
 
