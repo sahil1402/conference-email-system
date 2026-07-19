@@ -85,5 +85,7 @@ data/knowledge_base/*.db-export-*.json
 claude_hist.md
 
 # SDD (subagent-driven-development) scratch: ledger, task briefs, review packages.
-# Root-anchored so it never matches docs/superpowers/ (tracked plans live there).
 /.superpowers/
+
+# Internal development docs (SDD plans, etc.) — kept locally, not pushed.
+docs/superpowers/
