@@ -11,10 +11,11 @@ arrive as path/query strings) and coerce internally; a non-numeric id resolves
 to "not found" rather than an error.
 """
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Email, EmailThreadMessage
+from app.models.enums import EmailStatus
 
 # Zendesk-origin columns the ingest adapter may set/patch on an Email row.
 # Kept as an allow-list so ``apply_zendesk_fields`` can never write an arbitrary
@@ -146,6 +147,46 @@ class EmailRepository:
         await db.refresh(email)
         return email
 
+    async def clear_all_redrafting_flags(self, db: AsyncSession) -> int:
+        """Clear the ``redrafting`` flag on every row; returns rows cleared.
+
+        Used at process startup to recover flags stranded by a crash mid-sweep — a
+        fresh process has no in-flight sweep, so any set flag is stale.
+        """
+        result = await db.execute(
+            update(Email).where(Email.redrafting.is_(True)).values(redrafting=False)
+        )
+        await db.commit()
+        return result.rowcount or 0
+
+    async def update_email_outputs(
+        self, db: AsyncSession, email_id: str, record: dict
+    ) -> Email | None:
+        """Overwrite an existing email's pipeline outputs in place (retry/reprocess).
+
+        Applies the fresh status + classification/routing/draft/assigned_chair_id/
+        retrieval_context from a re-run, and clears the transient ``redrafting``
+        flag. Leaves id, received_at, and sender/subject/body untouched. Returns
+        the refreshed row, or ``None`` if the id is missing/non-numeric.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(select(Email).where(Email.id == pk))
+        email = result.scalar_one_or_none()
+        if email is None:
+            return None
+        for key in (
+            "status", "classification", "routing", "draft",
+            "assigned_chair_id", "retrieval_context",
+        ):
+            if key in record:
+                setattr(email, key, record[key])
+        email.redrafting = False
+        await db.commit()
+        await db.refresh(email)
+        return email
+
     async def apply_zendesk_fields(
         self, db: AsyncSession, email_id: str, fields: dict
     ) -> Email | None:
@@ -169,6 +210,98 @@ class EmailRepository:
         await db.commit()
         await db.refresh(email)
         return email
+
+    async def claim_for_redraft(self, db: AsyncSession, email_id: str) -> bool:
+        """Atomically claim an open ticket for re-drafting.
+
+        A single conditional UPDATE flips ``redrafting`` False→True only while the
+        ticket is still an open auto-draft (status draft_generated) and not already
+        being re-drafted. Returns True iff THIS call won the claim. Because the flip
+        is one SQL statement, two overlapping sweeps can never both claim the same
+        ticket, and a ticket approved since the sweep started is not claimed.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return False
+        result = await db.execute(
+            update(Email)
+            .where(
+                Email.id == pk,
+                Email.status == EmailStatus.DRAFT_GENERATED.value,
+                Email.redrafting.is_(False),
+            )
+            .values(redrafting=True)
+        )
+        await db.commit()
+        return (result.rowcount or 0) == 1
+
+    async def set_redrafting(
+        self, db: AsyncSession, email_id: str, value: bool
+    ) -> Email | None:
+        """Set/clear the transient ``redrafting`` flag unconditionally.
+
+        A Core UPDATE (not load-set-commit) so it always writes even when the
+        session's cached instance is stale — otherwise clearing a flag set by a
+        prior Core UPDATE in the same session would be a silent no-op. Returns the
+        refreshed row, or None if the id is missing/non-numeric.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(
+            update(Email).where(Email.id == pk).values(redrafting=value)
+        )
+        await db.commit()
+        if (result.rowcount or 0) != 1:
+            return None
+        refreshed = await db.execute(
+            select(Email).where(Email.id == pk).execution_options(populate_existing=True)
+        )
+        return refreshed.scalar_one_or_none()
+
+    async def save_redraft(
+        self,
+        db: AsyncSession,
+        email_id: str,
+        *,
+        draft: dict,
+        routing: dict,
+        retrieval_context: dict,
+    ) -> Email | None:
+        """Persist a re-drafted ticket IFF it is still a claimed open draft.
+
+        A single conditional UPDATE overwrites draft + routing + retrieval_context
+        and clears ``redrafting`` only while status is still draft_generated AND the
+        ticket is still claimed (``redrafting`` True). If the chair approved/changed
+        the ticket between claim and save, 0 rows match and this returns ``None``
+        WITHOUT clobbering their work (the caller then clears the stray flag).
+        Status is left unchanged. Returns ``None`` if the id is missing/non-numeric
+        or the precondition no longer holds.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(
+            update(Email)
+            .where(
+                Email.id == pk,
+                Email.status == EmailStatus.DRAFT_GENERATED.value,
+                Email.redrafting.is_(True),
+            )
+            .values(
+                draft=draft,
+                routing=routing,
+                retrieval_context=retrieval_context,
+                redrafting=False,
+            )
+        )
+        await db.commit()
+        if (result.rowcount or 0) != 1:
+            return None
+        refreshed = await db.execute(
+            select(Email).where(Email.id == pk).execution_options(populate_existing=True)
+        )
+        return refreshed.scalar_one_or_none()
 
     async def get_thread_comment_ids(
         self, db: AsyncSession, email_id: str
@@ -302,6 +435,19 @@ class EmailRepository:
         stmt = select(func.count()).select_from(Email).where(*conditions)
         result = await db.execute(stmt)
         return int(result.scalar_one())
+
+    async def get_open_tickets(self, db: AsyncSession) -> list[Email]:
+        """Return every open ticket (status draft_generated), oldest id first.
+
+        "Open" = has an auto-draft awaiting chair action and not yet approved or
+        sent. These are the only tickets a KB-change sweep re-evaluates.
+        """
+        result = await db.execute(
+            select(Email)
+            .where(Email.status == EmailStatus.DRAFT_GENERATED.value)
+            .order_by(Email.id)
+        )
+        return list(result.scalars().all())
 
     async def count_by_chair(self, db: AsyncSession) -> dict[int, int]:
         """Return a mapping of ``assigned_chair_id`` -> count over ALL emails.

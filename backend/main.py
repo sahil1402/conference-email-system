@@ -46,6 +46,17 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # non-fatal: fall back to lazy load on first request
             logger.warning("Retriever warm-up skipped: %s", exc)
 
+    # Clear any redrafting flags stranded by a process that died mid-sweep (a fresh
+    # process has no in-flight sweep, so any redrafting=True is stale). Non-fatal.
+    try:
+        from app.pipeline.reevaluation import clear_stale_redrafting_flags
+
+        cleared = await clear_stale_redrafting_flags()
+        if cleared:
+            logger.info("Cleared %d stale redrafting flag(s) at startup.", cleared)
+    except Exception as exc:  # non-fatal
+        logger.warning("Could not clear stale redrafting flags: %s", exc)
+
     # Background Zendesk poll loop — started ONLY when explicitly enabled, so it
     # never runs in tests/CI or a default deployment. Both this loop and the
     # manual /api/v1/zendesk/sync endpoint call the same run_sync_cycle.
@@ -145,9 +156,18 @@ async def model_health() -> dict:
 
     base = settings.LOCAL_MODEL_BASE_URL.rstrip("/")
     status_value = "configured"
+    # Authenticate the probe. Hosted endpoints (e.g. OpenAI) require the bearer
+    # token — an unauthenticated GET /models returns 401, which would make a
+    # perfectly reachable, working endpoint report "unreachable". Unauthenticated
+    # local servers (LOCAL_MODEL_API_KEY unset) send no header, as before.
+    headers = (
+        {"Authorization": f"Bearer {settings.LOCAL_MODEL_API_KEY}"}
+        if settings.LOCAL_MODEL_API_KEY
+        else None
+    )
     try:
         async with httpx.AsyncClient(timeout=_MODEL_PROBE_TIMEOUT_SECONDS) as client:
-            response = await client.get(f"{base}/models")
+            response = await client.get(f"{base}/models", headers=headers)
         if response.status_code != 200:
             status_value = "unreachable"
     except Exception:  # noqa: BLE001 - any failure means the endpoint is unreachable
@@ -159,3 +179,15 @@ async def model_health() -> dict:
         "local_model_name": settings.LOCAL_MODEL_NAME,
         "status": status_value,
     }
+
+
+@app.get("/api/v1/config", tags=["system"])
+async def app_config() -> dict:
+    """UI-relevant runtime flags.
+
+    ``allow_auto_send`` is the transport gate: when False (the default), every
+    outbound email — FAQ lane included — waits on a chair decision, so the review
+    UI shows the approve/send controls rather than an 'auto-replied' state. Only
+    when True may a complete FAQ draft be released without human approval.
+    """
+    return {"allow_auto_send": settings.ALLOW_AUTO_SEND}

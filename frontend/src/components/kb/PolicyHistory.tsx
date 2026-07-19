@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { History as HistoryIcon, RotateCcw } from "lucide-react";
+import { ChevronDown, History as HistoryIcon, RotateCcw } from "lucide-react";
 
 import {
   usePolicies,
@@ -18,7 +18,8 @@ import {
   LoadingSpinner,
 } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
-import type { PolicyAuditEntry, PolicyStatus } from "@/types";
+import { cn } from "@/lib/utils";
+import type { PolicyAuditEntry, PolicyDocument, PolicyStatus } from "@/types";
 
 /** Badge variant per policy_audit_logs action. */
 function actionBadgeVariant(action: string): BadgeVariant {
@@ -66,6 +67,15 @@ export function PolicyHistory() {
   const statusByKey = useMemo(() => {
     const map = new Map<string, PolicyStatus>();
     policies.forEach((p) => map.set(p.policy_key, p.status));
+    return map;
+  }, [policies]);
+
+  // The live policy per key, so each history row can show the policy itself
+  // (title + content), not just who changed it. A retired policy is still
+  // present here (it's inactive, not deleted); a missing key means it's gone.
+  const policyByKey = useMemo(() => {
+    const map = new Map<string, PolicyDocument>();
+    policies.forEach((p) => map.set(p.policy_key, p));
     return map;
   }, [policies]);
 
@@ -135,6 +145,7 @@ export function PolicyHistory() {
         <HistoryRow
           key={entry.id}
           entry={entry}
+          policy={policyByKey.get(entry.policy_key) ?? null}
           isRevertable={
             revertableIds.has(entry.id) && statusByKey.has(entry.policy_key)
           }
@@ -153,6 +164,7 @@ export function PolicyHistory() {
 
 function HistoryRow({
   entry,
+  policy,
   isRevertable,
   isPending,
   isConfirming,
@@ -161,6 +173,7 @@ function HistoryRow({
   onCancel,
 }: {
   entry: PolicyAuditEntry;
+  policy: PolicyDocument | null;
   isRevertable: boolean;
   isPending: boolean;
   isConfirming: boolean;
@@ -170,6 +183,7 @@ function HistoryRow({
 }) {
   const beforeStatus = snapshotStatus(entry.before);
   const afterStatus = snapshotStatus(entry.after);
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <li
@@ -207,6 +221,45 @@ function HistoryRow({
           {formatDateTime(entry.timestamp)}
         </span>
       </div>
+
+      {/* The policy itself — title always shown, content expandable. */}
+      {policy ? (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-start gap-2 text-left"
+            aria-expanded={expanded}
+          >
+            <span
+              className="min-w-0 flex-1 text-sm font-medium"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {policy.title}
+            </span>
+            <ChevronDown
+              className={cn(
+                "mt-0.5 h-4 w-4 shrink-0 transition-transform",
+                expanded && "rotate-180"
+              )}
+              style={{ color: "var(--text-muted)" }}
+            />
+          </button>
+          <p
+            className={cn(
+              "mt-1 whitespace-pre-wrap text-sm",
+              !expanded && "line-clamp-2"
+            )}
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {policy.content}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-2 text-xs italic" style={{ color: "var(--text-muted)" }}>
+          Policy no longer in the knowledge base.
+        </p>
+      )}
 
       <div className="mt-2 flex items-center justify-between gap-3">
         <span className="text-xs" style={{ color: "var(--text-secondary)" }}>

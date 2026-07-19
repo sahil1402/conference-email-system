@@ -17,6 +17,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    false,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -52,6 +53,16 @@ class Email(Base):
     classification: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     routing: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Re-evaluation (Phase G). ``retrieval_context`` captures the exact retriever
+    # inputs at ingest — {"query": str, "intent": str, "retrieved_ids": [...]} —
+    # so a KB-change sweep can re-run retrieval with no model call and compare the
+    # grounding set. ``redrafting`` is the transient in-progress flag surfaced as
+    # the "re-drafting…" badge; set when queued, cleared when the new draft lands.
+    retrieval_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    redrafting: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false(), index=True
+    )
 
     # Which chair a human-review email is assigned to (Phase 6A). Nullable:
     # FAQ-lane emails are never assigned, and the column stays empty until the

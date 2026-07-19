@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.pipeline.classifier import VALID_INTENTS
+from app.pipeline.openai_compat import post_chat
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,10 @@ class EmailDistiller:
             ],
             # Reasoning models spend completion budget before visible text.
             "max_tokens": 2000,
+            # Determinism: greedy + fixed seed (post_chat drops temperature for
+            # reasoning models that reject it). Same query distillation each run.
+            "temperature": settings.DRAFTER_TEMPERATURE,
+            "seed": settings.DRAFTER_SEED,
             "stream": False,
         }
         headers = (
@@ -124,20 +129,9 @@ class EmailDistiller:
         )
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-                response = await client.post(
-                    f"{base}/chat/completions", json=payload, headers=headers
+                response = await post_chat(
+                    client, f"{base}/chat/completions", payload, headers
                 )
-                # Same param quirk as the drafter: some hosted services reject
-                # "max_tokens" in favor of "max_completion_tokens".
-                if (
-                    response.status_code == 400
-                    and "max_completion_tokens" in response.text
-                    and "max_tokens" in payload
-                ):
-                    payload["max_completion_tokens"] = payload.pop("max_tokens")
-                    response = await client.post(
-                        f"{base}/chat/completions", json=payload, headers=headers
-                    )
                 response.raise_for_status()
                 text = response.json()["choices"][0]["message"]["content"]
             return _parse(text)

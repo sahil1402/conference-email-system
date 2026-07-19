@@ -73,6 +73,16 @@ export async function rerouteEmail(
   return email;
 }
 
+/** POST /emails/{id}/redraft — retry: re-run the full pipeline on this email. */
+export async function retryEmail(
+  id: number
+): Promise<{ email_id: string; redrafting: boolean }> {
+  const { data } = await apiClient.post<{ email_id: string; redrafting: boolean }>(
+    `/emails/${id}/redraft`
+  );
+  return data;
+}
+
 /** PATCH /emails/{id}/reassign-chair — assign an email to a different chair (Phase 6A). */
 export async function reassignChair(
   id: number,

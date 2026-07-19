@@ -183,6 +183,12 @@ export interface Email {
   routing: RoutingResult | null;
   draft: DraftResult | null;
   /**
+   * Transient re-evaluation state: true while a KB-change sweep is re-drafting
+   * this ticket. Drives the "re-drafting…" badge; cleared when the new draft
+   * lands (pushed live over the /emails/stream SSE).
+   */
+  redrafting?: boolean;
+  /**
    * Retrieved policy chunks. NOT currently persisted on the email row by the
    * backend (_email_to_dict omits it) — only the ingest PipelineResult carries
    * them. Declared optional so the review UI can render rich citations if/when

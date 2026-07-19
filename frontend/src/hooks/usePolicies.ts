@@ -7,6 +7,7 @@ import {
   listPolicies,
   listPolicyAudit,
   reactivatePolicy,
+  reevaluatePolicies,
   retirePolicy,
 } from "@/lib/api";
 import type { CreatePolicyRequest, PolicyListParams } from "@/types";
@@ -95,5 +96,22 @@ export function useReactivatePolicy() {
 export function useFindSimilar() {
   return useMutation({
     mutationFn: (body: { title: string; content: string }) => findSimilarPolicies(body),
+  });
+}
+
+// --- Write: re-evaluate sweep ------------------------------------------------
+
+/**
+ * Trigger a re-draft sweep of open tickets. On success, invalidate the email
+ * queue so any tickets flipping into "re-drafting…" (and their new drafts) show
+ * up — the SSE stream also pushes these, this is the immediate nudge.
+ */
+export function useReevaluatePolicies() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => reevaluatePolicies(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["emailQueue"] });
+    },
   });
 }

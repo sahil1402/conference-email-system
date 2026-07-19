@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.events import get_event_broker
 from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
-from app.db.database import get_db
+from app.db.database import async_session_factory, get_db
 from app.integrations.zendesk.sender import (
     ZendeskSender,
     ZendeskSendError,
@@ -174,6 +174,8 @@ def _email_to_dict(email: Email) -> dict:
         "classification": email.classification,
         "routing": email.routing,
         "draft": email.draft,
+        "redrafting": bool(email.redrafting),
+        "retrieval_context": email.retrieval_context,
         "created_at": email.created_at.isoformat() if email.created_at else None,
         "updated_at": email.updated_at.isoformat() if email.updated_at else None,
     }
@@ -626,3 +628,51 @@ async def reassign_chair(
         },
     )
     return _email_to_dict(updated)
+
+
+async def _redraft_email_bg(email_id: str) -> None:
+    """Re-run the full pipeline for one email in its OWN session (retry action).
+
+    Scheduled after the endpoint returns (the request's session is closed by
+    then). On success the fresh draft overwrites the row and ``redrafting`` is
+    cleared by ``reprocess_email``. On failure, clear the flag so the ticket is
+    not stranded showing "re-drafting…".
+    """
+    pipeline = EmailPipeline()
+    try:
+        async with async_session_factory() as db:
+            email = await email_repo.get_email_by_id(db, email_id)
+            if email is None:
+                return
+            await pipeline.reprocess_email(db, email)
+            await audit_repo.log_action(db, email_id, "email_retried", "chair", {})
+    except Exception:  # noqa: BLE001 - a failed retry must not crash the worker
+        logger.exception("Retry re-draft failed for email %s; clearing flag.", email_id)
+        async with async_session_factory() as db:
+            await email_repo.set_redrafting(db, email_id, False)
+
+
+@router.post("/{email_id}/redraft", status_code=status.HTTP_202_ACCEPTED)
+async def redraft_email(
+    email_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Retry: re-run the full pipeline on this email and overwrite its draft.
+
+    Marks the ticket ``redrafting`` (surfaced live as the "re-drafting…" badge,
+    exactly like a policy-change sweep), then re-classifies → re-retrieves →
+    re-routes → re-drafts in the background, clearing the flag when the new draft
+    lands. 404 if the email is unknown.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+    await email_repo.set_redrafting(db, email_id, True)
+    # The audit write publishes an SSE event → queue/detail flip to "re-drafting…".
+    await audit_repo.log_action(db, email_id, "email_retry_started", "chair", {})
+    background_tasks.add_task(_redraft_email_bg, email_id)
+    return {"email_id": email_id, "redrafting": True}

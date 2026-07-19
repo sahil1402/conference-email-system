@@ -23,6 +23,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.pipeline.openai_compat import post_chat
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,10 @@ Rules you must follow without exception:
 - Ground every statement in the policy context provided in the user message.
 - Never invent, assume, or generalize a policy that is not in that context.
 - Be concise, professional, and direct.
-- For the FAQ lane: give a complete, final answer the author can act on.
+- Answer only the question(s) the requester actually asked. Use the policy \
+context solely to answer those question(s); do not volunteer additional policy \
+facts on topics the requester did not raise, even if they appear in the context \
+and are correct — answer every part of a multi-part question, but nothing beyond it.
 - The REPLY section must contain ONLY the email text the requester should \
 receive: no headers like "Draft reply:", no meta-commentary, no chair notes.
 - Write the reply as a chair with full knowledge would. Never tell the \
@@ -69,11 +73,7 @@ Never add a placeholder for something the requester did not ask.
 suggested resolution if you can infer one; telegraphic style, no category \
 labels, no restating the hint. Other caveats the chair should handle also \
 go here (one line each) — never in the reply.
-- Never mention internal policy ids (like policy_004) in the reply — refer to \
-policies by their natural names (e.g. "the submission instructions").
-- Never include any real individual's name or contact details in the reply; \
-sign off with the literal placeholder "[Sender name]".
-- Never reference incidents, dates, or decisions from past conference cycles.
+- Never mention internal policy ids (like policy_004) in the reply.
 
 Output EXACTLY this structure:
 === REPLY ===
@@ -295,7 +295,8 @@ def _build_user_prompt(
         f"Lane: {routing.lane}\n"
         f"Reason: {routing.reason}\n\n"
         "--- TASK ---\n"
-        "Draft a reply based only on the policy context above."
+        "Using only the policy context above for grounding, answer only the "
+        "question(s) the requester raised — nothing more."
     )
 
 
@@ -442,6 +443,10 @@ class ResponseDrafter:
                 {"role": "user", "content": user_prompt},
             ],
             "max_tokens": settings.DRAFTER_MAX_TOKENS,
+            # Determinism: temperature 0 (greedy) + a fixed seed. Reasoning models
+            # reject a non-default temperature — _post_chat drops it and retries.
+            "temperature": settings.DRAFTER_TEMPERATURE,
+            "seed": settings.DRAFTER_SEED,
             "stream": False,
         }
         # Bearer auth when the endpoint is a hosted keyed service; local
@@ -454,16 +459,7 @@ class ResponseDrafter:
 
         try:
             async with httpx.AsyncClient(timeout=_LOCAL_TIMEOUT_SECONDS) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                # Some hosted chat-completions services reject "max_tokens" in
-                # favor of "max_completion_tokens"; swap the key and retry once.
-                if (
-                    response.status_code == 400
-                    and "max_completion_tokens" in response.text
-                    and "max_tokens" in payload
-                ):
-                    payload["max_completion_tokens"] = payload.pop("max_tokens")
-                    response = await client.post(url, json=payload, headers=headers)
+                response = await post_chat(client, url, payload, headers)
                 response.raise_for_status()
                 data = response.json()
 

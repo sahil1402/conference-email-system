@@ -18,11 +18,13 @@ import {
   GitCompare,
   Users,
   Check,
+  RefreshCw,
 } from "lucide-react";
 
 import {
   Badge,
   ChairBadge,
+  ConfidenceBar,
   DiffLegend,
   DiffView,
   EmptyState,
@@ -33,6 +35,7 @@ import { PolicyDetailModal } from "./PolicyDetailModal";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
+  formatIntentLabel,
   laneBadgeVariant,
   laneLabel,
   statusBadgeVariant,
@@ -61,6 +64,14 @@ interface EmailDetailProps {
    * show inline success / error feedback scoped to this email.
    */
   onReassignChair: (chairId: number, reason: string) => Promise<unknown>;
+  /** Retry: re-run the full pipeline on this email and regenerate the draft. */
+  onRetry: () => void;
+  /**
+   * Whether the backend may auto-send (ALLOW_AUTO_SEND). Only when true AND the
+   * email is FAQ-lane is it "auto-replied"; otherwise every email waits on a
+   * human decision, so the approve/send controls are shown.
+   */
+  allowAutoSend: boolean;
   isApproving: boolean;
   isRerouting: boolean;
   isReassigning: boolean;
@@ -78,6 +89,8 @@ export function EmailDetail({
   onApprove,
   onReroute,
   onReassignChair,
+  onRetry,
+  allowAutoSend,
   isApproving,
   isRerouting,
   isReassigning,
@@ -111,7 +124,11 @@ export function EmailDetail({
   // The original AI/template draft (before any chair edit) to diff against.
   const originalDraft = draft?.original_draft_text ?? draft?.draft_text ?? "";
   const draftChanged = hasMeaningfulDiff(originalDraft, editedDraft);
-  const canAct = lane === "human_review";
+  // An email is "auto-replied" only when the backend may auto-send AND it's
+  // FAQ-lane. Otherwise every email — FAQ included — waits on a human decision,
+  // so the chair can act on it (approve/send/reroute).
+  const isAutoReplied = lane === "faq" && allowAutoSend;
+  const canAct = !isAutoReplied;
 
   // Live placeholder check on the CURRENT edit — approval unblocks the moment
   // the chair resolves the last [CHAIR: ...] token (backend enforces the same).
@@ -179,6 +196,17 @@ export function EmailDetail({
     <div className="flex h-full flex-col">
       {/* Scrollable content */}
       <div className="flex-1 space-y-5 overflow-y-auto p-6">
+        {email.redrafting && (
+          <div
+            className="mb-3 rounded-md px-3 py-2 text-sm"
+            style={{
+              backgroundColor: "var(--accent-subtle)",
+              color: "var(--accent)",
+            }}
+          >
+            Re-drafting…
+          </div>
+        )}
         {/* HEADER */}
         <header className="space-y-3">
           <h2
@@ -208,6 +236,33 @@ export function EmailDetail({
               <ChairBadge chairId={currentChairId} chairName={currentChairName} />
             )}
           </div>
+
+          {/* Intent classification + confidence (from the classifier/distiller). */}
+          {email.classification && (
+            <div
+              className="flex items-center gap-3 rounded-lg px-3 py-2"
+              style={{ backgroundColor: "var(--surface)" }}
+            >
+              <span
+                className="text-xs font-medium uppercase tracking-wide"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Intent
+              </span>
+              <span
+                className="text-sm font-semibold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {formatIntentLabel(email.classification.intent)}
+              </span>
+              <div className="ml-auto flex w-32 items-center">
+                <ConfidenceBar
+                  value={email.classification.confidence}
+                  showLabel
+                />
+              </div>
+            </div>
+          )}
         </header>
 
         {/* EMAIL BODY */}
@@ -267,21 +322,42 @@ export function EmailDetail({
                 </p>
               )}
               <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  disabled={!draftChanged}
-                  onClick={() => setShowDiff((v) => !v)}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ color: "var(--accent)" }}
-                  title={
-                    draftChanged
-                      ? "Compare your edit against the original draft"
-                      : "No changes to the original draft yet"
-                  }
-                >
-                  <GitCompare className="h-3.5 w-3.5" />
-                  {showDiff ? "Hide changes" : "Show changes"}
-                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    disabled={!draftChanged}
+                    onClick={() => setShowDiff((v) => !v)}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ color: "var(--accent)" }}
+                    title={
+                      draftChanged
+                        ? "Compare your edit against the original draft"
+                        : "No changes to the original draft yet"
+                    }
+                  >
+                    <GitCompare className="h-3.5 w-3.5" />
+                    {showDiff ? "Hide changes" : "Show changes"}
+                  </button>
+                  {/* Retry: re-run the whole pipeline on this email (re-classify,
+                      re-retrieve, re-draft). Overwrites the draft — same live
+                      "re-drafting…" state as a policy-change sweep. */}
+                  <button
+                    type="button"
+                    disabled={email.redrafting}
+                    onClick={onRetry}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ color: "var(--accent)" }}
+                    title="Re-run the pipeline on this email and regenerate the draft"
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        email.redrafting && "animate-spin"
+                      )}
+                    />
+                    {email.redrafting ? "Re-drafting…" : "Retry"}
+                  </button>
+                </div>
                 <span
                   className="text-xs tabular-nums"
                   style={{ color: "var(--text-muted)" }}
@@ -323,7 +399,7 @@ export function EmailDetail({
           backgroundColor: "var(--surface)",
         }}
       >
-        {lane === "faq" ? (
+        {isAutoReplied ? (
           <div className="flex flex-wrap items-center gap-3">
             <Badge variant="success" size="md">
               <Zap className="h-3 w-3" /> Auto-replied

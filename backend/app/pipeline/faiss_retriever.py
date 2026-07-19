@@ -14,6 +14,7 @@ never at import time. Documents are loaded from the database via
 public ``retrieve`` signature stays sessionless like BM25's.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 
@@ -28,6 +29,31 @@ from app.repositories.policy_repository import PolicyRepository
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
+
+
+def _leaf_title(title: str) -> str:
+    """Return the section/subsection portion of a contextual policy title.
+
+    KB titles are ``"<Doc> - <Section> - <Subsection>"`` paths (em-dash joined).
+    The leading document name repeats across every sibling chunk, so embedding it
+    homogenizes the dense vectors and buries a chunk's distinctive signal (E005
+    §2b: 82% of chunks had a >0.7 near-twin, almost all intra-document). Dropping
+    just the doc prefix from the *embedded* string — while the stored ``title``
+    keeps its full path for BM25 and citation display — measurably sharpened
+    retrieval on the 37 real-gold tickets (dense hit@1 .514->.649, MRR .665->.756;
+    fusion hit@1 .649->.703, gold rank 2.3->2.1). The leaf still carries the
+    distinctive section name, so it is kept (leaf beat content-only in E005).
+    """
+    parts = title.split(" — ")
+    return " — ".join(parts[1:]) if len(parts) > 1 else title
+
+
+def _embed_text(doc: dict) -> str:
+    """Text encoded into the dense vector for one policy chunk: leaf title + content.
+
+    See :func:`_leaf_title` for why the document prefix is excluded (E005).
+    """
+    return f"{_leaf_title(doc['title'])} {doc['content']}".strip()
 
 
 class FAISSRetriever:
@@ -96,8 +122,12 @@ class FAISSRetriever:
             logger.info("FAISS index build skipped: no policy documents found.")
             return
 
-        texts = [f"{d['title']} {d['content']}".strip() for d in self._docs]
-        embeddings = self._encode(texts)
+        texts = [_embed_text(d) for d in self._docs]
+        # Encode is CPU-bound (SentenceTransformer). Offload to a worker thread so
+        # a rebuild (triggered by a chair policy edit) does not block the single
+        # event loop — otherwise the live SSE queue stream stalls and the UI flips
+        # to "Reconnecting" for the duration of the rebuild.
+        embeddings = await asyncio.to_thread(self._encode, texts)
 
         index = faiss.IndexFlatIP(embeddings.shape[1])
         index.add(embeddings)
