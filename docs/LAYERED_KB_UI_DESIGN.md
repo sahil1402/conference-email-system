@@ -26,16 +26,16 @@ The only new state transition is **reactivate** (inactive→active). Revert is U
 All in `backend/`, following the existing repository + `app/api/v1/policies.py` patterns. Dialect-agnostic, DB via repositories, no vendor names.
 
 ### 3.1 `PolicyRepository`
-- `list(db, *, visibility=None, status=None, search=None, limit=100, offset=0) -> list[PolicyDocument]` — filtered browse (visibility/status exact match; `search` = case-insensitive substring on title/content via `ilike`). Ordered by id.
+- `list(db, *, visibility=None, status=None, search=None, limit=200, offset=0) -> list[PolicyDocument]` — filtered browse (visibility/status exact match; `search` = case-insensitive substring on title/content via `ilike`). Ordered by id.
 - `reactivate(db, policy_key) -> PolicyDocument | None` — mirror of `retire`; sets `status="active"`; returns row or None.
 
 ### 3.2 `PolicyAuditRepository`
 - `list(db, *, limit=100, offset=0) -> list[PolicyAuditLog]` — newest-first (id desc) governance history.
 
 ### 3.3 Endpoints (`app/api/v1/policies.py`)
-- `GET /api/v1/policies` — query params `visibility`, `status`, `search`, `limit`, `offset` → `{"policies": [...], "total": n}`. Each item: `policy_key, title, content, category, tags, visibility, status, source, updated_at`.
+- `GET /api/v1/policies` — query params `visibility`, `status`, `search`, `limit` (default 200), `offset` → `{"policies": [...]}` (no `total` — KB is small; pagination beyond `limit` is out of scope). Each item: `policy_key, title, content, category, tags, visibility, status, source, updated_at`.
 - `PATCH /api/v1/policies/{key}/reactivate` — body `{actor}` → 404 if missing; no-op (no audit/rebuild) if already active; else reactivate + audit `policy_reactivated` (before `{"status":"inactive"}`) + `rebuild_index()`. Returns `{policy_key, status}`.
-- `GET /api/v1/policies/audit` — query `limit`, `offset` → `{"entries": [...], "total": n}`. Each: `id, policy_key, action, actor, before, after, timestamp`.
+- `GET /api/v1/policies/audit` — query `limit` (default 200), `offset` → `{"entries": [...]}`. Each: `id, policy_key, action, actor, before, after, timestamp`.
 
 (`POST /policies`, `PATCH /policies/{key}/retire`, `POST /policies/similar` already exist.)
 
@@ -66,7 +66,7 @@ Single-column (mirror `audit/page.tsx`). Nav entry added to `Sidebar.tsx` `NAV_I
 **Add-internal panel** (collapsible, in-place):
 - Fields: title, content (textarea), category (optional), tags (optional comma-split). Controlled inputs, shared field style.
 - **"Check for related policies"** button → `findSimilarPolicies({title, content})` → renders the top matches, each with a "supersede (retire this)" checkbox → checked keys become `retire_keys`.
-- **Create** → `createPolicy({title, content, category, tags, actor: ACTOR, retire_keys})` → panel closes, list + history refetch, inline success line.
+- **Create** → `createPolicy({title, content, category, tags, actor: ACTOR, retire_keys})` → on success the panel closes and the list + history refetch (success is implicit — the new row appears and any superseded row flips to inactive); errors surface inline via `ErrorBanner`.
 
 **History view:**
 - `usePolicyAudit` list, newest first. Each entry: timestamp, `action` badge (created/retired/reactivated), `policy_key`, actor, and a compact before→after (status) summary.
@@ -79,4 +79,4 @@ Frontend has no unit-test harness (CI runs `tsc --noEmit`). So:
 - Frontend: `npx tsc --noEmit` clean; then **run the app and drive the page** — add an internal policy (with a related-policy retire), see it in the list, retire/reactivate a row, open History, revert the latest change, confirm the list reflects it.
 
 ## 6. Out of scope (YAGNI)
-Editing public/internal policy *content* in the UI (importer-owned; internal edits deferred) · real auth/accounts (hardcoded `Chair1` stand-in) · pagination controls beyond a simple limit (list caps at 100; add "load more" only if needed) · reverting arbitrary non-latest historical entries (only the latest per policy is revertable).
+Editing public/internal policy *content* in the UI (importer-owned; internal edits deferred) · real auth/accounts (hardcoded `Chair1` stand-in) · pagination controls beyond a simple limit (list caps at 200; add "load more" only if needed) · reverting arbitrary non-latest historical entries (only the latest per policy is revertable).
