@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Plus } from "lucide-react";
+import { BookOpen, Plus, RefreshCw } from "lucide-react";
 
 import {
   usePolicies,
@@ -124,10 +124,10 @@ export default function KnowledgeBasePage() {
             )}
             <Button
               type="button"
-              variant="secondary"
               onClick={() => reevaluate.mutate()}
               disabled={reevaluate.isPending}
             >
+              <RefreshCw className="h-4 w-4" />
               {reevaluate.isPending ? "Starting…" : "Re-evaluate open tickets"}
             </Button>
             <Button type="button" onClick={() => setAddOpen((v) => !v)}>
