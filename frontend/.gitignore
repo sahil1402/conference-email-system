@@ -34,3 +34,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# .next is a symlink to /work (off the inode-tight /projects); ignore it in any form.
+.next
