@@ -17,7 +17,7 @@ Route order matters: the static ``GET ""`` and ``GET /audit`` are declared BEFOR
 ``GET /{policy_key}`` so ``/policies/audit`` is not captured as a path param.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,11 +25,14 @@ from app.db.database import get_db
 from app.pipeline.retriever import get_retriever
 from app.repositories.policy_audit_repository import PolicyAuditRepository
 from app.repositories.policy_repository import PolicyRepository
+from app.pipeline.reevaluation import reevaluate_open_tickets
+from app.repositories.email_repository import EmailRepository
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 
 _policies = PolicyRepository()
 _audit = PolicyAuditRepository()
+_emails = EmailRepository()
 
 
 class PolicyDetail(BaseModel):
@@ -116,6 +119,22 @@ async def list_policy_audit(
          "timestamp": e.timestamp.isoformat() if e.timestamp else None}
         for e in rows
     ]}
+
+
+@router.post("/reevaluate", status_code=status.HTTP_202_ACCEPTED)
+async def reevaluate(
+    background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Schedule one background re-draft sweep of the open tickets.
+
+    The chair clicks this after making a batch of KB edits. We report how many
+    open tickets exist (so the UI can say "sweeping N…") and run the sweep after
+    the response returns — it re-drafts only the tickets whose retrieval shifted.
+    The sweep opens its own DB session (the request's session is closed by then).
+    """
+    open_count = len(await _emails.get_open_tickets(db))
+    background_tasks.add_task(reevaluate_open_tickets)
+    return {"open": open_count, "scheduled": True}
 
 
 @router.get("/{policy_key}", response_model=PolicyDetail)
