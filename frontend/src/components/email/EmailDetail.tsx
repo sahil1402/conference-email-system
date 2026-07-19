@@ -22,7 +22,6 @@ import {
 import {
   Badge,
   ChairBadge,
-  ConfidenceBar,
   DiffLegend,
   DiffView,
   EmptyState,
@@ -32,7 +31,6 @@ import {
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
-  formatIntentLabel,
   laneBadgeVariant,
   laneLabel,
   statusBadgeVariant,
@@ -84,7 +82,6 @@ export function EmailDetail({
   chairs,
 }: EmailDetailProps) {
   const lane = email.routing?.lane ?? null;
-  const classification = email.classification;
   const draft = email.draft;
 
   const [editedDraft, setEditedDraft] = useState(draft?.draft_text ?? "");
@@ -222,52 +219,6 @@ export function EmailDetail({
         >
           {email.body}
         </div>
-
-        {/* CLASSIFICATION */}
-        <Collapsible title="Classification" defaultOpen>
-          {classification ? (
-            <div className="space-y-3 pt-1">
-              <div className="flex items-center justify-between text-sm">
-                <span style={{ color: "var(--text-secondary)" }}>Intent</span>
-                <span
-                  className="font-medium"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {formatIntentLabel(classification.intent)}
-                </span>
-              </div>
-              <ConfidenceBar value={classification.confidence} showLabel />
-              {classification.reasoning && (
-                <p
-                  className="text-xs leading-relaxed"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {classification.reasoning}
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Not classified.
-            </p>
-          )}
-        </Collapsible>
-
-        {/* ROUTING RATIONALE (why this chair) — human-review only */}
-        {canAct && (
-          <Collapsible
-            title="Routing Rationale"
-            icon={<Users className="h-4 w-4" />}
-            defaultOpen
-          >
-            <RoutingRationale
-              chairId={currentChairId}
-              chair={currentChairId != null ? chairsById.get(currentChairId) : undefined}
-              chairName={currentChairName}
-              intent={classification?.intent ?? null}
-            />
-          </Collapsible>
-        )}
 
         {/* POLICY CITATIONS */}
         <Collapsible title="Policy Citations" defaultOpen>
@@ -745,96 +696,6 @@ function Collapsible({
         </div>
       </div>
     </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Routing rationale — why this chair was assigned (Phase 6A)
-// ---------------------------------------------------------------------------
-
-/**
- * Explains the chair assignment by reconstructing the intent_mapping rule
- * client-side from the chair's `areas` + the classified intent. Three honest
- * cases: the intent falls under the chair's areas (a real match); the chair is
- * the empty-areas catch-all (fallback — stated explicitly, never implying a
- * false match); or the chair owns neither, which can only result from a manual
- * reassignment.
- */
-function RoutingRationale({
-  chairId,
-  chair,
-  chairName,
-  intent,
-}: {
-  chairId: number | null;
-  chair: Chair | undefined;
-  chairName: string | null;
-  intent: string | null;
-}) {
-  if (chairId == null) {
-    return (
-      <p className="pt-1 text-sm" style={{ color: "var(--text-muted)" }}>
-        Not yet assigned to a chair.
-      </p>
-    );
-  }
-
-  const owns = intent != null && !!chair && chair.areas.includes(intent);
-  const isFallback = !!chair && chair.areas.length === 0;
-  const intentLabel = intent ? formatIntentLabel(intent) : "an unknown intent";
-
-  let rationale: string;
-  if (!chair) {
-    rationale = `Assigned to chair #${chairId}, which is not in the current roster.`;
-  } else if (owns) {
-    rationale = `Intent “${intentLabel}” falls under this chair's areas, so the router assigned it here.`;
-  } else if (isFallback) {
-    rationale = `No chair owns intent “${intentLabel}”, so it was routed to the catch-all fallback chair (which has no assigned areas).`;
-  } else {
-    rationale = `This chair does not own intent “${intentLabel}” — it was assigned by a manual reassignment, not an area match.`;
-  }
-
-  return (
-    <div className="space-y-3 pt-1">
-      <div className="flex items-center justify-between text-sm">
-        <span style={{ color: "var(--text-secondary)" }}>Assigned to</span>
-        <ChairBadge chairId={chairId} chairName={chairName} />
-      </div>
-      {intent && (
-        <div className="flex items-center justify-between text-sm">
-          <span style={{ color: "var(--text-secondary)" }}>Intent</span>
-          <span className="font-medium" style={{ color: "var(--text-primary)" }}>
-            {intentLabel}
-          </span>
-        </div>
-      )}
-      <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-        {rationale}
-      </p>
-
-      {chair && chair.areas.length > 0 ? (
-        <div className="space-y-1.5">
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Areas this chair owns{owns ? " (matched area highlighted)" : ""}:
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {chair.areas.map((area) => (
-              <Badge
-                key={area}
-                variant={area === intent ? "faq" : "neutral"}
-                size="sm"
-              >
-                {formatIntentLabel(area)}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      ) : chair ? (
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Catch-all fallback — this chair has no specific areas.
-        </p>
-      ) : null}
-    </div>
   );
 }
 
