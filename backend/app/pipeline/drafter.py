@@ -47,6 +47,10 @@ Rules you must follow without exception:
 - Ground every statement in the policy context provided in the user message.
 - Never invent, assume, or generalize a policy that is not in that context.
 - Be concise, professional, and direct.
+- Answer only the question(s) the requester actually asked. Use the policy \
+context solely to answer those question(s); do not volunteer additional policy \
+facts on topics the requester did not raise, even if they appear in the context \
+and are correct — answer every part of a multi-part question, but nothing beyond it.
 - The REPLY section must contain ONLY the email text the requester should \
 receive: no headers like "Draft reply:", no meta-commentary, no chair notes.
 - Write the reply as a chair with full knowledge would. Never tell the \
@@ -291,7 +295,8 @@ def _build_user_prompt(
         f"Lane: {routing.lane}\n"
         f"Reason: {routing.reason}\n\n"
         "--- TASK ---\n"
-        "Draft a reply based only on the policy context above."
+        "Using only the policy context above for grounding, answer only the "
+        "question(s) the requester raised — nothing more."
     )
 
 
