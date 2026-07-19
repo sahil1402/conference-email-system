@@ -113,3 +113,14 @@ edit (button per decision C) · re-evaluation on a public re-scrape (only the bu
 triggers it) · re-classifying intent (unchanged; re-eval re-retrieves + re-drafts +
 re-routes only) · retrying failed re-drafts (logged, ticket left as-is with
 `redrafting` cleared).
+
+## 9. Known follow-up (tracked, not a blocker)
+
+The startup `clear_stale_redrafting_flags` recovery assumes a single worker (as the
+in-process SSE broker already does). Under **multiple workers**, a starting worker
+would clear `redrafting` on tickets another worker is actively mid-sweep on. Impact is
+bounded — never a clobber or data loss: the active worker's `save_redraft` is a
+status+flag-conditional `UPDATE`, so it matches 0 rows and abandons that one redraft
+(a later sweep re-does it). If this deploys with `--workers > 1`, harden by scoping
+recovery to a claim age/owner (a claim timestamp) or running it only as a leader/one-shot
+task rather than per-worker startup.
