@@ -18,6 +18,7 @@ import {
   GitCompare,
   Users,
   Check,
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -63,6 +64,8 @@ interface EmailDetailProps {
    * show inline success / error feedback scoped to this email.
    */
   onReassignChair: (chairId: number, reason: string) => Promise<unknown>;
+  /** Retry: re-run the full pipeline on this email and regenerate the draft. */
+  onRetry: () => void;
   isApproving: boolean;
   isRerouting: boolean;
   isReassigning: boolean;
@@ -80,6 +83,7 @@ export function EmailDetail({
   onApprove,
   onReroute,
   onReassignChair,
+  onRetry,
   isApproving,
   isRerouting,
   isReassigning,
@@ -307,21 +311,42 @@ export function EmailDetail({
                 </p>
               )}
               <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  disabled={!draftChanged}
-                  onClick={() => setShowDiff((v) => !v)}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ color: "var(--accent)" }}
-                  title={
-                    draftChanged
-                      ? "Compare your edit against the original draft"
-                      : "No changes to the original draft yet"
-                  }
-                >
-                  <GitCompare className="h-3.5 w-3.5" />
-                  {showDiff ? "Hide changes" : "Show changes"}
-                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    disabled={!draftChanged}
+                    onClick={() => setShowDiff((v) => !v)}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ color: "var(--accent)" }}
+                    title={
+                      draftChanged
+                        ? "Compare your edit against the original draft"
+                        : "No changes to the original draft yet"
+                    }
+                  >
+                    <GitCompare className="h-3.5 w-3.5" />
+                    {showDiff ? "Hide changes" : "Show changes"}
+                  </button>
+                  {/* Retry: re-run the whole pipeline on this email (re-classify,
+                      re-retrieve, re-draft). Overwrites the draft — same live
+                      "re-drafting…" state as a policy-change sweep. */}
+                  <button
+                    type="button"
+                    disabled={email.redrafting}
+                    onClick={onRetry}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ color: "var(--accent)" }}
+                    title="Re-run the pipeline on this email and regenerate the draft"
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        email.redrafting && "animate-spin"
+                      )}
+                    />
+                    {email.redrafting ? "Re-drafting…" : "Retry"}
+                  </button>
+                </div>
                 <span
                   className="text-xs tabular-nums"
                   style={{ color: "var(--text-muted)" }}

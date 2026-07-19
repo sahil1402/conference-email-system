@@ -10,6 +10,7 @@ import {
   useApproveEmail,
   useRerouteEmail,
   useReassignChair,
+  useRetryEmail,
 } from "@/hooks/useEmailActions";
 import { useChairs } from "@/hooks/useChairs";
 import {
@@ -33,6 +34,7 @@ export default function QueuePage() {
   const { mutate: reroute, isPending: isRerouting } = useRerouteEmail();
   const { mutateAsync: reassignChairAsync, isPending: isReassigning } =
     useReassignChair();
+  const { mutate: retry } = useRetryEmail();
   const { chairs, byId: chairsById } = useChairs();
 
   const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
@@ -183,6 +185,7 @@ export default function QueuePage() {
                 data: { reassigned_by: "chair", new_chair_id: chairId, reason },
               })
             }
+            onRetry={() => retry(selectedEmail.id)}
           />
         ) : (
           <div className="flex h-full items-center justify-center">

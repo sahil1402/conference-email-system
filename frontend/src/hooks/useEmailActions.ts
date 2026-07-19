@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { approveEmail, ingestEmail, reassignChair, rerouteEmail } from "@/lib/api";
+import { approveEmail, ingestEmail, reassignChair, rerouteEmail, retryEmail } from "@/lib/api";
 import type {
   ApiError,
   ApproveRequest,
@@ -35,6 +35,15 @@ export function useRerouteEmail() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: RerouteRequest }) =>
       rerouteEmail(id, data),
+    onSuccess: invalidate,
+  });
+}
+
+/** Retry: re-run the full pipeline on an email and overwrite its draft. */
+export function useRetryEmail() {
+  const invalidate = useInvalidateEmailQueries();
+  return useMutation({
+    mutationFn: (id: number) => retryEmail(id),
     onSuccess: invalidate,
   });
 }
