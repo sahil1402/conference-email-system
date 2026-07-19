@@ -1,6 +1,6 @@
 # E005 — Embed representation: drop the doc-prefix from the dense title
 
-**Date:** 2026-07-19 · **Trigger:** the KB-rework audit (`docs/RETRIEVAL_REWORK.md`
+**Date:** 2026-07-19 · **Trigger:** the KB-rework audit (`docs/local/RETRIEVAL_REWORK.md`
 §2b) found the dense corpus barely separable — 82% of chunks had a >0.7 near-twin,
 almost all *within* the same source document — and predicted that the repeated
 document-name prefix embedded into every sibling chunk was a large, cheap-to-remove

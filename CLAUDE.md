@@ -180,7 +180,7 @@ Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestra
 Chair edits the KB, clicks **"Re-evaluate open tickets"** on `/knowledge-base` → `POST /api/v1/policies/reevaluate` schedules ONE background sweep (`app/pipeline/reevaluation.py`). Sweep re-runs retrieval for each open ticket (DRAFT_GENERATED) using the query+intent captured at ingest — **no model call** — and re-drafts only tickets whose top-k policy **set** changed; live "re-drafting…" badge via SSE. Schema: `emails.retrieval_context` (JSON) + `emails.redrafting` (bool), migration `c1d2e3f4a5b6`. Hardened per review: skip NULL-context legacy rows; atomic `claim_for_redraft` + status-conditional `save_redraft` (no double-draft / no approve-during-sweep clobber); `clear_stale_redrafting_flags` at startup. Follow-up (design §9): startup-clear is single-worker-scoped. **211 non-ml tests pass, frontend tsc clean.** Built via SDD; design/plan under `docs/` (plans dir gitignored). Also carries two drafter prompt commits: trim four system-prompt rules; answer-only-what's-asked scope fix (over-answering).
 
 ### 2026-07-19 — Retrieval rework: embed leaf title (E005) — Merged to main 2026-07-19 (from `retrieval-rework`)
-KB-rework audit (`docs/RETRIEVAL_REWORK.md`) found the dense corpus barely separable —
+KB-rework audit (`docs/local/RETRIEVAL_REWORK.md`) found the dense corpus barely separable —
 82% of chunks had a >0.7 near-twin, almost all intra-document — because the repeated
 `<Doc> — ` title prefix is embedded into every sibling chunk. **E005**
 (`docs/exp_tracking/E005_embed_representation.md`, harness `scripts/e005_embed_repr.py`
@@ -189,7 +189,7 @@ on the 37 real-gold tickets, distilled+fusion) confirmed dropping the prefix fro
 .649→.703, gold rank 2.3→2.1, no regression; leaf beat content-only. Shipped:
 `faiss_retriever.py` `_embed_text`/`_leaf_title` (stored `title` unchanged → BM25 +
 citations keep the full path; dense-embed-only). Tests +2. Doc-design menu (Ideas A–H,
-tags/intent/chunking audit) in `docs/RETRIEVAL_REWORK.md`; next: dedup cross-doc twins,
+tags/intent/chunking audit) in `docs/local/RETRIEVAL_REWORK.md`; next: dedup cross-doc twins,
 question-gen multi-vector index (E006).
 
 ### 2026-07-19 — Zendesk integration Pieces 1–3 (credential provider · scope test · ticket schema) — Complete, migration APPLIED to demo Postgres
@@ -226,7 +226,7 @@ Read-only poller wiring the incremental cursor export into the live app. No pipe
 | Today | Complete | style_guide_v2 committed default (`c4ed3f5`) |
 | PG migration | Complete · on `main` | SQLite→Postgres now on `main`: Docker `db` service (loopback, healthcheck) · single-source `DATABASE_URL` · `SYNC_DATABASE_URL` removed · dialect-agnostic JSON (`json_extract` fix, both sites) · PG test suite (`test_postgres_migration.py`, skipif w/o `TEST_DATABASE_URL`) + CI Postgres · `config.py` default stays SQLite (local/test/CI fallback) · `external_api` excluded by design |
 | Re-eval on policy change | Merged to main (2026-07-19) | `feature/reevaluate-on-policy-change`: "Re-evaluate open tickets" button → sweep re-drafts only tickets whose retrieval set shifted (no model call in the gate) · `emails.retrieval_context`+`redrafting` (mig `c1d2e3f4a5b6`) · atomic claim, null-context skip, startup stale-flag recovery · 211 non-ml pass |
-| Retrieval rework (E005) | Merged to main (2026-07-19) | `retrieval-rework` (off main): embed **leaf title** not full path (`faiss_retriever._embed_text`) — E005 real-gold A/B, dense hit@1 .514→.649 / fusion hit@1 .649→.703, no regression; dense-embed-only (title/BM25/citations unchanged). Design menu in `docs/RETRIEVAL_REWORK.md` |
+| Retrieval rework (E005) | Merged to main (2026-07-19) | `retrieval-rework` (off main): embed **leaf title** not full path (`faiss_retriever._embed_text`) — E005 real-gold A/B, dense hit@1 .514→.649 / fusion hit@1 .649→.703, no regression; dense-embed-only (title/BM25/citations unchanged). Design menu in `docs/local/RETRIEVAL_REWORK.md` |
 | Zendesk Pieces 1–3 | Complete · migration applied | OAuth credential provider (`ZENDESK_AUTH_MODE`) · write-scope confirmed (ticket 22009) · ticket data model (`Email` extended + `email_thread_messages`, migration `d2e4f6a8b0c1` applied to demo Postgres, 47 emails intact) · local 207/207 · no pipeline module touched |
 | Zendesk Piece 4 | Complete · migration applied · **first live sync ✓** | Read-only ingest adapter (incremental cursor export → upsert by `zendesk_ticket_id` → thread messages → classify-once via `process_email`) · shared `run_sync_cycle` behind manual `POST /api/v1/zendesk/sync` + gated background loop (`ZENDESK_POLLING_ENABLED=False`) · `zendesk_sync_state` migration `e3f5a7c9b1d2` applied · local 217/217 · **first live read-sync 2026-07-19: 5 Zendesk sample tickets → `source='zendesk'` rows, classified, 0 errors, cursor advanced; 5 rows retained for Piece 5 testing** |
 
