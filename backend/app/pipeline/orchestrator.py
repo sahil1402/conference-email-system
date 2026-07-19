@@ -255,6 +255,13 @@ class EmailPipeline:
             "assigned_chair_id": (
                 chair_assignment.chair_id if chair_assignment else None
             ),
+            # Exact retriever inputs + the grounding set, so a later KB-change
+            # sweep can re-run retrieval with no model call and compare.
+            "retrieval_context": {
+                "query": query,
+                "intent": retrieval_intent,
+                "retrieved_ids": [c.policy_id for c in retrieved_chunks],
+            },
         }
         email = await self.email_repo.create_email(db, record)
         email_id = str(email.id)
