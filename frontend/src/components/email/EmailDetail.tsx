@@ -179,6 +179,17 @@ export function EmailDetail({
     <div className="flex h-full flex-col">
       {/* Scrollable content */}
       <div className="flex-1 space-y-5 overflow-y-auto p-6">
+        {email.redrafting && (
+          <div
+            className="mb-3 rounded-md px-3 py-2 text-sm"
+            style={{
+              backgroundColor: "var(--accent-subtle)",
+              color: "var(--accent)",
+            }}
+          >
+            This ticket is being re-drafted after a knowledge-base change…
+          </div>
+        )}
         {/* HEADER */}
         <header className="space-y-3">
           <h2

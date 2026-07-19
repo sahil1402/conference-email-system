@@ -77,6 +77,11 @@ export function EmailListItem({
 
       {/* Right side */}
       <span className="flex shrink-0 flex-col items-end gap-1.5">
+        {email.redrafting && (
+          <Badge variant="warning" size="sm">
+            re-drafting…
+          </Badge>
+        )}
         {lane && (
           <Badge variant={laneBadgeVariant(lane)} size="sm">
             {laneLabel(lane)}
