@@ -1,13 +1,39 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  createPolicy, findSimilarPolicies, listPolicies, listPolicyAudit,
-  reactivatePolicy, retirePolicy,
+  createPolicy,
+  findSimilarPolicies,
+  getPolicy,
+  listPolicies,
+  listPolicyAudit,
+  reactivatePolicy,
+  retirePolicy,
 } from "@/lib/api";
 import type { CreatePolicyRequest, PolicyListParams } from "@/types";
 
 /** Placeholder chair identity until the account system lands. */
 export const ACTOR = "Chair1";
+
+// --- Read: citation detail --------------------------------------------------
+
+/**
+ * Fetch one policy chunk's full detail by key, for the citation-detail popup.
+ * Lazy: pass `null` (e.g. when the modal is closed) and the query stays idle.
+ * Policy text is immutable in this read-only phase, so it caches indefinitely —
+ * reopening the same citation is instant, no refetch.
+ */
+export function usePolicy(policyKey: string | null) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["policy", policyKey],
+    queryFn: () => getPolicy(policyKey as string),
+    enabled: policyKey != null,
+    staleTime: Infinity,
+  });
+
+  return { policy: data ?? null, isLoading, isError };
+}
+
+// --- Read: KB browse + governance history -----------------------------------
 
 function useInvalidateKb() {
   const queryClient = useQueryClient();
@@ -24,7 +50,9 @@ export function usePolicies(params?: PolicyListParams) {
   });
   return {
     policies: query.data?.policies ?? [],
-    isLoading: query.isLoading, isError: query.isError, refetch: query.refetch,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
   };
 }
 
@@ -32,9 +60,13 @@ export function usePolicyAudit() {
   const query = useQuery({ queryKey: ["policyAudit"], queryFn: () => listPolicyAudit() });
   return {
     entries: query.data?.entries ?? [],
-    isLoading: query.isLoading, isError: query.isError, refetch: query.refetch,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
   };
 }
+
+// --- Write: chair governance mutations --------------------------------------
 
 export function useCreatePolicy() {
   const invalidate = useInvalidateKb();
