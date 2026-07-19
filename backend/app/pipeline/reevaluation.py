@@ -13,8 +13,11 @@ needless re-draft.
 
 import logging
 
+from sqlalchemy import update
+
 from app.core.config import settings
 from app.db.database import async_session_factory
+from app.db.models import Email
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.drafter import ResponseDrafter
 from app.pipeline.retriever import get_retriever
@@ -35,10 +38,27 @@ async def _fresh_topk_ids(retriever, ctx: dict, top_k: int):
     return [c.policy_id for c in chunks], chunks
 
 
+async def clear_stale_redrafting_flags(session_factory=async_session_factory) -> int:
+    """Clear every ``redrafting`` flag (call once at process startup).
+
+    A freshly-started process has no in-flight sweep, so any ``redrafting=True`` is a
+    flag stranded by a previous process that died mid-sweep. Left set, it shows a
+    permanent "re-drafting…" badge and the sweep's atomic claim would skip that ticket
+    on every future run. Returns the number of rows cleared.
+    """
+    async with session_factory() as db:
+        result = await db.execute(
+            update(Email).where(Email.redrafting.is_(True)).values(redrafting=False)
+        )
+        await db.commit()
+        return result.rowcount or 0
+
+
 async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict:
     """Sweep open tickets; re-draft the ones whose retrieval changed.
 
-    Returns a summary: {"open", "redrafted", "skipped_edited", "unaffected"}.
+    Returns a summary: {"open", "redrafted", "skipped_edited", "skipped_no_context",
+    "skipped_contended", "unaffected"}.
     Best-effort per ticket — a failure on one ticket is logged, its ``redrafting``
     flag cleared, and the sweep continues.
     """
@@ -49,17 +69,31 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
     drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
     top_k = settings.MAX_RETRIEVED_CHUNKS
 
-    stats = {"open": 0, "redrafted": 0, "skipped_edited": 0, "unaffected": 0}
+    stats = {
+        "open": 0,
+        "redrafted": 0,
+        "skipped_edited": 0,
+        "skipped_no_context": 0,
+        "skipped_contended": 0,
+        "unaffected": 0,
+    }
 
     async with session_factory() as db:
         tickets = await email_repo.get_open_tickets(db)
         stats["open"] = len(tickets)
 
         for email in tickets:
-            # A ticket already mid-redraft (a prior in-flight sweep) is left alone.
-            if email.redrafting:
+            # Legacy / never-captured ticket (retrieval_context back-filled NULL by the
+            # migration): no basis to compare, and an empty query retrieves arbitrary
+            # policies — re-drafting would clobber a good draft with irrelevant
+            # grounding. Skip until it is (re)captured at a future ingest. NOTE:
+            # discriminate on the context being ABSENT, not on retrieved_ids being
+            # empty — a real query that matched nothing yet is legitimately eligible so
+            # a later KB addition can fill it.
+            if email.retrieval_context is None:
+                stats["skipped_no_context"] += 1
                 continue
-            ctx = email.retrieval_context or {}
+            ctx = email.retrieval_context
             stored_ids = set(ctx.get("retrieved_ids") or [])
 
             fresh_ids_list, fresh_chunks = await _fresh_topk_ids(retriever, ctx, top_k)
@@ -69,8 +103,10 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
 
             email_id = str(email.id)
 
-            # Affected but chair-edited → never clobber; audit that it *would*
-            # have changed so the chair knows their edit was preserved.
+            # Affected but chair-edited → never clobber; audit that it *would* have
+            # changed so the chair knows their edit was preserved. (Currently
+            # unreachable in production: is_edited is only set by approve_email, which
+            # moves status off draft_generated; kept as forward-compatible defense.)
             if (email.draft or {}).get("is_edited"):
                 await audit_repo.log_action(
                     db, email_id, "ticket_redraft_skipped_edited", _ACTOR,
@@ -79,8 +115,15 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 stats["skipped_edited"] += 1
                 continue
 
+            # Atomically claim the ticket. This is the ONLY guard against a second
+            # overlapping sweep re-drafting it, and it refuses the claim if the chair
+            # approved the ticket since the sweep started (status no longer
+            # draft_generated). No separate snapshot check — the claim is authoritative.
+            if not await email_repo.claim_for_redraft(db, email_id):
+                stats["skipped_contended"] += 1
+                continue
+
             try:
-                await email_repo.set_redrafting(db, email_id, True)
                 await audit_repo.log_action(
                     db, email_id, "ticket_redrafting", _ACTOR,
                     {"stored_ids": sorted(stored_ids), "fresh_ids": fresh_ids_list},
@@ -117,12 +160,20 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                     "intent": ctx.get("intent", ""),
                     "retrieved_ids": fresh_ids_list,
                 }
-                await email_repo.save_redraft(
+                saved = await email_repo.save_redraft(
                     db, email_id,
                     draft=draft.model_dump(),
                     routing=routing.model_dump(),
                     retrieval_context=new_ctx,
                 )
+                if saved is None:
+                    # Approved/changed between claim and save: its content was left
+                    # intact. Clear the flag we set so the ticket isn't stranded, and
+                    # count it as contended rather than redrafted.
+                    await email_repo.set_redrafting(db, email_id, False)
+                    stats["skipped_contended"] += 1
+                    continue
+
                 await audit_repo.log_action(
                     db, email_id, "ticket_redrafted", _ACTOR,
                     {

@@ -43,6 +43,17 @@ async def lifespan(app: FastAPI):
             logger.info("Retriever warmed at startup.")
         except Exception as exc:  # non-fatal: fall back to lazy load on first request
             logger.warning("Retriever warm-up skipped: %s", exc)
+
+    # Clear any redrafting flags stranded by a process that died mid-sweep (a fresh
+    # process has no in-flight sweep, so any redrafting=True is stale). Non-fatal.
+    try:
+        from app.pipeline.reevaluation import clear_stale_redrafting_flags
+
+        cleared = await clear_stale_redrafting_flags()
+        if cleared:
+            logger.info("Cleared %d stale redrafting flag(s) at startup.", cleared)
+    except Exception as exc:  # non-fatal
+        logger.warning("Could not clear stale redrafting flags: %s", exc)
     yield
     # --- shutdown ---
 

@@ -81,7 +81,10 @@ async def test_unaffected_ticket_is_not_redrafted(session, monkeypatch):
         "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_101"])
     )
     stats = await reevaluate_open_tickets(session_factory=_factory(session))
-    assert stats == {"open": 1, "redrafted": 0, "skipped_edited": 0, "unaffected": 1}
+    assert stats == {
+        "open": 1, "redrafted": 0, "skipped_edited": 0,
+        "skipped_no_context": 0, "skipped_contended": 0, "unaffected": 1,
+    }
 
 
 async def test_affected_ticket_is_redrafted_and_context_updated(session, monkeypatch):
@@ -133,3 +136,77 @@ async def test_repeat_sweep_is_noop_after_redraft(session, monkeypatch):
     second = await reevaluate_open_tickets(session_factory=_factory(session))
     assert second["redrafted"] == 0
     assert second["unaffected"] == 1
+
+
+async def test_null_context_ticket_is_skipped(session, monkeypatch):
+    e = _open_email()
+    e.retrieval_context = None                 # legacy row: never captured
+    session.add(e)
+    await session.commit()
+
+    # Even though the stub retriever would return ids, a null-context ticket must
+    # NOT be re-drafted (would clobber its draft onto arbitrary grounding).
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["skipped_no_context"] == 1
+    assert stats["redrafted"] == 0
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    assert reloaded.draft["draft_text"] == "old"   # untouched
+
+
+async def test_already_redrafting_ticket_is_contended(session, monkeypatch):
+    e = _open_email()
+    e.redrafting = True                        # as if another sweep claimed it
+    session.add(e)
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["skipped_contended"] == 1
+    assert stats["redrafted"] == 0
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    assert reloaded.draft["draft_text"] == "old"
+
+
+async def test_draft_failure_clears_flag_and_continues(session, monkeypatch):
+    session.add(_open_email())
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+
+    class _RaisingDrafter:
+        def __init__(self, *a, **k):
+            pass
+
+        async def draft(self, *a, **k):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.pipeline.reevaluation.ResponseDrafter", _RaisingDrafter)
+
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["redrafted"] == 0
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    assert reloaded.redrafting is False        # flag cleared despite the failure
+    assert reloaded.draft["draft_text"] == "old"
+
+
+async def test_clear_stale_redrafting_flags(session):
+    from app.pipeline.reevaluation import clear_stale_redrafting_flags
+
+    stuck = _open_email()
+    stuck.redrafting = True
+    session.add(stuck)
+    normal = _open_email()
+    session.add(normal)
+    await session.commit()
+
+    cleared = await clear_stale_redrafting_flags(session_factory=_factory(session))
+    assert cleared == 1
+    rows = await EmailRepository().get_open_tickets(session)
+    assert all(r.redrafting is False for r in rows)

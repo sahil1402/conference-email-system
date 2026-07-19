@@ -78,3 +78,60 @@ async def test_reeval_helpers_return_none_for_missing(session):
     assert await repo.save_redraft(
         session, "999999", draft={}, routing={}, retrieval_context={}
     ) is None
+
+
+async def test_claim_for_redraft_is_atomic_and_single_winner(session):
+    repo = EmailRepository()
+    e = await _make_email(session, EmailStatus.DRAFT_GENERATED.value)
+
+    first = await repo.claim_for_redraft(session, str(e.id))
+    assert first is True                      # flipped False→True
+
+    second = await repo.claim_for_redraft(session, str(e.id))
+    assert second is False                     # already claimed → refused
+
+    await session.refresh(e)
+    assert e.redrafting is True
+
+
+async def test_claim_refused_when_not_open(session):
+    repo = EmailRepository()
+    e = await _make_email(session, EmailStatus.APPROVED.value)  # not an open draft
+    assert await repo.claim_for_redraft(session, str(e.id)) is False
+    await session.refresh(e)
+    assert e.redrafting is False
+
+
+async def test_save_redraft_refuses_when_unclaimed(session):
+    repo = EmailRepository()
+    e = await _make_email(session, EmailStatus.DRAFT_GENERATED.value)
+    e.draft = {"draft_text": "old"}
+    await session.commit()
+    # redrafting is False (never claimed) → save must refuse and not clobber.
+    saved = await repo.save_redraft(
+        session, str(e.id),
+        draft={"draft_text": "new"}, routing={"lane": "faq"},
+        retrieval_context={"query": "q", "intent": "", "retrieved_ids": []},
+    )
+    assert saved is None
+    await session.refresh(e)
+    assert e.draft["draft_text"] == "old"      # untouched
+
+
+async def test_save_redraft_refuses_when_approved_after_claim(session):
+    repo = EmailRepository()
+    e = await _make_email(session, EmailStatus.DRAFT_GENERATED.value)
+    e.draft = {"draft_text": "old"}
+    await session.commit()
+    assert await repo.claim_for_redraft(session, str(e.id)) is True
+    # Chair approves in the claim→save window.
+    e.status = EmailStatus.APPROVED.value
+    await session.commit()
+    saved = await repo.save_redraft(
+        session, str(e.id),
+        draft={"draft_text": "new"}, routing={"lane": "faq"},
+        retrieval_context={"query": "q", "intent": "", "retrieved_ids": []},
+    )
+    assert saved is None                       # status no longer draft_generated
+    await session.refresh(e)
+    assert e.draft["draft_text"] == "old"      # chair's approved content preserved

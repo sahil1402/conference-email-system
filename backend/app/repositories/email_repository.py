@@ -11,7 +11,7 @@ arrive as path/query strings) and coerce internally; a non-numeric id resolves
 to "not found" rather than an error.
 """
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Email
@@ -132,21 +132,53 @@ class EmailRepository:
         await db.refresh(email)
         return email
 
+    async def claim_for_redraft(self, db: AsyncSession, email_id: str) -> bool:
+        """Atomically claim an open ticket for re-drafting.
+
+        A single conditional UPDATE flips ``redrafting`` False→True only while the
+        ticket is still an open auto-draft (status draft_generated) and not already
+        being re-drafted. Returns True iff THIS call won the claim. Because the flip
+        is one SQL statement, two overlapping sweeps can never both claim the same
+        ticket, and a ticket approved since the sweep started is not claimed.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return False
+        result = await db.execute(
+            update(Email)
+            .where(
+                Email.id == pk,
+                Email.status == EmailStatus.DRAFT_GENERATED.value,
+                Email.redrafting.is_(False),
+            )
+            .values(redrafting=True)
+        )
+        await db.commit()
+        return (result.rowcount or 0) == 1
+
     async def set_redrafting(
         self, db: AsyncSession, email_id: str, value: bool
     ) -> Email | None:
-        """Set/clear the transient ``redrafting`` flag. Returns None if absent."""
+        """Set/clear the transient ``redrafting`` flag unconditionally.
+
+        A Core UPDATE (not load-set-commit) so it always writes even when the
+        session's cached instance is stale — otherwise clearing a flag set by a
+        prior Core UPDATE in the same session would be a silent no-op. Returns the
+        refreshed row, or None if the id is missing/non-numeric.
+        """
         pk = _coerce_id(email_id)
         if pk is None:
             return None
-        result = await db.execute(select(Email).where(Email.id == pk))
-        email = result.scalar_one_or_none()
-        if email is None:
-            return None
-        email.redrafting = value
+        result = await db.execute(
+            update(Email).where(Email.id == pk).values(redrafting=value)
+        )
         await db.commit()
-        await db.refresh(email)
-        return email
+        if (result.rowcount or 0) != 1:
+            return None
+        refreshed = await db.execute(
+            select(Email).where(Email.id == pk).execution_options(populate_existing=True)
+        )
+        return refreshed.scalar_one_or_none()
 
     async def save_redraft(
         self,
@@ -157,26 +189,40 @@ class EmailRepository:
         routing: dict,
         retrieval_context: dict,
     ) -> Email | None:
-        """Persist a re-drafted ticket: overwrite draft + routing + retrieval
-        context in one commit and clear ``redrafting``. Returns None if absent.
+        """Persist a re-drafted ticket IFF it is still a claimed open draft.
 
-        Status is left as-is (draft_generated) — a re-draft replaces the pending
-        draft in place; it does not change the lifecycle stage.
+        A single conditional UPDATE overwrites draft + routing + retrieval_context
+        and clears ``redrafting`` only while status is still draft_generated AND the
+        ticket is still claimed (``redrafting`` True). If the chair approved/changed
+        the ticket between claim and save, 0 rows match and this returns ``None``
+        WITHOUT clobbering their work (the caller then clears the stray flag).
+        Status is left unchanged. Returns ``None`` if the id is missing/non-numeric
+        or the precondition no longer holds.
         """
         pk = _coerce_id(email_id)
         if pk is None:
             return None
-        result = await db.execute(select(Email).where(Email.id == pk))
-        email = result.scalar_one_or_none()
-        if email is None:
-            return None
-        email.draft = draft
-        email.routing = routing
-        email.retrieval_context = retrieval_context
-        email.redrafting = False
+        result = await db.execute(
+            update(Email)
+            .where(
+                Email.id == pk,
+                Email.status == EmailStatus.DRAFT_GENERATED.value,
+                Email.redrafting.is_(True),
+            )
+            .values(
+                draft=draft,
+                routing=routing,
+                retrieval_context=retrieval_context,
+                redrafting=False,
+            )
+        )
         await db.commit()
-        await db.refresh(email)
-        return email
+        if (result.rowcount or 0) != 1:
+            return None
+        refreshed = await db.execute(
+            select(Email).where(Email.id == pk).execution_options(populate_existing=True)
+        )
+        return refreshed.scalar_one_or_none()
 
     # --- reads ------------------------------------------------------------
     async def get_email_by_id(
