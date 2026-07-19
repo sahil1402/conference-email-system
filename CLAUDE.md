@@ -70,13 +70,14 @@ Typed pydantic-settings `Settings`; env → `.env`. Access: `from app.core.confi
 Pipeline outputs (classification, routing, draft) stored as JSON columns on `emails`.
 | Table | Model | Purpose |
 |---|---|---|
-| emails | Email | Incoming email + lifecycle (status, classification/routing/draft JSON; `assigned_chair_id` FK→chairs) |
+| emails | Email | Incoming email/ticket + lifecycle (status, classification/routing/draft JSON; `assigned_chair_id` FK→chairs; Zendesk fields `source`, `zendesk_ticket_id` [unique], `zendesk_requester_id`, `zendesk_status`, `zendesk_created_at`, `zendesk_updated_at`, `last_processed_comment_id`) |
+| email_thread_messages | EmailThreadMessage | Child rows per Zendesk comment (Piece 3): `email_id` FK→emails (CASCADE), `zendesk_comment_id` [unique], `public` bool, `author_id`, `author_role`, `plain_body`, `html_body`, `created_at` [thread order], `via_channel`, `ingested_at`. Initial inquiry = first `public` end-user message by `created_at` (derived by query) |
 | audit_logs | AuditLog | Append-only actions (actor, action, `timestamp`, `extra_metadata` [DB col "metadata"]) |
 | policy_documents | PolicyDocument | Policy KB entries (policy_key, title, content, category, score, `tags` JSON + `source`) |
 | chairs | Chair | Conference chairs for assignment (name, role_title, `areas` JSON, active); empty areas = fallback |
 
 Migrations (`cd backend && alembic upgrade head`; env `backend/migrations/`):
-`988d40d1a9ee_initial` → `507ef4c2d805_phase3c_postgres_ready` → `1f51f0224943_phase6a_chairs` (chairs + emails.assigned_chair_id + 5 seeded chairs) → `b8d3f6a1c204_phase_e_policy_tags_source` (policy tags + source; **head**).
+`988d40d1a9ee_initial` → `507ef4c2d805_phase3c_postgres_ready` → `1f51f0224943_phase6a_chairs` (chairs + emails.assigned_chair_id + 5 seeded chairs) → `b8d3f6a1c204_phase_e_policy_tags_source` (policy tags + source) → `f1a2b3c4d5e6_phase_f_policy_kb_layers` → `a7b8c9d0e1f2_phase_f_policy_audit` → `d2e4f6a8b0c1_zendesk_ticket_schema` (Zendesk fields on emails + email_thread_messages; **head**, applied to demo Postgres 2026-07-19).
 
 ## Folder Structure
 ```
@@ -165,6 +166,15 @@ Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestra
 - **Demo data (volume state only, not repo)**: this branch's Postgres volume reset to the full **47-email** demo set — 30 `toy_dataset.json` via `seed.py` + 17 `toy_multichair.json` via the live `/ingest` pipeline (real `local` drafter). Citations draw from the real 93-chunk corpus (`policy_101`–`192`); per-chair Program 26 / D&E 8 / Local Arr 8 / Pub-Spon 4 / General **0** (expected — general_inquiry FAQ-lane + low-signal → Local Arr).
 - **Proposed commit (NOT committed)**: `feat(db): migrate SQLite→PostgreSQL — Docker Postgres service, single-source DATABASE_URL, drop SYNC_DATABASE_URL, dialect-agnostic JSON accessors, PG test suite + CI Postgres service`
 
+### 2026-07-19 — Zendesk integration Pieces 1–3 (credential provider · scope test · ticket schema) — Complete, migration APPLIED to demo Postgres
+Multi-piece Zendesk integration. No pipeline module touched (classifier/retriever/router/drafter/orchestrator unchanged); `pull_zendesk_tickets.py` untouched.
+- **Piece 1 — OAuth credential provider**: `app/integrations/zendesk/credential_provider.py` — `ZendeskCredentialProvider` ABC + `TokenCredentialProvider` (HTTP Basic) + `OAuthCredentialProvider` (client_credentials; proactive refresh, named `TOKEN_LIFETIME_SLACK_SECONDS=1500` vs 1800s expiry) + `get_zendesk_credential_provider()` factory keyed on `ZENDESK_AUTH_MODE`. Typed errors: `ZendeskCredentialError` (config, fail-loud naming missing fields), `ZendeskAuthError` (token-endpoint failure). Config additions: `ZENDESK_AUTH_MODE`/`SUBDOMAIN`/`EMAIL`/`API_TOKEN`/`OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET`/`OAUTH_SCOPE`. Secret read from Settings/.env, never `docs/secrets.txt`. **Note: this foundation's source had been lost (only orphaned `.pyc` in `__pycache__`, never committed) — reconstructed faithfully from the bytecode, then extended.** 12 tests. `.env`/.env.example populated (oauth mode, client `confmail`).
+- **Piece 2 — write-scope diagnostic**: `scripts/zendesk_scope_test.py` (one-off, `--confirm-write`-gated). **Result: full write access confirmed** — `read write` token granted (HTTP 200), internal-note write succeeded (HTTP 200) on ticket 22009 (a `solved` ticket, chosen over `closed` since closed tickets are immutable and would confound the scope signal). Test note left on 22009 for manual cleanup.
+- **Piece 3 — ticket data model**: reused `Email` as the parent (a Zendesk ticket maps 1:1 → Email row; avoids forking the domain / touching the pipeline) + new `email_thread_messages` child table. Enums `EmailSource`, `MessageAuthorRole`. Migration `d2e4f6a8b0c1` (batch_alter for SQLite parity; `source` NOT NULL `server_default='toy_dataset'`; unique `zendesk_ticket_id`/`zendesk_comment_id`; FK CASCADE). Initial inquiry derived by query (first `public` end-user message by `created_at`), no denormalized flag. 9 tests incl. Alembic up→down→up round-trip on a temp SQLite file.
+- **Migration APPLIED to the demo Postgres** via `docker compose exec backend alembic upgrade head` (backend image rebuilt first — no source volume mount, so the container had to be rebuilt to see the new code; startup also auto-runs `upgrade head`). **Verified**: DB `a7b8c9d0e1f2 → d2e4f6a8b0c1`; **47 demo emails untouched, all `source='toy_dataset'`** (0 NULL); `email_thread_messages` exists (11 cols) and empty.
+- **Tests**: local full suite **207 passed / 6 skipped / 0 failed** (authoritative — SQLite). In-container run showed 6 environmental failures (NOT regressions): 4× `test_tracing` = documented Postgres cross-event-loop asyncpg contamination (pass in isolation, 6/6); 2× `test_env_example_config` = `FileNotFoundError` because `.dockerignore` excludes `**/.env.*` so `.env.example` isn't shipped in the image. New schema tests pass 9/9 in-container.
+- **Flags**: (1) ephemeral `pip install pytest` done inside the running container for the in-container test run — lost on next recreate, harmless. (2) test note on real ticket 22009 pending manual deletion. (3) `.env` still `ZENDESK_OAUTH_SCOPE=read` — Piece 5 send endpoint will need `read write`.
+
 ---
 
 ## Current Status — Phases 0–6C COMPLETE · Real-Corpus + Phase 7 COMPLETE (on main) · main 184/184 · `feature/production-hosting-v2` 192/192 · frontend build clean
@@ -178,12 +188,13 @@ Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestra
 | Real-Corpus + 7 | Complete | 93-chunk real AAAI-27 corpus (56-chunk archived) · query distiller (`QUERY_STRATEGY`) · placeholder reply contract · send gate (`ALLOW_AUTO_SEND`) · style guide v2 · hermetic conftest · Zendesk groundwork |
 | Today | Complete | style_guide_v2 committed default (`c4ed3f5`) |
 | PG migration (v2) | Complete on branch (unmerged) | SQLite→Postgres on `feature/production-hosting-v2`: Docker `db` service (loopback, healthcheck) · single-source `DATABASE_URL` · `SYNC_DATABASE_URL` removed · dialect-agnostic JSON (`json_extract` fix, both sites) · PG test suite + CI Postgres · 192/192 · `external_api` excluded by design |
+| Zendesk Pieces 1–3 | Complete · migration applied | OAuth credential provider (`ZENDESK_AUTH_MODE`) · write-scope confirmed (ticket 22009) · ticket data model (`Email` extended + `email_thread_messages`, migration `d2e4f6a8b0c1` applied to demo Postgres, 47 emails intact) · local 207/207 · no pipeline module touched |
 
 ## Open Blockers (active)
 - **Postgres / Docker-Postgres implemented on `feature/production-hosting-v2` — NOT merged** — SQLite→Postgres migration, Docker `db` service, single-source `DATABASE_URL`, `SYNC_DATABASE_URL` removal, `func.json_extract` fix, PG test suite + CI Postgres service all done on the branch (192/192); awaiting review/merge to `main`. `external_api` drafter **deliberately excluded** (the `local` OpenAI-compatible provider covers it). Until merged, `main` stays SQLite-only with `SYNC_DATABASE_URL` present and no `external_api` in the Literal.
 - **NCSA Delta GPU access pending** — the self-hosted (`MODEL_PROVIDER=local`) drafter is implemented + mock-tested but not run on real GPU hardware.
 - **Synthetic email dataset** — the policy corpus is real (93 chunks) but `data/emails/toy_dataset.json` and `data/eval/ground_truth.json` remain hand-written synthetic; eval numbers are on synthetic traffic. Real-ticket eval (Phase 7) uses gitignored PII data under `data/eval_real/`.
-- **Zendesk fetch/write-back missing** — read-only OAuth + pull script exist; no poller, no `zendesk_ticket_id` on `emails`, no send transport (send gate contract is live, transport is not).
+- **Zendesk fetch/write-back missing** — credential layer (OAuth read+write, verified), write-scope diagnostic, and ticket **schema** now exist (Pieces 1–3; `zendesk_ticket_id` + `email_thread_messages` live on demo Postgres). Still missing: the API adapter/poller (Piece 4) and the real send endpoint driving `PUT /tickets/{id}` (Piece 5; send gate contract is live, transport is not).
 
 ## Session Update Instructions
 At the end of EVERY session: (1) append/compress the phase entry under Phase History; (2) update the Current Status table; (3) run `type CLAUDE.md` to confirm the save; (4) report "CLAUDE.md updated — [phase] logged". Not optional — skipping it breaks project memory.

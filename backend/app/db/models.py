@@ -7,11 +7,22 @@ into their own tables later without changing the Pydantic contracts.
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, JSON, DateTime, Float, ForeignKey, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    JSON,
+    String,
+    Text,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
-from app.models.enums import EmailStatus
+from app.models.enums import EmailSource, EmailStatus
 
 
 class Email(Base):
@@ -50,6 +61,57 @@ class Email(Base):
         ForeignKey("chairs.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # --- Zendesk origin fields (Piece 3) ----------------------------------
+    # A Zendesk ticket maps 1:1 onto an Email row; these columns hold the
+    # ticket-specific state. All are nullable so pre-Zendesk (toy/synthetic)
+    # rows are unaffected. See ZENDESK_API.md §10 (dedup) / §2 (status).
+    #
+    # Origin discriminator: "zendesk" vs "toy_dataset". Server default backfills
+    # existing rows as toy_dataset; Python default keeps ORM inserts in agreement.
+    source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=EmailSource.TOY_DATASET.value,
+        server_default=EmailSource.TOY_DATASET.value,
+        index=True,
+    )
+    # Canonical Zendesk dedup key (§10). Unique so a ticket upserts to one row;
+    # multiple NULLs are allowed (SQLite & Postgres) for non-Zendesk rows.
+    zendesk_ticket_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, unique=True, index=True
+    )
+    # Zendesk user id of the requester (join to users); sender/sender_name hold
+    # the email + display name.
+    zendesk_requester_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Zendesk lifecycle status (new/open/pending/hold/solved/closed) — distinct
+    # from our internal EmailStatus. Lets us treat "closed" as read-only.
+    zendesk_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The ticket's own timestamps in Zendesk (kept separate from created_at /
+    # updated_at below, which are when WE created/updated this row).
+    zendesk_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Compared on each poll to skip re-processing an unchanged ticket (§10).
+    zendesk_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Highest end-user comment id already processed, so the poller only drafts on
+    # a genuinely new author comment rather than every ticket update (§10).
+    last_processed_comment_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+
+    # Thread messages (Zendesk comments), ordered oldest-first. The initial
+    # inquiry is the first public end-user message in this order (see §3/§5) —
+    # derived by query, not stored, per the agreed design.
+    thread_messages: Mapped[list["EmailThreadMessage"]] = relationship(
+        "EmailThreadMessage",
+        back_populates="email",
+        order_by="EmailThreadMessage.created_at",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -58,6 +120,56 @@ class Email(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class EmailThreadMessage(Base):
+    """One message (Zendesk comment) in an email/ticket thread (Piece 3).
+
+    A child of :class:`Email`. The ``public`` flag is load-bearing: ``True`` is a
+    real reply visible to the requester, ``False`` an internal note (ZENDESK_API.md
+    §3). ``author_role`` (end-user/agent/admin) tells the author's message apart
+    from a chair's reply. Only the initial inquiry — the first ``public`` end-user
+    message ordered by ``created_at`` — is (re)classified; the rest are context.
+    """
+
+    __tablename__ = "email_thread_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    email_id: Mapped[int] = mapped_column(
+        ForeignKey("emails.id", ondelete="CASCADE"), nullable=False
+    )
+    # Zendesk comment id — globally unique (§3), so a comment upserts to one row.
+    zendesk_comment_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, unique=True, index=True
+    )
+    # True = public reply to the requester; False = internal note.
+    public: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Zendesk user id + role of the comment author (§6).
+    author_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    author_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Sanitized plain text (safest for the classifier/drafter) + rendered HTML.
+    plain_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    html_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The comment's own timestamp in Zendesk — the thread ordering key.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    # Channel the comment arrived through, e.g. "email" (§3 via.channel).
+    via_channel: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # When WE stored the row (distinct from the comment's created_at above).
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    email: Mapped["Email"] = relationship("Email", back_populates="thread_messages")
+
+    __table_args__ = (
+        # Serves both parent-lookup and the oldest-first ordering scan used to
+        # find the initial inquiry, in one index.
+        Index(
+            "ix_email_thread_messages_email_id_created_at", "email_id", "created_at"
+        ),
     )
 
 
