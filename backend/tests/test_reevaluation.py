@@ -230,6 +230,36 @@ async def test_empty_retrieved_ids_with_context_stays_eligible(session, monkeypa
     assert reloaded.retrieval_context["retrieved_ids"] == ["policy_777"]
 
 
+async def test_batch_marked_before_any_redraft(session, monkeypatch):
+    # Two-pass sweep: BOTH affected tickets must be marked "re-drafting" (claim +
+    # ticket_redrafting audit) BEFORE either is re-drafted, so the queue shows the
+    # whole batch in-progress and then resolves one by one. We assert the audit
+    # ordering: every ticket_redrafting precedes every ticket_redrafted.
+    from sqlalchemy import select
+
+    from app.db.models import AuditLog
+
+    session.add(_open_email())
+    session.add(_open_email())
+    await session.commit()
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["redrafted"] == 2
+
+    actions = [
+        r.action
+        for r in (await session.execute(select(AuditLog).order_by(AuditLog.id))).scalars().all()
+    ]
+    assert actions.count("ticket_redrafting") == 2
+    assert actions.count("ticket_redrafted") == 2
+    last_claim = len(actions) - 1 - actions[::-1].index("ticket_redrafting")
+    first_done = actions.index("ticket_redrafted")
+    assert last_claim < first_done, f"expected all claims before any redraft: {actions}"
+
+
 async def test_save_refusal_mid_sweep_clears_flag_and_contends(session, monkeypatch):
     # Simulate the chair approving between claim and save: save_redraft refuses (0-row
     # conditional UPDATE). The sweep must clear the stray flag it set and count the

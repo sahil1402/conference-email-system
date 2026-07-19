@@ -9,6 +9,14 @@ Gate (design §3): a ticket is *affected* iff the set of fresh top-k policy ids
 differs from the set stored at draft time. Comparing sets (not ordered lists)
 means a pure score reshuffle — same chunks, different order — does not force a
 needless re-draft.
+
+Two passes so the queue reflects the whole batch, not one ticket at a time:
+- Pass 1 (gate + claim): fast, no model calls. Every affected ticket is claimed
+  (``redrafting=True``) and audited ``ticket_redrafting`` up front, so the UI
+  shows the entire batch "re-drafting…" at once.
+- Pass 2 (draft): the slow per-ticket model calls. Each ticket's new draft is
+  saved and its flag cleared as it lands, so the chair watches them resolve one
+  by one and can see which are still in progress.
 """
 
 import logging
@@ -51,7 +59,8 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
     """Sweep open tickets; re-draft the ones whose retrieval changed.
 
     Returns a summary: {"open", "redrafted", "skipped_edited", "skipped_no_context",
-    "skipped_contended", "unaffected"}.
+    "skipped_contended", "unaffected"}. Runs in two passes (see module docstring):
+    all affected tickets are marked "re-drafting" first, then each is re-drafted.
     Best-effort per ticket — a failure on one ticket is logged, its ``redrafting``
     flag cleared, and the sweep continues.
     """
@@ -75,6 +84,10 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
         tickets = await email_repo.get_open_tickets(db)
         stats["open"] = len(tickets)
 
+        # --- Pass 1: gate + claim (fast, no model calls). Marks EVERY affected
+        # ticket "re-drafting" up front so the queue shows the whole batch as
+        # in-progress at once; the work list is drafted in Pass 2.
+        work: list[dict] = []
         for email in tickets:
             # Legacy / never-captured ticket (retrieval_context back-filled NULL by the
             # migration): no basis to compare, and an empty query retrieves arbitrary
@@ -116,23 +129,36 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 stats["skipped_contended"] += 1
                 continue
 
-            try:
-                await audit_repo.log_action(
-                    db, email_id, "ticket_redrafting", _ACTOR,
-                    {"stored_ids": sorted(stored_ids), "fresh_ids": fresh_ids_list},
-                )
-
-                classification = ClassificationResult(**(email.classification or {}))
-                email_data = {
+            await audit_repo.log_action(
+                db, email_id, "ticket_redrafting", _ACTOR,
+                {"stored_ids": sorted(stored_ids), "fresh_ids": fresh_ids_list},
+            )
+            work.append({
+                "email_id": email_id,
+                "ctx": ctx,
+                "stored_ids": stored_ids,
+                "fresh_ids_list": fresh_ids_list,
+                "fresh_chunks": fresh_chunks,
+                "classification": ClassificationResult(**(email.classification or {})),
+                "email_data": {
                     "from": email.sender,
                     "sender_name": email.sender_name,
                     "subject": email.subject,
                     "body": email.body,
-                }
+                },
+                "before_ph": len((email.draft or {}).get("placeholders") or []),
+            })
 
+        # --- Pass 2: draft each claimed ticket (the slow model calls) and clear
+        # its flag as the new draft lands, so tickets resolve one by one.
+        for item in work:
+            email_id = item["email_id"]
+            try:
+                classification = item["classification"]
+                fresh_chunks = item["fresh_chunks"]
                 routing = router.route(classification, fresh_chunks)
                 draft = await drafter.draft(
-                    email_data, classification, fresh_chunks, routing
+                    item["email_data"], classification, fresh_chunks, routing
                 )
                 # Same placeholder→human_review rule the orchestrator applies:
                 # a draft with [CHAIR: …] gaps always needs a human.
@@ -147,11 +173,10 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                         }
                     )
 
-                before_ph = len((email.draft or {}).get("placeholders") or [])
                 new_ctx = {
-                    "query": ctx.get("query", ""),
-                    "intent": ctx.get("intent", ""),
-                    "retrieved_ids": fresh_ids_list,
+                    "query": item["ctx"].get("query", ""),
+                    "intent": item["ctx"].get("intent", ""),
+                    "retrieved_ids": item["fresh_ids_list"],
                 }
                 saved = await email_repo.save_redraft(
                     db, email_id,
@@ -170,9 +195,9 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 await audit_repo.log_action(
                     db, email_id, "ticket_redrafted", _ACTOR,
                     {
-                        "stored_ids": sorted(stored_ids),
-                        "fresh_ids": fresh_ids_list,
-                        "placeholders_before": before_ph,
+                        "stored_ids": sorted(item["stored_ids"]),
+                        "fresh_ids": item["fresh_ids_list"],
+                        "placeholders_before": item["before_ph"],
                         "placeholders_after": len(draft.placeholders),
                         "lane": routing.lane,
                     },
