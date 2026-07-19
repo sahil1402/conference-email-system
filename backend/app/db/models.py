@@ -136,6 +136,18 @@ class PolicyDocument(Base):
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Phase F (layered KB): the layer/trust axis and the soft on/off lifecycle.
+    # visibility: "public" (official corpus, freely citable) | "internal"
+    # (chair-authored, not on the public site — retrievable & citable, marked for
+    # provenance). status: "active" (indexed) | "inactive" (retired, not indexed).
+    # Both DB + Python defaults so raw migrations and ORM inserts agree.
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="public", server_default="public", index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active", index=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -144,4 +156,20 @@ class PolicyDocument(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class PolicyAuditLog(Base):
+    """Append-only record of KB governance actions (create / edit / retire)."""
+
+    __tablename__ = "policy_audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    policy_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -26,6 +26,11 @@ def _hermetic_model_settings(monkeypatch):
     monkeypatch.setattr(settings, "MODEL_PROVIDER", "fallback")
     monkeypatch.setattr(settings, "LOCAL_MODEL_API_KEY", None)
     monkeypatch.setattr(settings, "QUERY_STRATEGY", "prefix")
+    monkeypatch.setattr(settings, "WARM_RETRIEVER_ON_STARTUP", False)
+    # Keep retrieval on BM25 in tests: the default is now "fusion", whose
+    # rebuild_index() loads the dense embedding model — tests must stay offline
+    # and fast (endpoint tests trigger rebuilds via the policies mutations).
+    monkeypatch.setattr(settings, "RETRIEVAL_BACKEND", "bm25")
 
 
 @pytest.fixture

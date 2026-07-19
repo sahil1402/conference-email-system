@@ -60,9 +60,9 @@ class FAISSRetriever:
         return self._embedder
 
     async def _load_policies(self) -> list:
-        """Fetch all policy documents via the repository in a short-lived session."""
+        """Fetch the active, visibility-filtered corpus in a short-lived session."""
         async with self._session_factory() as db:
-            return await self._policy_repo.get_all_policies(db)
+            return await self._policy_repo.list_for_index(db)
 
     def _encode(self, texts: list[str]) -> np.ndarray:
         """Encode texts to L2-normalized float32 vectors for inner-product search."""

@@ -1,5 +1,6 @@
 export { Badge } from "./Badge";
 export type { BadgeVariant } from "./Badge";
+export { Button, buttonVariants } from "./button";
 export { ChairBadge } from "./ChairBadge";
 export { ConfidenceBar } from "./ConfidenceBar";
 export { StatCard } from "./StatCard";

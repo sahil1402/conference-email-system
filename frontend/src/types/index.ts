@@ -355,3 +355,62 @@ export interface ApiError {
   detail: string;
   status: number;
 }
+
+// ---------------------------------------------------------------------------
+// Knowledge Base (policy governance) — backend app/api/v1/policies.py
+// ---------------------------------------------------------------------------
+
+export type PolicyVisibility = "public" | "internal";
+export type PolicyStatus = "active" | "inactive";
+
+/** Mirrors policy_documents (backend/app/db/models.py PolicyDocument). */
+export interface PolicyDocument {
+  policy_key: string;
+  title: string;
+  content: string;
+  category: string | null;
+  tags: string[];
+  visibility: PolicyVisibility;
+  status: PolicyStatus;
+  source: string | null;
+  updated_at: string | null;
+}
+
+/** One policy_audit_logs row (backend PolicyAuditLog). */
+export interface PolicyAuditEntry {
+  id: number;
+  policy_key: string;
+  action: string; // policy_created | policy_retired | policy_reactivated
+  actor: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  timestamp: string | null;
+}
+
+/** A related policy surfaced by POST /policies/similar. */
+export interface SimilarPolicy {
+  policy_key: string;
+  title: string;
+  score: number;
+  content: string;
+}
+
+export interface PolicyListParams {
+  visibility?: PolicyVisibility;
+  status?: PolicyStatus;
+  search?: string;
+}
+
+/** POST /api/v1/policies request body. */
+export interface CreatePolicyRequest {
+  title: string;
+  content: string;
+  category?: string | null;
+  tags?: string[];
+  actor: string;
+  retire_keys?: string[];
+}
+
+export interface PoliciesResponse { policies: PolicyDocument[]; }
+export interface PolicyAuditResponse { entries: PolicyAuditEntry[]; }
+export interface SimilarResponse { similar: SimilarPolicy[]; }

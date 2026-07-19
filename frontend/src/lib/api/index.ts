@@ -4,3 +4,4 @@ export * from "./analytics";
 export * from "./audit";
 export * from "./chairs";
 export * from "./policies";
+export * from "./knowledgeBase";

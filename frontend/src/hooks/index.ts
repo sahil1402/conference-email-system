@@ -5,3 +5,4 @@ export * from "./useEmailActions";
 export * from "./useAudit";
 export * from "./useChairs";
 export * from "./usePolicy";
+export * from "./useKnowledgeBase";

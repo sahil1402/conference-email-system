@@ -16,10 +16,12 @@ router = APIRouter(prefix="/retrieval", tags=["retrieval"])
 async def retrieval_info() -> dict:
     """Report the active retrieval backend and its index state.
 
-    For BM25, ``model_name`` is null and the index is always considered built
-    (it loads cheaply from the KB on demand). For FAISS, ``document_count`` and
-    ``index_built`` reflect the lazily-built index — both are 0/false until the
-    first ``retrieve`` (or an explicit build) populates it.
+    For BM25, ``model_name`` is null; ``document_count`` and ``index_built``
+    reflect the lazily-loaded corpus (both 0/false until the first
+    ``retrieve`` populates it from the DB) — same lazy contract as FAISS. For
+    FAISS, ``document_count`` and ``index_built`` reflect the lazily-built
+    index — both are 0/false until the first ``retrieve`` (or an explicit
+    build) populates it.
     """
     backend = settings.RETRIEVAL_BACKEND
     retriever = get_retriever()
@@ -48,5 +50,5 @@ async def retrieval_info() -> dict:
         "backend": "bm25",
         "document_count": retriever.document_count,
         "model_name": None,
-        "index_built": True,
+        "index_built": retriever.document_count > 0,
     }

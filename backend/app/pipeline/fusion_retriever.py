@@ -50,6 +50,11 @@ class FusionRetriever:
         """Number of documents available to fuse (shared KB → BM25's corpus)."""
         return self.bm25.document_count
 
+    async def rebuild_index(self) -> None:
+        """Clear both wrapped rankers so the next retrieve() reloads the KB."""
+        self.bm25.rebuild_index()          # BM25 clear is synchronous
+        await self.faiss.rebuild_index()   # FAISS re-encode is async
+
     @staticmethod
     def _rrf_contribution(rank: int, rrf_k: int) -> float:
         """RRF contribution of a document at 1-based ``rank`` for one ranker."""

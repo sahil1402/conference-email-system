@@ -9,6 +9,7 @@ import {
   Zap,
   ClipboardList,
   Mail,
+  Library,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Email Queue", href: "/queue", icon: Inbox },
+  { label: "Knowledge Base", href: "/knowledge-base", icon: Library },
   { label: "Analytics", href: "/analytics", icon: BarChart2 },
   { label: "Auto-Replies", href: "/auto-replies", icon: Zap },
   { label: "Audit Log", href: "/audit", icon: ClipboardList },
