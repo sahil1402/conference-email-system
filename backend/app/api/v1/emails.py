@@ -131,6 +131,8 @@ def _email_to_dict(email: Email) -> dict:
         "classification": email.classification,
         "routing": email.routing,
         "draft": email.draft,
+        "redrafting": bool(email.redrafting),
+        "retrieval_context": email.retrieval_context,
         "created_at": email.created_at.isoformat() if email.created_at else None,
         "updated_at": email.updated_at.isoformat() if email.updated_at else None,
     }
