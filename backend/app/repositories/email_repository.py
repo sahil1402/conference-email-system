@@ -144,6 +144,34 @@ class EmailRepository:
         await db.commit()
         return result.rowcount or 0
 
+    async def update_email_outputs(
+        self, db: AsyncSession, email_id: str, record: dict
+    ) -> Email | None:
+        """Overwrite an existing email's pipeline outputs in place (retry/reprocess).
+
+        Applies the fresh status + classification/routing/draft/assigned_chair_id/
+        retrieval_context from a re-run, and clears the transient ``redrafting``
+        flag. Leaves id, received_at, and sender/subject/body untouched. Returns
+        the refreshed row, or ``None`` if the id is missing/non-numeric.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(select(Email).where(Email.id == pk))
+        email = result.scalar_one_or_none()
+        if email is None:
+            return None
+        for key in (
+            "status", "classification", "routing", "draft",
+            "assigned_chair_id", "retrieval_context",
+        ):
+            if key in record:
+                setattr(email, key, record[key])
+        email.redrafting = False
+        await db.commit()
+        await db.refresh(email)
+        return email
+
     async def claim_for_redraft(self, db: AsyncSession, email_id: str) -> bool:
         """Atomically claim an open ticket for re-drafting.
 

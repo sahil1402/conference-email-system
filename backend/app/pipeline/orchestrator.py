@@ -14,6 +14,7 @@ Failure policy:
 
 import logging
 import time
+from dataclasses import dataclass
 
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +58,26 @@ class PipelineResult(BaseModel):
     draft: DraftResponse
     processing_time_ms: float
     status: str  # "complete" | "draft_failed" | "error"
+
+
+@dataclass
+class _Computed:
+    """Everything one pipeline run produces, before it is persisted.
+
+    Lets ``process_email`` (create a new row) and ``reprocess_email`` (update an
+    existing row in place) share the exact same classify→retrieve→route→draft
+    compute and audit/trace finalization.
+    """
+
+    classification: ClassificationResult
+    retrieved_chunks: list
+    routing: RoutingDecision
+    draft: DraftResponse
+    chair_assignment: ChairAssignment | None
+    status: str
+    record: dict
+    tracer: PipelineTracer
+    start: float
 
 
 class EmailPipeline:
@@ -116,17 +137,19 @@ class EmailPipeline:
             logger.warning("Chair assignment failed; leaving email unassigned.", exc_info=True)
             return None
 
-    async def process_email(
-        self, email_data: dict, db: AsyncSession
-    ) -> PipelineResult:
-        """Run an email through the full pipeline and persist the result."""
+    async def _compute(self, email_data: dict, db: AsyncSession) -> _Computed:
+        """Run classify → retrieve → route → draft → chair-assign (no persistence).
+
+        Shared by ``process_email`` (creates a new row) and ``reprocess_email``
+        (updates an existing row). Builds the persistence ``record`` but does not
+        write it; the caller decides create vs. update.
+        """
         start = time.perf_counter()
         subject = email_data.get("subject", "")
         body = email_data.get("body", "")
 
         # Per-email tracer: buffers a record per stage and flushes them once the
-        # email is persisted (its id is unknown until then). Additive only — it
-        # never alters stage inputs/outputs.
+        # email is persisted (its id is known then). Additive only.
         tracer = PipelineTracer()
 
         # --- classify → retrieve → route (fatal on failure) ---------------
@@ -135,9 +158,9 @@ class EmailPipeline:
                 "classifier",
                 {"subject_length": len(subject), "body_length": len(body)},
             ) as st:
-                # E003: one model call distills retrieval queries AND
-                # classifies intent. Best-effort — on any distiller failure
-                # the keyword/trainable backend classifies as before.
+                # E003: one model call distills retrieval queries AND classifies
+                # intent. Best-effort — on any distiller failure the keyword/
+                # trainable backend classifies as before.
                 distilled = None
                 if settings.QUERY_STRATEGY == "distill":
                     distilled = await self.distiller.distill(subject, body)
@@ -168,10 +191,10 @@ class EmailPipeline:
                         float(classification.calibrated_confidence), 4
                     )
 
-            # Query formulation (E003): distilled queries joined into one
-            # string, with NO intent token (it hurts dense retrieval — E001).
-            # Distill-mode fallback is subject+body[:600]; the legacy prefix
-            # strategy keeps body[:300] + intent token, bit-for-bit.
+            # Query formulation (E003): distilled queries joined into one string,
+            # with NO intent token (it hurts dense retrieval — E001). Distill-mode
+            # fallback is subject+body[:600]; the legacy prefix strategy keeps
+            # body[:300] + intent token, bit-for-bit.
             if distilled is not None and distilled.queries:
                 query = " ".join(distilled.queries)
                 retrieval_intent = ""
@@ -242,7 +265,6 @@ class EmailPipeline:
         # draft) and best-effort so it never breaks the core flow.
         chair_assignment = await self._assign_chair(db, classification, routing)
 
-        # --- persist the email with its pipeline outputs ------------------
         record = {
             "sender": email_data.get("from") or email_data.get("sender") or "unknown@unknown",
             "sender_name": email_data.get("sender_name"),
@@ -263,55 +285,94 @@ class EmailPipeline:
                 "retrieved_ids": [c.policy_id for c in retrieved_chunks],
             },
         }
-        email = await self.email_repo.create_email(db, record)
-        email_id = str(email.id)
-
-        # Now that the id exists, write the buffered per-stage trace records.
-        tracer.flush(email_id)
-
-        # --- audit each stage --------------------------------------------
-        await self.audit_repo.log_action(
-            db, email_id, "classified", "pipeline",
-            {"intent": classification.intent, "confidence": classification.confidence},
-        )
-        await self.audit_repo.log_action(
-            db, email_id, "retrieved", "pipeline",
-            {"chunk_ids": [c.policy_id for c in retrieved_chunks]},
-        )
-        await self.audit_repo.log_action(
-            db, email_id, "routed", "pipeline",
-            {"lane": routing.lane, "override_reason": routing.override_reason},
-        )
-        # Record the chair assignment (human-review only) — captures the intent +
-        # confidence at assignment time, which is exactly the signal a later
-        # reroute compares against (Phase 6A step 3 / future training data).
-        if chair_assignment and chair_assignment.chair_id is not None:
-            await self.audit_repo.log_action(
-                db, email_id, "chair_assigned", "pipeline",
-                {
-                    "chair_id": chair_assignment.chair_id,
-                    "chair_name": chair_assignment.chair_name,
-                    "intent": classification.intent,
-                    "confidence": classification.confidence,
-                    "is_fallback": chair_assignment.is_fallback,
-                    "matched_area": chair_assignment.matched_area,
-                    "strategy": chair_assignment.strategy,
-                    "reason": chair_assignment.reason,
-                },
-            )
-        await self.audit_repo.log_action(
-            db, email_id, "drafted", "pipeline",
-            {"model_used": draft.model_used, "status": status},
-        )
-
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-
-        return PipelineResult(
-            email_id=email_id,
+        return _Computed(
             classification=classification,
             retrieved_chunks=retrieved_chunks,
             routing=routing,
             draft=draft,
-            processing_time_ms=elapsed_ms,
+            chair_assignment=chair_assignment,
             status=status,
+            record=record,
+            tracer=tracer,
+            start=start,
         )
+
+    async def _finalize(
+        self, db: AsyncSession, email_id: str, c: _Computed
+    ) -> PipelineResult:
+        """Flush the per-stage trace + write audit rows for a persisted email."""
+        # Now that the id exists, write the buffered per-stage trace records.
+        c.tracer.flush(email_id)
+
+        # --- audit each stage --------------------------------------------
+        await self.audit_repo.log_action(
+            db, email_id, "classified", "pipeline",
+            {"intent": c.classification.intent, "confidence": c.classification.confidence},
+        )
+        await self.audit_repo.log_action(
+            db, email_id, "retrieved", "pipeline",
+            {"chunk_ids": [ch.policy_id for ch in c.retrieved_chunks]},
+        )
+        await self.audit_repo.log_action(
+            db, email_id, "routed", "pipeline",
+            {"lane": c.routing.lane, "override_reason": c.routing.override_reason},
+        )
+        # Record the chair assignment (human-review only) — captures the intent +
+        # confidence at assignment time, which is exactly the signal a later
+        # reroute compares against (Phase 6A step 3 / future training data).
+        if c.chair_assignment and c.chair_assignment.chair_id is not None:
+            await self.audit_repo.log_action(
+                db, email_id, "chair_assigned", "pipeline",
+                {
+                    "chair_id": c.chair_assignment.chair_id,
+                    "chair_name": c.chair_assignment.chair_name,
+                    "intent": c.classification.intent,
+                    "confidence": c.classification.confidence,
+                    "is_fallback": c.chair_assignment.is_fallback,
+                    "matched_area": c.chair_assignment.matched_area,
+                    "strategy": c.chair_assignment.strategy,
+                    "reason": c.chair_assignment.reason,
+                },
+            )
+        await self.audit_repo.log_action(
+            db, email_id, "drafted", "pipeline",
+            {"model_used": c.draft.model_used, "status": c.status},
+        )
+
+        elapsed_ms = (time.perf_counter() - c.start) * 1000.0
+        return PipelineResult(
+            email_id=email_id,
+            classification=c.classification,
+            retrieved_chunks=c.retrieved_chunks,
+            routing=c.routing,
+            draft=c.draft,
+            processing_time_ms=elapsed_ms,
+            status=c.status,
+        )
+
+    async def process_email(
+        self, email_data: dict, db: AsyncSession
+    ) -> PipelineResult:
+        """Run an email through the full pipeline and persist it as a NEW row."""
+        c = await self._compute(email_data, db)
+        email = await self.email_repo.create_email(db, c.record)
+        return await self._finalize(db, str(email.id), c)
+
+    async def reprocess_email(self, db: AsyncSession, email) -> PipelineResult:
+        """Re-run the full pipeline for an EXISTING email and update it in place.
+
+        Backs the per-email "retry" action: the same classify → retrieve → route
+        → draft flow as ``process_email``, but the fresh outputs overwrite the
+        existing row (its id, ``received_at`` and any chair-edit history stay put)
+        instead of creating a new one. ``retrieval_context`` is refreshed too, and
+        the transient ``redrafting`` flag is cleared as the new draft lands.
+        """
+        email_data = {
+            "from": email.sender,
+            "sender_name": email.sender_name,
+            "subject": email.subject,
+            "body": email.body,
+        }
+        c = await self._compute(email_data, db)
+        await self.email_repo.update_email_outputs(db, str(email.id), c.record)
+        return await self._finalize(db, str(email.id), c)
