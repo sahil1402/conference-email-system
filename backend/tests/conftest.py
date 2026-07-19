@@ -26,6 +26,7 @@ def _hermetic_model_settings(monkeypatch):
     monkeypatch.setattr(settings, "MODEL_PROVIDER", "fallback")
     monkeypatch.setattr(settings, "LOCAL_MODEL_API_KEY", None)
     monkeypatch.setattr(settings, "QUERY_STRATEGY", "prefix")
+    monkeypatch.setattr(settings, "WARM_RETRIEVER_ON_STARTUP", False)
 
 
 @pytest.fixture

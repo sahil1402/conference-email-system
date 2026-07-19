@@ -4,6 +4,7 @@ This is the composition root: it wires together middleware, lifespan, and the
 API routers. Business logic lives in the pipeline / db modules — not here.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 import httpx
@@ -19,6 +20,8 @@ from app.api.v1.policies import router as policies_router
 from app.api.v1.retrieval import router as retrieval_router
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 API_VERSION = "0.1.0"
 SERVICE_NAME = "conference-email-system"
 
@@ -31,6 +34,14 @@ async def lifespan(app: FastAPI):
     piece (Piece 5) once the persistence layer exists.
     """
     # --- startup ---
+    if settings.WARM_RETRIEVER_ON_STARTUP:
+        try:
+            from app.pipeline.retriever import get_retriever
+
+            await get_retriever().retrieve("warmup", intent="", top_k=1)
+            logger.info("Retriever warmed at startup.")
+        except Exception as exc:  # non-fatal: fall back to lazy load on first request
+            logger.warning("Retriever warm-up skipped: %s", exc)
     yield
     # --- shutdown ---
 

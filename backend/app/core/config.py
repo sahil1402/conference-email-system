@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     # FAQ threshold itself.
     CALIBRATION_ENABLED: bool = False
 
+    # Warm the retriever (load the dense model + build the index) during app
+    # startup so the first real request doesn't pay the cold-start (which can
+    # exceed the frontend's request timeout). Tests set this False so the suite
+    # never loads embeddings.
+    WARM_RETRIEVER_ON_STARTUP: bool = True
+
     # Retrieval-query strategy (E003). "prefix" → legacy body[:300] query with
     # the intent token appended (no model call). "distill" → one model call
     # per email rewrites it into 1-3 compact policy-vocabulary queries AND
