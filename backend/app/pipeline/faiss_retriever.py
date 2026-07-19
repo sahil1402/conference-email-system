@@ -14,6 +14,7 @@ never at import time. Documents are loaded from the database via
 public ``retrieve`` signature stays sessionless like BM25's.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 
@@ -97,7 +98,11 @@ class FAISSRetriever:
             return
 
         texts = [f"{d['title']} {d['content']}".strip() for d in self._docs]
-        embeddings = self._encode(texts)
+        # Encode is CPU-bound (SentenceTransformer). Offload to a worker thread so
+        # a rebuild (triggered by a chair policy edit) does not block the single
+        # event loop — otherwise the live SSE queue stream stalls and the UI flips
+        # to "Reconnecting" for the duration of the rebuild.
+        embeddings = await asyncio.to_thread(self._encode, texts)
 
         index = faiss.IndexFlatIP(embeddings.shape[1])
         index.add(embeddings)
