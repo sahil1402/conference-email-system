@@ -1,0 +1,63 @@
+{
+  "n_tickets": 37,
+  "n_chunks": 93,
+  "n_tagged": 93,
+  "results": {
+    "tags_on|bm25": {
+      "hit@1": 0.405,
+      "recall@1": 0.27,
+      "ndcg@1": 0.405,
+      "hit@3": 0.676,
+      "recall@3": 0.523,
+      "ndcg@3": 0.477,
+      "hit@5": 0.838,
+      "recall@5": 0.658,
+      "ndcg@5": 0.541,
+      "mrr": 0.589,
+      "mean_gold_rank": 3.1,
+      "median_gold_rank": 2
+    },
+    "tags_on|fusion": {
+      "hit@1": 0.703,
+      "recall@1": 0.455,
+      "ndcg@1": 0.703,
+      "hit@3": 0.892,
+      "recall@3": 0.64,
+      "ndcg@3": 0.638,
+      "hit@5": 0.919,
+      "recall@5": 0.694,
+      "ndcg@5": 0.669,
+      "mrr": 0.8,
+      "mean_gold_rank": 2.1,
+      "median_gold_rank": 1
+    },
+    "tags_off|bm25": {
+      "hit@1": 0.405,
+      "recall@1": 0.27,
+      "ndcg@1": 0.405,
+      "hit@3": 0.703,
+      "recall@3": 0.536,
+      "ndcg@3": 0.488,
+      "hit@5": 0.838,
+      "recall@5": 0.649,
+      "ndcg@5": 0.546,
+      "mrr": 0.594,
+      "mean_gold_rank": 3.1,
+      "median_gold_rank": 2
+    },
+    "tags_off|fusion": {
+      "hit@1": 0.73,
+      "recall@1": 0.464,
+      "ndcg@1": 0.73,
+      "hit@3": 0.892,
+      "recall@3": 0.64,
+      "ndcg@3": 0.645,
+      "hit@5": 0.919,
+      "recall@5": 0.712,
+      "ndcg@5": 0.686,
+      "mrr": 0.814,
+      "mean_gold_rank": 2.0,
+      "median_gold_rank": 1
+    }
+  }
+}

@@ -124,7 +124,9 @@ class Chunker:
                     "title": f"{title}{suffix}",
                     "content": piece,
                     "source": source,
-                    "tags": tags,
+                    # [tags-dropped E007] auto-generated tags carry no retrieval
+                    # signal; column dropped. Restore for B4b (facet vocab).
+                    # "tags": tags,
                 }
             )
             self._next_id += 1

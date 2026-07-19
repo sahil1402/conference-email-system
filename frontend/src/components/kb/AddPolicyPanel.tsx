@@ -33,7 +33,7 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("");
-  const [tagsText, setTagsText] = useState("");
+  // [tags-dropped E007] const [tagsText, setTagsText] = useState("");
   const [retireKeys, setRetireKeys] = useState<Set<string>>(new Set());
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
@@ -95,17 +95,18 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          const tags = tagsText
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean);
+          // [tags-dropped E007] tags input removed; no longer sent.
+          // const tags = tagsText
+          //   .split(",")
+          //   .map((t) => t.trim())
+          //   .filter(Boolean);
 
           createPolicy.mutate(
             {
               title: title.trim(),
               content: content.trim(),
               category: category.trim() || null,
-              tags,
+              // [tags-dropped E007] tags,
               actor: ACTOR,
               retire_keys: Array.from(retireKeys),
             },
@@ -149,6 +150,7 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
               style={FIELD_STYLE}
             />
           </Field>
+          {/* [tags-dropped E007] Tags input removed (column dropped, no retrieval signal).
           <Field label="Tags (comma-separated, optional)">
             <input
               type="text"
@@ -158,6 +160,7 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
               style={FIELD_STYLE}
             />
           </Field>
+          */}
         </div>
 
         <div className="flex flex-wrap items-center gap-3 pt-1">

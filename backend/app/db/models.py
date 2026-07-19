@@ -293,12 +293,12 @@ class PolicyDocument(Base):
     category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Taxonomy tags (JSON list of strings) and the origin document. Both are
-    # populated from the knowledge-base JSON at seed time (Phase E). Nullable
-    # because the pre-Phase-E dummy rows carry neither until the DB is reseeded
-    # (Phase F). Adding ``tags`` here gives the DB-backed FAISS retriever tag
-    # parity with the file-backed BM25 retriever, which already reads tags.
-    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # [tags-dropped E007] The ``tags`` column is dropped by migration
+    # e7a9c1f2b3d4. E007 (docs/exp_tracking/E007_policy_tag_ablation.md) showed the
+    # auto-generated tags carry no retrieval signal; the whole tag path is commented
+    # out (not deleted) so B4b (a controlled facet vocab) can restore it — uncomment
+    # this column + re-add it in an up-migration.
+    # tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Phase F (layered KB): the layer/trust axis and the soft on/off lifecycle.

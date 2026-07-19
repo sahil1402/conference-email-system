@@ -148,7 +148,9 @@ def test_schema_has_all_tables_and_key_columns(pg_schema):
 
     # Phase-E columns that must survive the migration on Postgres.
     policy_cols = {c["name"] for c in insp.get_columns("policy_documents")}
-    assert {"tags", "source"} <= policy_cols
+    # [tags-dropped E007] tags column dropped by migration e7a9c1f2b3d4; source stays.
+    assert {"source"} <= policy_cols
+    assert "tags" not in policy_cols
     # audit context column is named "metadata" at the DB level.
     assert "metadata" in {c["name"] for c in insp.get_columns("audit_logs")}
     # the chair FK the queue/analytics aggregates depend on.
