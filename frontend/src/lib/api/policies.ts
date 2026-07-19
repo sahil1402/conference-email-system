@@ -64,3 +64,20 @@ export async function reactivatePolicy(key: string, actor: string): Promise<{ po
   const { data } = await apiClient.patch(`/policies/${encodeURIComponent(key)}/reactivate`, { actor });
   return data;
 }
+
+// --- Write: re-evaluate sweep ------------------------------------------------
+
+/** Response of POST /policies/reevaluate. */
+export interface ReevaluateResponse {
+  open: number;
+  scheduled: boolean;
+}
+
+/**
+ * Trigger one background re-draft sweep of the open tickets after KB edits.
+ * Returns immediately with the open-ticket count; the sweep runs server-side.
+ */
+export async function reevaluatePolicies(): Promise<ReevaluateResponse> {
+  const { data } = await apiClient.post<ReevaluateResponse>("/policies/reevaluate");
+  return data;
+}
