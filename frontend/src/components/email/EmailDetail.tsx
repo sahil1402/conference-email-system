@@ -23,6 +23,7 @@ import {
 import {
   Badge,
   ChairBadge,
+  ConfidenceBar,
   DiffLegend,
   DiffView,
   EmptyState,
@@ -33,6 +34,7 @@ import { PolicyDetailModal } from "./PolicyDetailModal";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
+  formatIntentLabel,
   laneBadgeVariant,
   laneLabel,
   statusBadgeVariant,
@@ -219,6 +221,33 @@ export function EmailDetail({
               <ChairBadge chairId={currentChairId} chairName={currentChairName} />
             )}
           </div>
+
+          {/* Intent classification + confidence (from the classifier/distiller). */}
+          {email.classification && (
+            <div
+              className="flex items-center gap-3 rounded-lg px-3 py-2"
+              style={{ backgroundColor: "var(--surface)" }}
+            >
+              <span
+                className="text-xs font-medium uppercase tracking-wide"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Intent
+              </span>
+              <span
+                className="text-sm font-semibold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {formatIntentLabel(email.classification.intent)}
+              </span>
+              <div className="ml-auto flex w-32 items-center">
+                <ConfidenceBar
+                  value={email.classification.confidence}
+                  showLabel
+                />
+              </div>
+            </div>
+          )}
         </header>
 
         {/* EMAIL BODY */}
