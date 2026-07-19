@@ -1,6 +1,11 @@
 # CLAUDE.md — Conference Email System
 # Project memory. Read fully at the start of every session before writing any code.
 
+## Codebase Memory (codebase-memory-mcp)
+When this MCP server is available, prefer graph tools over grep/Explore
+for structural code questions. Graph queries return precise results in
+a single tool call (~500 tokens) vs file-by-file exploration (~80K tokens).
+
 ## Project Overview
 AI-powered conference email management for AAAI/NeurIPS/ICML/ICLR. Two-lane workflow:
 - FAQ Lane: high-confidence emails auto-replied using retrieved policy text only
@@ -13,16 +18,20 @@ AI-powered conference email management for AAAI/NeurIPS/ICML/ICLR. Two-lane work
 ## Project Path
 `D:\USC\The Melady Labs\conference-email-system`
 
-## Branch / State Note (2026-07-17)
-`main` now includes Jiacheng's Phase 7 work (fast-forward merge, HEAD `c4ed3f5`).
-**Not on main yet** (implemented on `feature/production-hosting-v2`, cut from
-`main`, pending review/merge): the SQLite→PostgreSQL migration, the Docker
-Postgres `db` service, and full `SYNC_DATABASE_URL` removal. The `external_api`
-drafter is **deliberately excluded** on v2 (the `local` OpenAI-compatible
-provider covers that use case with zero new code). `main` today is still
-**SQLite-only**, drafter Literal has **no `external_api`**, and
-`SYNC_DATABASE_URL` is still present — do not mark these done for `main` until
-`feature/production-hosting-v2` is merged.
+## Branch / State Note (updated 2026-07-19)
+`main` includes Jiacheng's Phase 7 work (fast-forward merge, HEAD `c4ed3f5`)
+**and** the SQLite→PostgreSQL work formerly staged on
+`feature/production-hosting-v2` — it is now on `main` (verified in the current
+tree): the Docker Postgres `db` service (root `docker-compose.yml`), single-source
+`DATABASE_URL`, full `SYNC_DATABASE_URL` removal (grep-confirmed gone — only
+`ASYNC_DATABASE_URL` remains), the dialect-agnostic `json_extract` fix (both
+`email_repository` and `audit_repository`), and the PG test suite
+(`tests/test_postgres_migration.py`). Two nuances still hold: `config.py`'s
+`DATABASE_URL` **default** is deliberately SQLite (safe local/test/CI fallback;
+Docker Compose injects the Postgres URL for the container), and the
+`external_api` drafter remains **deliberately excluded** from the
+`MODEL_PROVIDER` Literal (the `local` OpenAI-compatible provider covers that use
+case with zero new code).
 
 ## Tech Stack
 | Layer | Technology |
@@ -97,7 +106,7 @@ docs/{PIPELINE_AUDIT.md, ZENDESK_API.md, DRAFTER_ADAPTER_SPEC.md, exp_tracking/E
 ```
 
 ## Testing Policy
-Every pipeline module has a test file. Tests run without real DB/API (mock both, or in-memory SQLite via StaticPool + ASGITransport). A hermetic autouse conftest fixture forces `MODEL_PROVIDER=fallback` / no key / `QUERY_STRATEGY=prefix` so the suite never hits a hosted model. Fast iteration: `-m "not ml"` (162) skips embedding-heavy tests; full gate = both halves (184). `cd backend && python -m pytest tests/ -v`
+Every pipeline module has a test file. Tests run without real DB/API (mock both, or in-memory SQLite via StaticPool + ASGITransport). A hermetic autouse conftest fixture forces `MODEL_PROVIDER=fallback` / no key / `QUERY_STRATEGY=prefix` so the suite never hits a hosted model. Fast iteration: `-m "not ml"` (217 passed, 6 skipped) skips embedding-heavy tests; full suite = 246 tests collected (adds 23 embedding-heavy `ml` tests). `cd backend && python -m pytest tests/ -v`
 
 ## Engineering Rules
 Always: read existing code first; keep modules separate + typed; DB access via repositories; test every pipeline module; update this file at end of session.
@@ -155,7 +164,7 @@ Jiacheng's track, now on `main`. Zero model names in code/docs (data quotes AAAI
 - `STYLE_GUIDE_PATH` default `None` → `../data/style_guide/style_guide_v2.md` (config.py + .env.example), commit **`c4ed3f5`**. Uses the backend/-relative `../data` form so it resolves from the app CWD (Docker WORKDIR /app/backend, local `cd backend`, pytest rootdir backend/) — a bare `data/...` would silently no-op. Drafter loader / v1 / manifest untouched. Verified: default loads the real 2789-char v2 guide into the system prompt; **184/184 tests pass**.
 - **Minor future cleanup (flagged, not done)**: `test_no_style_guide_by_default` in `test_drafter_local.py` is now a mild misnomer — it monkeypatches `STYLE_GUIDE_PATH=None` (testing the explicit-None override), which is still valid and passing, but the default is no longer None. Rename later (keep the intent), low priority.
 
-### 2026-07-17 (later) — SQLite→PostgreSQL migration — Complete on `feature/production-hosting-v2` (branch; NOT merged to main)
+### 2026-07-17 (later) — SQLite→PostgreSQL migration — Complete on `feature/production-hosting-v2` (branch; NOT merged to main) _(later landed on `main` — see Branch/State Note)_
 Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestrator`/`seed.py`/migration files unchanged). `external_api` drafter **deliberately excluded** (`MODEL_PROVIDER=local` at an OpenAI-compatible endpoint already covers it — zero new code).
 - **Docker Postgres**: `db` service `postgres:16-alpine` in `docker-compose.yml` — named volume `postgres-data`, `pg_isready` healthcheck, port bound **127.0.0.1:5432 only** (never 0.0.0.0). Backend `DATABASE_URL` built from the **same `${POSTGRES_*}`** values as `db` (single source of truth), asyncpg driver, `depends_on: db {condition: service_healthy}`. Dropped the now-dead SQLite `backend-db` volume/mount.
 - **`SYNC_DATABASE_URL` removed entirely** (config.py, docker-compose.yml, .env.example, stale Dockerfile comment) — grep-confirmed read nowhere; Alembic reads the async `DATABASE_URL` via `migrations/env.py`. config.py `DATABASE_URL` default kept SQLite (safe test/local/CI default; Postgres injected via compose env).
@@ -184,11 +193,12 @@ Read-only poller wiring the incremental cursor export into the live app. No pipe
 - **Config**: `ZENDESK_POLLING_ENABLED=False`, `ZENDESK_POLL_INTERVAL_SECONDS=300`, `ZENDESK_SYNC_START_TIME=1`, `ZENDESK_SYNC_PER_PAGE=100`, `ZENDESK_MAX_PAGES_PER_CYCLE=10`. Repos: `ZendeskSyncStateRepository` + `EmailRepository` gains `get_by_zendesk_ticket_id`/`apply_zendesk_fields`/`get_thread_comment_ids`/`add_thread_messages` (allow-listed columns).
 - **Migration `e3f5a7c9b1d2` (zendesk_sync_state) APPLIED to demo Postgres** (rebuild backend image → `alembic upgrade head`; startup also auto-runs it). Verified: head `d2e4f6a8b0c1 → e3f5a7c9b1d2`; **zendesk_sync_state exists (9 cols), 0 rows**; **47 demo emails still intact, all `source='toy_dataset'`**; email_thread_messages still 0.
 - **Tests**: 10 new (`tests/test_zendesk_adapter.py`, mocked httpx/provider/pipeline, in-memory async SQLite) — cursor resume, upsert create-then-update-without-reclassify, deleted filtered, comments→messages, initial-inquiry classified, single-ticket failure isolated, comment-fetch error isolated, and 3 shared-function wiring tests. Piece-3 round-trip test made head-agnostic (downgrades to pre-Zendesk rev, asserts both tables). Local suite **217 passed / 6 skipped / 0 failed** (the agreed gate; runtime image kept test-free per the Piece-3 decision — real stack verified via live app queries against Postgres).
-- **NOT done (read-only piece)**: no writes to Zendesk; no real sync run yet (`POST /zendesk/sync` would hit real Zendesk — awaiting go-ahead); polling stays off.
+- **NOT done (read-only piece)**: no writes to Zendesk; polling stays off.
+- **First live read-sync (2026-07-19)**: one controlled cycle via the shared `run_sync_cycle(db, max_pages=1)` (in-process — the HTTP endpoint doesn't expose `max_pages`/`per_page` yet; **decision 2026-07-19: Piece 5 will add both as optional query params on `POST /api/v1/zendesk/sync`** so controlled test runs can be HTTP-triggered, not just in-process) with a one-off `ZENDESK_SYNC_PER_PAGE=5` override. **SyncResult: seen 5 / created 5 / updated 0 / skipped_deleted 0 / classified 5 / failed 0, errors []**. The 5 oldest account tickets (ids 1–4, 6; all `status=closed`, `via` incl. `sample_ticket`/email/web — i.e. Zendesk's built-in SAMPLE tickets, not real user PII) landed as `source='zendesk'` Email rows (now 47 toy_dataset + 5 zendesk = 52). Thread messages stored with correct `public`/`author_role` (end-user + admin), plain+html bodies; initial-inquiry classification ran once per ticket (intents general_inquiry/review_assignment). `zendesk_sync_state` cursor advanced (`MTYyNzA2MzU1NC4wfHw0fA==`), `tickets_seen=5`, `last_error=None`. Zero writes to Zendesk (adapter is GET-only). **Decision 2026-07-19: the 5 `source='zendesk'` rows are intentionally retained as-is — real synced data kept in the DB for Piece 5 testing; do NOT delete.** Cleanup later if ever needed: `DELETE FROM emails WHERE source='zendesk'` (cascades to `email_thread_messages`).
 
 ---
 
-## Current Status — Phases 0–6C COMPLETE · Real-Corpus + Phase 7 COMPLETE (on main) · main 184/184 · `feature/production-hosting-v2` 192/192 · frontend build clean
+## Current Status — Phases 0–6C COMPLETE · Real-Corpus + Phase 7 COMPLETE · Zendesk Pieces 1–4 COMPLETE (all on main) · main 217 passed / 6 skipped (`-m "not ml"`; 246 collected) · `feature/production-hosting-v2` 192/192 · frontend build clean
 | Phase | Status | Summary |
 |---|---|---|
 | 0–2 | Complete | Scaffold/config/DB/frontend shell · data+pipeline+v1 API · full Next.js frontend |
@@ -198,15 +208,14 @@ Read-only poller wiring the incremental cursor export into the live app. No pipe
 | 6A/6B/6C | Complete | multi-chair routing (11 intents, chair_router, reassign) · frontend · paginated-aggregate bug-class fix |
 | Real-Corpus + 7 | Complete | 93-chunk real AAAI-27 corpus (56-chunk archived) · query distiller (`QUERY_STRATEGY`) · placeholder reply contract · send gate (`ALLOW_AUTO_SEND`) · style guide v2 · hermetic conftest · Zendesk groundwork |
 | Today | Complete | style_guide_v2 committed default (`c4ed3f5`) |
-| PG migration (v2) | Complete on branch (unmerged) | SQLite→Postgres on `feature/production-hosting-v2`: Docker `db` service (loopback, healthcheck) · single-source `DATABASE_URL` · `SYNC_DATABASE_URL` removed · dialect-agnostic JSON (`json_extract` fix, both sites) · PG test suite + CI Postgres · 192/192 · `external_api` excluded by design |
+| PG migration | Complete · on `main` | SQLite→Postgres now on `main`: Docker `db` service (loopback, healthcheck) · single-source `DATABASE_URL` · `SYNC_DATABASE_URL` removed · dialect-agnostic JSON (`json_extract` fix, both sites) · PG test suite (`test_postgres_migration.py`, skipif w/o `TEST_DATABASE_URL`) + CI Postgres · `config.py` default stays SQLite (local/test/CI fallback) · `external_api` excluded by design |
 | Zendesk Pieces 1–3 | Complete · migration applied | OAuth credential provider (`ZENDESK_AUTH_MODE`) · write-scope confirmed (ticket 22009) · ticket data model (`Email` extended + `email_thread_messages`, migration `d2e4f6a8b0c1` applied to demo Postgres, 47 emails intact) · local 207/207 · no pipeline module touched |
-| Zendesk Piece 4 | Complete · migration applied | Read-only ingest adapter (incremental cursor export → upsert by `zendesk_ticket_id` → thread messages → classify-once via `process_email`) · shared `run_sync_cycle` behind manual `POST /api/v1/zendesk/sync` + gated background loop (`ZENDESK_POLLING_ENABLED=False`) · `zendesk_sync_state` migration `e3f5a7c9b1d2` applied · local 217/217 · not yet run against real Zendesk |
+| Zendesk Piece 4 | Complete · migration applied · **first live sync ✓** | Read-only ingest adapter (incremental cursor export → upsert by `zendesk_ticket_id` → thread messages → classify-once via `process_email`) · shared `run_sync_cycle` behind manual `POST /api/v1/zendesk/sync` + gated background loop (`ZENDESK_POLLING_ENABLED=False`) · `zendesk_sync_state` migration `e3f5a7c9b1d2` applied · local 217/217 · **first live read-sync 2026-07-19: 5 Zendesk sample tickets → `source='zendesk'` rows, classified, 0 errors, cursor advanced; 5 rows retained for Piece 5 testing** |
 
 ## Open Blockers (active)
-- **Postgres / Docker-Postgres implemented on `feature/production-hosting-v2` — NOT merged** — SQLite→Postgres migration, Docker `db` service, single-source `DATABASE_URL`, `SYNC_DATABASE_URL` removal, `func.json_extract` fix, PG test suite + CI Postgres service all done on the branch (192/192); awaiting review/merge to `main`. `external_api` drafter **deliberately excluded** (the `local` OpenAI-compatible provider covers it). Until merged, `main` stays SQLite-only with `SYNC_DATABASE_URL` present and no `external_api` in the Literal.
 - **NCSA Delta GPU access pending** — the self-hosted (`MODEL_PROVIDER=local`) drafter is implemented + mock-tested but not run on real GPU hardware.
 - **Synthetic email dataset** — the policy corpus is real (93 chunks) but `data/emails/toy_dataset.json` and `data/eval/ground_truth.json` remain hand-written synthetic; eval numbers are on synthetic traffic. Real-ticket eval (Phase 7) uses gitignored PII data under `data/eval_real/`.
-- **Zendesk write-back + live run missing** — credential layer (OAuth read+write, verified), write-scope diagnostic, ticket schema, AND the read-only ingest adapter/poller (Pieces 1–4) now exist; `zendesk_sync_state` live on demo Postgres. Still missing: a real sync run against live Zendesk (adapter built + mock-tested only; `POST /zendesk/sync` not yet exercised, polling off) and the send endpoint driving `PUT /tickets/{id}` (Piece 5; send gate contract is live, transport is not).
+- **Zendesk write-back missing (read path proven live)** — credential layer (OAuth read+write, verified), write-scope diagnostic, ticket schema, AND the read-only ingest adapter/poller (Pieces 1–4) exist; `zendesk_sync_state` live on demo Postgres. **First live read-sync succeeded 2026-07-19** (5 sample tickets ingested + classified, 0 errors, cursor advanced — via in-process `run_sync_cycle`). Still missing: the HTTP `POST /api/v1/zendesk/sync` endpoint not yet exercised live (Piece 5 will add `max_pages`/`per_page` query params for controlled HTTP-triggered runs), background polling still off, and the send endpoint driving `PUT /tickets/{id}` (Piece 5; send gate contract is live, transport is not).
 
 ## Session Update Instructions
 At the end of EVERY session: (1) append/compress the phase entry under Phase History; (2) update the Current Status table; (3) run `type CLAUDE.md` to confirm the save; (4) report "CLAUDE.md updated — [phase] logged". Not optional — skipping it breaks project memory.
