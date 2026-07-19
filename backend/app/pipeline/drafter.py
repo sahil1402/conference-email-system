@@ -23,6 +23,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.pipeline.openai_compat import post_chat
 
 logger = logging.getLogger(__name__)
 
@@ -442,6 +443,10 @@ class ResponseDrafter:
                 {"role": "user", "content": user_prompt},
             ],
             "max_tokens": settings.DRAFTER_MAX_TOKENS,
+            # Determinism: temperature 0 (greedy) + a fixed seed. Reasoning models
+            # reject a non-default temperature — _post_chat drops it and retries.
+            "temperature": settings.DRAFTER_TEMPERATURE,
+            "seed": settings.DRAFTER_SEED,
             "stream": False,
         }
         # Bearer auth when the endpoint is a hosted keyed service; local
@@ -454,16 +459,7 @@ class ResponseDrafter:
 
         try:
             async with httpx.AsyncClient(timeout=_LOCAL_TIMEOUT_SECONDS) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                # Some hosted chat-completions services reject "max_tokens" in
-                # favor of "max_completion_tokens"; swap the key and retry once.
-                if (
-                    response.status_code == 400
-                    and "max_completion_tokens" in response.text
-                    and "max_tokens" in payload
-                ):
-                    payload["max_completion_tokens"] = payload.pop("max_tokens")
-                    response = await client.post(url, json=payload, headers=headers)
+                response = await post_chat(client, url, payload, headers)
                 response.raise_for_status()
                 data = response.json()
 

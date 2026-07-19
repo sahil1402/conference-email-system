@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     FAISS_MODEL_NAME: str = "all-MiniLM-L6-v2"
     # Max tokens the drafter may generate for a reply.
     DRAFTER_MAX_TOKENS: int = 500
+    # Determinism for the OpenAI-compatible drafter/distiller. temperature 0 =
+    # greedy (most reproducible). Reasoning models that only allow the default
+    # temperature reject 0 with a 400 — the caller drops temperature and retries,
+    # so this stays safe across models. A fixed seed makes outputs reproducible
+    # best-effort for the same input+model (not a hard guarantee).
+    DRAFTER_TEMPERATURE: float = 0.0
+    DRAFTER_SEED: int = 7
     # Model the drafter calls when MODEL_PROVIDER == "anthropic_api". Never
     # hardcode a model id in source — read it from here so it stays swappable.
     DRAFT_MODEL: str = "claude-sonnet-5"
