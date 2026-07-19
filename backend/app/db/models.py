@@ -7,7 +7,7 @@ into their own tables later without changing the Pydantic contracts.
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, JSON, DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, JSON, DateTime, Float, ForeignKey, String, Text, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -49,7 +49,7 @@ class Email(Base):
     # the "re-drafting…" badge; set when queued, cleared when the new draft lands.
     retrieval_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     redrafting: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="0", index=True
+        Boolean, nullable=False, default=False, server_default=false(), index=True
     )
 
     # Which chair a human-review email is assigned to (Phase 6A). Nullable:

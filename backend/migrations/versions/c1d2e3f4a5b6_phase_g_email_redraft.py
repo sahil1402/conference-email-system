@@ -29,7 +29,10 @@ def upgrade() -> None:
             "redrafting",
             sa.Boolean(),
             nullable=False,
-            server_default=sa.text("0"),
+            # Dialect-portable boolean default: renders `0` on SQLite and `false`
+            # on Postgres (a bare `0`/`text("0")` is an integer default Postgres
+            # rejects for a boolean column).
+            server_default=sa.false(),
         ),
     )
     op.create_index("ix_emails_redrafting", "emails", ["redrafting"])
