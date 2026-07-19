@@ -13,6 +13,7 @@ import {
   useRetryEmail,
 } from "@/hooks/useEmailActions";
 import { useChairs } from "@/hooks/useChairs";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   EmailListItem,
   EmailDetail,
@@ -35,6 +36,7 @@ export default function QueuePage() {
   const { mutateAsync: reassignChairAsync, isPending: isReassigning } =
     useReassignChair();
   const { mutate: retry } = useRetryEmail();
+  const { allowAutoSend } = useAppConfig();
   const { chairs, byId: chairsById } = useChairs();
 
   const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
@@ -186,6 +188,7 @@ export default function QueuePage() {
               })
             }
             onRetry={() => retry(selectedEmail.id)}
+            allowAutoSend={allowAutoSend}
           />
         ) : (
           <div className="flex h-full items-center justify-center">

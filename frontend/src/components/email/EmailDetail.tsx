@@ -66,6 +66,12 @@ interface EmailDetailProps {
   onReassignChair: (chairId: number, reason: string) => Promise<unknown>;
   /** Retry: re-run the full pipeline on this email and regenerate the draft. */
   onRetry: () => void;
+  /**
+   * Whether the backend may auto-send (ALLOW_AUTO_SEND). Only when true AND the
+   * email is FAQ-lane is it "auto-replied"; otherwise every email waits on a
+   * human decision, so the approve/send controls are shown.
+   */
+  allowAutoSend: boolean;
   isApproving: boolean;
   isRerouting: boolean;
   isReassigning: boolean;
@@ -84,6 +90,7 @@ export function EmailDetail({
   onReroute,
   onReassignChair,
   onRetry,
+  allowAutoSend,
   isApproving,
   isRerouting,
   isReassigning,
@@ -117,7 +124,11 @@ export function EmailDetail({
   // The original AI/template draft (before any chair edit) to diff against.
   const originalDraft = draft?.original_draft_text ?? draft?.draft_text ?? "";
   const draftChanged = hasMeaningfulDiff(originalDraft, editedDraft);
-  const canAct = lane === "human_review";
+  // An email is "auto-replied" only when the backend may auto-send AND it's
+  // FAQ-lane. Otherwise every email — FAQ included — waits on a human decision,
+  // so the chair can act on it (approve/send/reroute).
+  const isAutoReplied = lane === "faq" && allowAutoSend;
+  const canAct = !isAutoReplied;
 
   // Live placeholder check on the CURRENT edit — approval unblocks the moment
   // the chair resolves the last [CHAIR: ...] token (backend enforces the same).
@@ -193,7 +204,7 @@ export function EmailDetail({
               color: "var(--accent)",
             }}
           >
-            This ticket is being re-drafted after a knowledge-base change…
+            Re-drafting…
           </div>
         )}
         {/* HEADER */}
@@ -388,7 +399,7 @@ export function EmailDetail({
           backgroundColor: "var(--surface)",
         }}
       >
-        {lane === "faq" ? (
+        {isAutoReplied ? (
           <div className="flex flex-wrap items-center gap-3">
             <Badge variant="success" size="md">
               <Zap className="h-3 w-3" /> Auto-replied
