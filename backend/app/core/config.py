@@ -60,10 +60,10 @@ class Settings(BaseSettings):
     # FAQ threshold itself.
     CALIBRATION_ENABLED: bool = False
 
-    # Warm the retriever (load the dense model + build the index) during app
-    # startup so the first real request doesn't pay the cold-start (which can
-    # exceed the frontend's request timeout). Tests set this False so the suite
-    # never loads embeddings.
+    # Warm the retriever during app startup (build its index — and for the
+    # faiss/fusion backends, load the dense embedding model) so the first real
+    # request doesn't pay the cold-start, which can exceed the frontend's
+    # request timeout. Tests set this False so the suite never loads embeddings.
     WARM_RETRIEVER_ON_STARTUP: bool = True
 
     # Retrieval-query strategy (E003). "prefix" → legacy body[:300] query with

@@ -30,8 +30,9 @@ SERVICE_NAME = "conference-email-system"
 async def lifespan(app: FastAPI):
     """Application lifespan handler.
 
-    Empty for now. DB engine setup / disposal will be wired here in a later
-    piece (Piece 5) once the persistence layer exists.
+    On startup, optionally warm the retriever (build its index / load the dense
+    model for faiss/fusion) so the first real request doesn't pay the cold-start
+    latency. Guarded by ``WARM_RETRIEVER_ON_STARTUP`` and non-fatal.
     """
     # --- startup ---
     if settings.WARM_RETRIEVER_ON_STARTUP:
