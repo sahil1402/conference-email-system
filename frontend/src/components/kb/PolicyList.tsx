@@ -1,6 +1,10 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
+
 import { Badge, Button } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import type { PolicyDocument } from "@/types";
 
 interface PolicyListProps {
@@ -18,6 +22,17 @@ export function PolicyList({
   onReactivate,
   pendingKey,
 }: PolicyListProps) {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(key: string) {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   return (
     <ul className="flex flex-col gap-3">
       {policies.map((policy) => (
@@ -27,6 +42,8 @@ export function PolicyList({
           onRetire={onRetire}
           onReactivate={onReactivate}
           isPending={pendingKey === policy.policy_key}
+          isExpanded={expandedKeys.has(policy.policy_key)}
+          onToggleExpanded={() => toggleExpanded(policy.policy_key)}
         />
       ))}
     </ul>
@@ -38,11 +55,15 @@ function PolicyRow({
   onRetire,
   onReactivate,
   isPending,
+  isExpanded,
+  onToggleExpanded,
 }: {
   policy: PolicyDocument;
   onRetire: (key: string) => void;
   onReactivate: (key: string) => void;
   isPending: boolean;
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
 }) {
   const isActive = policy.status === "active";
 
@@ -113,13 +134,29 @@ function PolicyRow({
         {policy.title}
       </p>
 
-      {/* Line 3: content, truncated */}
+      {/* Line 3: content — truncated unless expanded */}
       <p
-        className="mt-1 line-clamp-2 text-sm"
+        className={cn("mt-1 text-sm", !isExpanded && "line-clamp-2")}
         style={{ color: "var(--text-secondary)" }}
       >
         {policy.content}
       </p>
+
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        aria-expanded={isExpanded}
+        className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
+        style={{ color: "var(--accent)" }}
+      >
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 transition-transform duration-200",
+            isExpanded && "rotate-180"
+          )}
+        />
+        {isExpanded ? "Show less" : "Show more"}
+      </button>
     </li>
   );
 }

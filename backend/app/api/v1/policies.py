@@ -149,4 +149,9 @@ async def reactivate_policy(
 @router.post("/similar")
 async def similar_policies(payload: SimilarRequest) -> dict:
     hits = await get_retriever().retrieve(f"{payload.title} {payload.content}", intent="", top_k=5)
-    return {"similar": [{"policy_key": h.policy_id, "title": h.title, "score": h.score} for h in hits]}
+    return {
+        "similar": [
+            {"policy_key": h.policy_id, "title": h.title, "score": h.score, "content": h.content}
+            for h in hits
+        ]
+    }

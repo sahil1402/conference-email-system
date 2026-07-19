@@ -377,6 +377,7 @@ export interface SimilarPolicy {
   policy_key: string;
   title: string;
   score: number;
+  content: string;
 }
 
 export interface PolicyListParams {

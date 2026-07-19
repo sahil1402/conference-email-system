@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 
 import { ACTOR, useCreatePolicy, useFindSimilar } from "@/hooks";
 import { Button, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import type { ApiError } from "@/types";
 
 const FIELD_STYLE = {
@@ -34,6 +35,7 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
   const [category, setCategory] = useState("");
   const [tagsText, setTagsText] = useState("");
   const [retireKeys, setRetireKeys] = useState<Set<string>>(new Set());
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   const findSimilar = useFindSimilar();
   const createPolicy = useCreatePolicy();
@@ -48,6 +50,15 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
 
   function toggleRetireKey(key: string) {
     setRetireKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleExpanded(key: string) {
+    setExpandedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -216,37 +227,68 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                 ? "Related existing policies"
                 : "No related policies found."}
             </p>
-            {similar.map((policy) => (
-              <div
-                key={policy.policy_key}
-                className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-                style={{ borderColor: "var(--border-subtle)" }}
-              >
-                <div className="min-w-0 flex-1">
-                  <p
-                    className="truncate text-sm"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {policy.title}
-                  </p>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {policy.policy_key} · score {policy.score.toFixed(2)}
-                  </p>
-                </div>
-                <label
-                  className="flex shrink-0 items-center gap-2 text-xs"
-                  style={{ color: "var(--text-secondary)" }}
+            {similar.map((policy) => {
+              const isExpanded = expandedKeys.has(policy.policy_key);
+              return (
+                <div
+                  key={policy.policy_key}
+                  className="rounded-md border px-3 py-2"
+                  style={{ borderColor: "var(--border-subtle)" }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={retireKeys.has(policy.policy_key)}
-                    onChange={() => toggleRetireKey(policy.policy_key)}
-                    className="h-4 w-4"
-                  />
-                  supersede (retire this)
-                </label>
-              </div>
-            ))}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className="truncate text-sm"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {policy.title}
+                      </p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        {policy.policy_key} · score {policy.score.toFixed(2)}
+                      </p>
+                    </div>
+                    <label
+                      className="flex shrink-0 items-center gap-2 text-xs"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={retireKeys.has(policy.policy_key)}
+                        onChange={() => toggleRetireKey(policy.policy_key)}
+                        className="h-4 w-4"
+                      />
+                      supersede (retire this)
+                    </label>
+                  </div>
+
+                  <p
+                    className={cn(
+                      "mt-1.5 text-xs leading-relaxed",
+                      !isExpanded && "line-clamp-2"
+                    )}
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    {policy.content}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(policy.policy_key)}
+                    aria-expanded={isExpanded}
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "h-3.5 w-3.5 transition-transform duration-200",
+                        isExpanded && "rotate-180"
+                      )}
+                    />
+                    {isExpanded ? "Show less" : "Show more"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </form>
