@@ -210,3 +210,45 @@ async def test_clear_stale_redrafting_flags(session):
     assert cleared == 1
     rows = await EmailRepository().get_open_tickets(session)
     assert all(r.redrafting is False for r in rows)
+
+
+async def test_empty_retrieved_ids_with_context_stays_eligible(session, monkeypatch):
+    # A real ingest that matched nothing (context PRESENT, retrieved_ids empty) MUST
+    # stay eligible: a later KB addition that now surfaces a policy should re-draft it.
+    # Guards the I1 discriminator (retrieval_context is None), NOT "not retrieved_ids".
+    e = _open_email(retrieved_ids=[])
+    session.add(e)
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_777"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["redrafted"] == 1
+    assert stats["skipped_no_context"] == 0
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    assert reloaded.retrieval_context["retrieved_ids"] == ["policy_777"]
+
+
+async def test_save_refusal_mid_sweep_clears_flag_and_contends(session, monkeypatch):
+    # Simulate the chair approving between claim and save: save_redraft refuses (0-row
+    # conditional UPDATE). The sweep must clear the stray flag it set and count the
+    # ticket as contended, never as redrafted, and never clobber the draft.
+    session.add(_open_email())
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+
+    async def _refuse(*a, **k):
+        return None
+
+    monkeypatch.setattr(EmailRepository, "save_redraft", _refuse)
+
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["redrafted"] == 0
+    assert stats["skipped_contended"] == 1
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    assert reloaded.redrafting is False        # stray flag cleared
+    assert reloaded.draft["draft_text"] == "old"

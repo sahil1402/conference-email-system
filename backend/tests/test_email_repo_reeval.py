@@ -135,3 +135,17 @@ async def test_save_redraft_refuses_when_approved_after_claim(session):
     assert saved is None                       # status no longer draft_generated
     await session.refresh(e)
     assert e.draft["draft_text"] == "old"      # chair's approved content preserved
+
+
+async def test_clear_all_redrafting_flags(session):
+    repo = EmailRepository()
+    stuck = await _make_email(session, EmailStatus.DRAFT_GENERATED.value)
+    await repo.set_redrafting(session, str(stuck.id), True)
+    clean = await _make_email(session, EmailStatus.DRAFT_GENERATED.value)
+
+    cleared = await repo.clear_all_redrafting_flags(session)
+    assert cleared == 1                        # only the one set flag
+    await session.refresh(stuck)
+    await session.refresh(clean)
+    assert stuck.redrafting is False
+    assert clean.redrafting is False

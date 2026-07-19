@@ -13,11 +13,8 @@ needless re-draft.
 
 import logging
 
-from sqlalchemy import update
-
 from app.core.config import settings
 from app.db.database import async_session_factory
-from app.db.models import Email
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.drafter import ResponseDrafter
 from app.pipeline.retriever import get_retriever
@@ -47,11 +44,7 @@ async def clear_stale_redrafting_flags(session_factory=async_session_factory) ->
     on every future run. Returns the number of rows cleared.
     """
     async with session_factory() as db:
-        result = await db.execute(
-            update(Email).where(Email.redrafting.is_(True)).values(redrafting=False)
-        )
-        await db.commit()
-        return result.rowcount or 0
+        return await EmailRepository().clear_all_redrafting_flags(db)
 
 
 async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict:

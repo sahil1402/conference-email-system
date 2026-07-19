@@ -132,6 +132,18 @@ class EmailRepository:
         await db.refresh(email)
         return email
 
+    async def clear_all_redrafting_flags(self, db: AsyncSession) -> int:
+        """Clear the ``redrafting`` flag on every row; returns rows cleared.
+
+        Used at process startup to recover flags stranded by a crash mid-sweep — a
+        fresh process has no in-flight sweep, so any set flag is stale.
+        """
+        result = await db.execute(
+            update(Email).where(Email.redrafting.is_(True)).values(redrafting=False)
+        )
+        await db.commit()
+        return result.rowcount or 0
+
     async def claim_for_redraft(self, db: AsyncSession, email_id: str) -> bool:
         """Atomically claim an open ticket for re-drafting.
 
