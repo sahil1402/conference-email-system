@@ -165,6 +165,19 @@ Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestra
 - **Demo data (volume state only, not repo)**: this branch's Postgres volume reset to the full **47-email** demo set — 30 `toy_dataset.json` via `seed.py` + 17 `toy_multichair.json` via the live `/ingest` pipeline (real `local` drafter). Citations draw from the real 93-chunk corpus (`policy_101`–`192`); per-chair Program 26 / D&E 8 / Local Arr 8 / Pub-Spon 4 / General **0** (expected — general_inquiry FAQ-lane + low-signal → Local Arr).
 - **Proposed commit (NOT committed)**: `feat(db): migrate SQLite→PostgreSQL — Docker Postgres service, single-source DATABASE_URL, drop SYNC_DATABASE_URL, dialect-agnostic JSON accessors, PG test suite + CI Postgres service`
 
+### 2026-07-19 — Retrieval rework: embed leaf title (E005) — branch `retrieval-rework` (off main, unmerged)
+KB-rework audit (`docs/RETRIEVAL_REWORK.md`) found the dense corpus barely separable —
+82% of chunks had a >0.7 near-twin, almost all intra-document — because the repeated
+`<Doc> — ` title prefix is embedded into every sibling chunk. **E005**
+(`docs/exp_tracking/E005_embed_representation.md`, harness `scripts/e005_embed_repr.py`
+on the 37 real-gold tickets, distilled+fusion) confirmed dropping the prefix from the
+*embedded* string helps: dense hit@1 .514→.649 / MRR .665→.756; production fusion hit@1
+.649→.703, gold rank 2.3→2.1, no regression; leaf beat content-only. Shipped:
+`faiss_retriever.py` `_embed_text`/`_leaf_title` (stored `title` unchanged → BM25 +
+citations keep the full path; dense-embed-only). Tests +2. Doc-design menu (Ideas A–H,
+tags/intent/chunking audit) in `docs/RETRIEVAL_REWORK.md`; next: dedup cross-doc twins,
+question-gen multi-vector index (E006).
+
 ---
 
 ## Current Status — Phases 0–6C COMPLETE · Real-Corpus + Phase 7 COMPLETE (on main) · main 184/184 · `feature/production-hosting-v2` 192/192 · frontend build clean
@@ -178,6 +191,7 @@ Infra + data-only; the six pipeline modules untouched (`chair_router`/`orchestra
 | Real-Corpus + 7 | Complete | 93-chunk real AAAI-27 corpus (56-chunk archived) · query distiller (`QUERY_STRATEGY`) · placeholder reply contract · send gate (`ALLOW_AUTO_SEND`) · style guide v2 · hermetic conftest · Zendesk groundwork |
 | Today | Complete | style_guide_v2 committed default (`c4ed3f5`) |
 | PG migration (v2) | Complete on branch (unmerged) | SQLite→Postgres on `feature/production-hosting-v2`: Docker `db` service (loopback, healthcheck) · single-source `DATABASE_URL` · `SYNC_DATABASE_URL` removed · dialect-agnostic JSON (`json_extract` fix, both sites) · PG test suite + CI Postgres · 192/192 · `external_api` excluded by design |
+| Retrieval rework (E005) | Complete on branch (unmerged) | `retrieval-rework` (off main): embed **leaf title** not full path (`faiss_retriever._embed_text`) — E005 real-gold A/B, dense hit@1 .514→.649 / fusion hit@1 .649→.703, no regression; dense-embed-only (title/BM25/citations unchanged). Design menu in `docs/RETRIEVAL_REWORK.md` |
 
 ## Open Blockers (active)
 - **Postgres / Docker-Postgres implemented on `feature/production-hosting-v2` — NOT merged** — SQLite→Postgres migration, Docker `db` service, single-source `DATABASE_URL`, `SYNC_DATABASE_URL` removal, `func.json_extract` fix, PG test suite + CI Postgres service all done on the branch (192/192); awaiting review/merge to `main`. `external_api` drafter **deliberately excluded** (the `local` OpenAI-compatible provider covers it). Until merged, `main` stays SQLite-only with `SYNC_DATABASE_URL` present and no `external_api` in the Literal.

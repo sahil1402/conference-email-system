@@ -20,7 +20,7 @@ from httpx import ASGITransport
 
 import main
 import app.pipeline.retriever as retriever_module
-from app.pipeline.faiss_retriever import FAISSRetriever
+from app.pipeline.faiss_retriever import FAISSRetriever, _embed_text, _leaf_title
 from app.pipeline.retriever import PolicyRetriever, RetrievedChunk
 
 # Heavy ML module (embedding model loads/training) — deselected by -m 'not ml'.
@@ -112,6 +112,31 @@ async def client():
     transport = ASGITransport(app=main.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+# ---------------------------------------------------------------------------
+# Embed representation (E005): the dense vector drops the repeated doc prefix
+# ---------------------------------------------------------------------------
+def test_leaf_title_drops_doc_prefix():
+    # Contextual "Doc — Section — Subsection" path: keep everything after the doc.
+    assert _leaf_title(
+        "AAAI-27 Main Technical Track: Call for Papers — Multiple Submissions Policy"
+    ) == "Multiple Submissions Policy"
+    assert _leaf_title("Doc — Section — Subsection") == "Section — Subsection"
+    # A title with no doc prefix is returned whole (never emptied).
+    assert _leaf_title("Paper Submission Deadline") == "Paper Submission Deadline"
+
+
+def test_embed_text_uses_leaf_and_content():
+    doc = {
+        "title": "AAAI Code of Professional Ethics and Conduct — Reviewer Confidentiality",
+        "content": "Reviewers must maintain confidentiality of submitted materials.",
+    }
+    text = _embed_text(doc)
+    # Distinctive leaf + content are embedded; the repeated doc prefix is NOT.
+    assert text.startswith("Reviewer Confidentiality")
+    assert doc["content"] in text
+    assert "AAAI Code of Professional Ethics and Conduct" not in text
 
 
 # ---------------------------------------------------------------------------
