@@ -132,6 +132,29 @@ class Settings(BaseSettings):
     # unreadable path) to leave the prompt unchanged.
     STYLE_GUIDE_PATH: str | None = "../data/style_guide/style_guide_v2.md"
 
+    # --- Zendesk integration (credential layer) ---------------------------
+    # Auth mode selects the credential provider via
+    # app.integrations.zendesk.get_zendesk_credential_provider — the same
+    # config-flag swap convention as the pipeline seams. "token" → API-token
+    # (HTTP Basic) auth; "oauth" → client_credentials OAuth (proven against the
+    # incremental ticket pull). Callers depend only on the provider interface,
+    # never on how credentials are obtained.
+    ZENDESK_AUTH_MODE: Literal["token", "oauth"] = "token"
+    # Account subdomain, e.g. "aaai" → https://aaai.zendesk.com. Required by both
+    # auth modes (it forms the REST base URL and the OAuth token endpoint host).
+    ZENDESK_SUBDOMAIN: str | None = None
+    # API-token (Basic) auth fields — required only when ZENDESK_AUTH_MODE=token.
+    # Zendesk Basic auth uses username "{email}/token" with the API token as the
+    # password.
+    ZENDESK_EMAIL: str | None = None
+    ZENDESK_API_TOKEN: str | None = None
+    # OAuth client_credentials fields — required only when
+    # ZENDESK_AUTH_MODE=oauth. The client secret is read here (Settings/.env),
+    # never from a checked-in secrets file. Scope defaults to read-only.
+    ZENDESK_OAUTH_CLIENT_ID: str | None = None
+    ZENDESK_OAUTH_CLIENT_SECRET: str | None = None
+    ZENDESK_OAUTH_SCOPE: str = "read"
+
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
     # Primary async connection string used by BOTH the app's async engine and
