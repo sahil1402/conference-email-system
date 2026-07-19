@@ -139,6 +139,47 @@ class Settings(BaseSettings):
     # unreadable path) to leave the prompt unchanged.
     STYLE_GUIDE_PATH: str | None = "../data/style_guide/style_guide_v2.md"
 
+    # --- Zendesk integration (credential layer) ---------------------------
+    # Auth mode selects the credential provider via
+    # app.integrations.zendesk.get_zendesk_credential_provider — the same
+    # config-flag swap convention as the pipeline seams. "token" → API-token
+    # (HTTP Basic) auth; "oauth" → client_credentials OAuth (proven against the
+    # incremental ticket pull). Callers depend only on the provider interface,
+    # never on how credentials are obtained.
+    ZENDESK_AUTH_MODE: Literal["token", "oauth"] = "token"
+    # Account subdomain, e.g. "aaai" → https://aaai.zendesk.com. Required by both
+    # auth modes (it forms the REST base URL and the OAuth token endpoint host).
+    ZENDESK_SUBDOMAIN: str | None = None
+    # API-token (Basic) auth fields — required only when ZENDESK_AUTH_MODE=token.
+    # Zendesk Basic auth uses username "{email}/token" with the API token as the
+    # password.
+    ZENDESK_EMAIL: str | None = None
+    ZENDESK_API_TOKEN: str | None = None
+    # OAuth client_credentials fields — required only when
+    # ZENDESK_AUTH_MODE=oauth. The client secret is read here (Settings/.env),
+    # never from a checked-in secrets file. Scope defaults to read-only.
+    ZENDESK_OAUTH_CLIENT_ID: str | None = None
+    ZENDESK_OAUTH_CLIENT_SECRET: str | None = None
+    ZENDESK_OAUTH_SCOPE: str = "read"
+
+    # --- Zendesk ingest poller (Piece 4, read-only) -----------------------
+    # Master switch for the background polling loop. Default False so the loop
+    # NEVER starts on its own (tests, CI, or any environment) unless explicitly
+    # enabled — the manual POST /api/v1/zendesk/sync endpoint works regardless.
+    ZENDESK_POLLING_ENABLED: bool = False
+    # Seconds between background poll cycles (incremental export tolerates a
+    # 2–5 min cadence comfortably within its 10 req/min ceiling; see §7).
+    ZENDESK_POLL_INTERVAL_SECONDS: int = 300
+    # Unix epoch for the VERY FIRST incremental call (must be ≥ 1 min in the
+    # past). Later calls use the stored cursor. Default 1 = "everything the
+    # account has"; set a recent epoch to bound an initial live pull.
+    ZENDESK_SYNC_START_TIME: int = 1
+    # Page size for the incremental export (max 1000; kept modest by default).
+    ZENDESK_SYNC_PER_PAGE: int = 100
+    # Safety bound on pages fetched per cycle so a cold start can't pull the
+    # whole account (and hammer per-ticket comment fetches) in one pass.
+    ZENDESK_MAX_PAGES_PER_CYCLE: int = 10
+
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
     # Primary async connection string used by BOTH the app's async engine and

@@ -4,6 +4,7 @@ This is the composition root: it wires together middleware, lifespan, and the
 API routers. Business logic lives in the pipeline / db modules — not here.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,7 @@ from app.api.v1.chairs import router as chairs_router
 from app.api.v1.emails import router as emails_router
 from app.api.v1.policies import router as policies_router
 from app.api.v1.retrieval import router as retrieval_router
+from app.api.v1.zendesk import router as zendesk_router
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -54,8 +56,28 @@ async def lifespan(app: FastAPI):
             logger.info("Cleared %d stale redrafting flag(s) at startup.", cleared)
     except Exception as exc:  # non-fatal
         logger.warning("Could not clear stale redrafting flags: %s", exc)
+
+    # Background Zendesk poll loop — started ONLY when explicitly enabled, so it
+    # never runs in tests/CI or a default deployment. Both this loop and the
+    # manual /api/v1/zendesk/sync endpoint call the same run_sync_cycle.
+    zendesk_stop: asyncio.Event | None = None
+    zendesk_task: asyncio.Task | None = None
+    if settings.ZENDESK_POLLING_ENABLED:
+        from app.integrations.zendesk.adapter import zendesk_poll_loop
+
+        zendesk_stop = asyncio.Event()
+        zendesk_task = asyncio.create_task(zendesk_poll_loop(zendesk_stop))
+        logger.info("Zendesk background polling enabled.")
+
     yield
     # --- shutdown ---
+    if zendesk_task is not None:
+        zendesk_stop.set()
+        zendesk_task.cancel()
+        try:
+            await zendesk_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -87,6 +109,7 @@ app.include_router(training_router, prefix="/api/v1")
 app.include_router(retrieval_router, prefix="/api/v1")
 app.include_router(chairs_router, prefix="/api/v1")
 app.include_router(policies_router, prefix="/api/v1")
+app.include_router(zendesk_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])

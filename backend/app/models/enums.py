@@ -54,3 +54,23 @@ class UserRole(str, Enum):
     CHAIR = "CHAIR"
     REVIEWER = "REVIEWER"
     ADMIN = "ADMIN"
+
+
+class EmailSource(str, Enum):
+    """Origin of an email/ticket record (which ingestion path created it)."""
+
+    TOY_DATASET = "toy_dataset"
+    ZENDESK = "zendesk"
+
+
+class MessageAuthorRole(str, Enum):
+    """Zendesk comment author role — how a thread message's writer is classed.
+
+    Mirrors Zendesk's user roles (see ZENDESK_API.md §6): ``end-user`` is the
+    requester/author; ``agent``/``admin`` are chairs/staff. This is how a chair's
+    reply is told apart from the author's message inside a thread.
+    """
+
+    END_USER = "end-user"
+    AGENT = "agent"
+    ADMIN = "admin"

@@ -14,8 +14,23 @@ to "not found" rather than an error.
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Email
+from app.db.models import Email, EmailThreadMessage
 from app.models.enums import EmailStatus
+
+# Zendesk-origin columns the ingest adapter may set/patch on an Email row.
+# Kept as an allow-list so ``apply_zendesk_fields`` can never write an arbitrary
+# attribute, mirroring the guarded key set in ``update_email_status``.
+_ZENDESK_FIELDS = frozenset(
+    {
+        "source",
+        "zendesk_ticket_id",
+        "zendesk_requester_id",
+        "zendesk_status",
+        "zendesk_created_at",
+        "zendesk_updated_at",
+        "last_processed_comment_id",
+    }
+)
 
 
 def _queue_conditions(
@@ -172,6 +187,30 @@ class EmailRepository:
         await db.refresh(email)
         return email
 
+    async def apply_zendesk_fields(
+        self, db: AsyncSession, email_id: str, fields: dict
+    ) -> Email | None:
+        """Patch the Zendesk-origin columns on an existing Email row.
+
+        Only keys in :data:`_ZENDESK_FIELDS` are applied (others ignored), so a
+        caller can't smuggle in an arbitrary column write. Used by the ingest
+        adapter to decorate the row the orchestrator created (source, ticket id,
+        status, timestamps, last-processed comment). Returns ``None`` if absent.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(select(Email).where(Email.id == pk))
+        email = result.scalar_one_or_none()
+        if email is None:
+            return None
+        for key, value in fields.items():
+            if key in _ZENDESK_FIELDS:
+                setattr(email, key, value)
+        await db.commit()
+        await db.refresh(email)
+        return email
+
     async def claim_for_redraft(self, db: AsyncSession, email_id: str) -> bool:
         """Atomically claim an open ticket for re-drafting.
 
@@ -264,7 +303,55 @@ class EmailRepository:
         )
         return refreshed.scalar_one_or_none()
 
+    async def get_thread_comment_ids(
+        self, db: AsyncSession, email_id: str
+    ) -> set[int]:
+        """Return the set of Zendesk comment ids already stored for an email.
+
+        Lets the adapter add only genuinely new comments (dedup by
+        ``zendesk_comment_id``) instead of re-inserting the whole thread each poll.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return set()
+        result = await db.execute(
+            select(EmailThreadMessage.zendesk_comment_id).where(
+                EmailThreadMessage.email_id == pk,
+                EmailThreadMessage.zendesk_comment_id.is_not(None),
+            )
+        )
+        return {cid for cid in result.scalars().all() if cid is not None}
+
+    async def add_thread_messages(
+        self, db: AsyncSession, email_id: str, messages: list[dict]
+    ) -> int:
+        """Bulk-insert thread messages for an email; returns the count added.
+
+        Each dict is an ``EmailThreadMessage`` field mapping (without
+        ``email_id``, which is set here). Commits once for the batch.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None or not messages:
+            return 0
+        rows = [EmailThreadMessage(email_id=pk, **data) for data in messages]
+        db.add_all(rows)
+        await db.commit()
+        return len(rows)
+
     # --- reads ------------------------------------------------------------
+    async def get_by_zendesk_ticket_id(
+        self, db: AsyncSession, ticket_id: int
+    ) -> Email | None:
+        """Return the Email mapped to a Zendesk ticket id, or ``None``.
+
+        The dedup lookup (ZENDESK_API.md §10): a ticket upserts to exactly one
+        Email row via the unique ``zendesk_ticket_id`` column.
+        """
+        result = await db.execute(
+            select(Email).where(Email.zendesk_ticket_id == ticket_id)
+        )
+        return result.scalar_one_or_none()
+
     async def get_email_by_id(
         self, db: AsyncSession, email_id: str
     ) -> Email | None:
