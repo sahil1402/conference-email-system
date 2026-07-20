@@ -171,6 +171,8 @@ def _email_to_dict(email: Email) -> dict:
         "status": email.status,
         "received_at": email.received_at.isoformat() if email.received_at else None,
         "assigned_chair_id": email.assigned_chair_id,
+        "source": email.source,
+        "zendesk_status": email.zendesk_status,
         "classification": email.classification,
         "routing": email.routing,
         "draft": email.draft,
@@ -225,12 +227,14 @@ async def get_queue(
     status: str | None = None,
     search: str | None = None,
     unassigned: bool = False,
+    source: str | None = None,
+    zendesk_status: str | None = None,
     limit: int = 20,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return the email queue, filtered server-side by any combination of
-    lane / chair / unassigned / status / search.
+    lane / chair / unassigned / status / source / zendesk_status / search.
 
     ``total`` is the count for the SAME filter set (not the whole table), so a
     scoped caller gets an accurate total independent of ``limit``/``offset`` and
@@ -243,6 +247,8 @@ async def get_queue(
         status=status,
         search=search,
         unassigned=unassigned,
+        source=source,
+        zendesk_status=zendesk_status,
     )
     emails = await email_repo.get_email_queue(db, limit=limit, offset=offset, **kwargs)
     total = await email_repo.count_email_queue(db, **kwargs)
@@ -251,6 +257,43 @@ async def get_queue(
         "total": total,
         "page_info": {"limit": limit, "offset": offset, **kwargs},
     }
+
+
+@router.get("/queue/facets")
+async def get_queue_facets(
+    lane: str | None = None,
+    chair_id: int | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    unassigned: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return grouped facet counts for the queue's status bar + source toggle.
+
+    A dedicated server-side aggregate (see EmailRepository.count_queue_facets),
+    NOT a tally over a capped queue page — that page-derived pattern drops
+    out-of-window rows (Phase 6C bug class). The context filters
+    (lane / chair / unassigned / status / search) are honored so the facets
+    compose with the queue's other filters; the facet dimensions themselves
+    (source, zendesk_status) are intentionally not applied so the bar always
+    shows every status and the toggle always sees every source.
+
+    Response shape::
+
+        {
+          "by_zendesk_status": {"new": 3, "open": 2, "solved": 1},
+          "by_source": {"zendesk": 6, "toy_dataset": 47},
+          "sources": ["toy_dataset", "zendesk"]
+        }
+    """
+    return await email_repo.count_queue_facets(
+        db,
+        lane=lane,
+        chair_id=chair_id,
+        status=status,
+        search=search,
+        unassigned=unassigned,
+    )
 
 
 # Seconds between SSE heartbeat comments when no events are flowing — keeps the

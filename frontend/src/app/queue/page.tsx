@@ -5,7 +5,8 @@ import { Inbox, SearchX } from "lucide-react";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
-import type { EmailQueueParams } from "@/lib/api";
+import { useQueueFacets } from "@/hooks/useQueueFacets";
+import type { EmailQueueParams, QueueFacetsParams } from "@/lib/api";
 import {
   useApproveEmail,
   useRerouteEmail,
@@ -18,6 +19,8 @@ import {
   EmailListItem,
   EmailDetail,
   EmailFilters,
+  SourceToggle,
+  ZendeskStatusBar,
 } from "@/components/email";
 import {
   Badge,
@@ -44,6 +47,12 @@ export default function QueuePage() {
   const [laneFilter, setLaneFilter] = useState<LaneFilter>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [chairFilter, setChairFilter] = useState<string>("all");
+  // Zendesk-specific filters. `sourceFilter` self-hides when only one source
+  // exists; `zendeskStatusFilter` is null when no status is selected.
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [zendeskStatusFilter, setZendeskStatusFilter] = useState<string | null>(
+    null
+  );
 
   // Debounce the search box so typing doesn't fire a request per keystroke.
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -57,8 +66,12 @@ export default function QueuePage() {
   // — not a client-side slice of a capped 20-row page (the bug that made lane /
   // status / search / chair filters drop out-of-window matches). The queue is
   // small, so one page of 200 covers the whole result.
-  const queueParams = useMemo<EmailQueueParams>(() => {
-    const params: EmailQueueParams = { limit: 200 };
+  // Shared context (everything EXCEPT the facet dimensions source/zendesk_status)
+  // — reused for the queue fetch and, on its own, for the facet counts so the
+  // bar/toggle compose with these filters yet stay stable while a status/source
+  // is selected.
+  const contextParams = useMemo<QueueFacetsParams>(() => {
+    const params: QueueFacetsParams = {};
     if (laneFilter !== "all") params.lane = laneFilter;
     if (statusFilter !== "all") params.status = statusFilter;
     if (debouncedSearch) params.search = debouncedSearch;
@@ -66,8 +79,23 @@ export default function QueuePage() {
     else if (chairFilter !== "all") params.chair_id = Number(chairFilter);
     return params;
   }, [laneFilter, statusFilter, debouncedSearch, chairFilter]);
+
+  const queueParams = useMemo<EmailQueueParams>(() => {
+    const params: EmailQueueParams = { ...contextParams, limit: 200 };
+    if (sourceFilter !== "all") params.source = sourceFilter;
+    if (zendeskStatusFilter) params.zendesk_status = zendeskStatusFilter;
+    return params;
+  }, [contextParams, sourceFilter, zendeskStatusFilter]);
   const { emails, total, isLoading, isError, refetch } =
     useEmailQueue(queueParams);
+
+  // Facet counts for the status bar + source toggle (dedicated aggregate).
+  const { byZendeskStatus, sources } = useQueueFacets(contextParams);
+
+  // The status bar is only meaningful for Zendesk rows — show it when the source
+  // selection would include Zendesk and there are Zendesk-status counts.
+  const showStatusBar =
+    sourceFilter !== "toy_dataset" && Object.keys(byZendeskStatus).length > 0;
 
   const selectedEmail =
     selectedEmailId == null
@@ -107,6 +135,25 @@ export default function QueuePage() {
             chairFilter={chairFilter}
             onChairChange={setChairFilter}
           />
+          {/* Source toggle — self-hides unless ≥2 distinct sources exist. */}
+          <SourceToggle
+            sources={sources}
+            value={sourceFilter}
+            onChange={(v) => {
+              setSourceFilter(v);
+              // A zendesk_status filter is meaningless once we scope to
+              // toy_dataset — clear it so the queue isn't silently emptied.
+              if (v === "toy_dataset") setZendeskStatusFilter(null);
+            }}
+          />
+          {/* Zendesk status bar — composes with lane / chair / search above. */}
+          {showStatusBar && (
+            <ZendeskStatusBar
+              counts={byZendeskStatus}
+              selected={zendeskStatusFilter}
+              onSelect={setZendeskStatusFilter}
+            />
+          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">

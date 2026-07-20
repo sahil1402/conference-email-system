@@ -179,6 +179,17 @@ export interface Email {
    * router runs). Resolve the name via the chairs roster.
    */
   assigned_chair_id: number | null;
+  /**
+   * Which ingestion path created this row (db/models.py EmailSource):
+   * "toy_dataset" (seeded demo data) or "zendesk" (synced ticket). Drives the
+   * self-hiding source toggle; toy_dataset is temporary demo data.
+   */
+  source?: string | null;
+  /**
+   * Zendesk ticket status (new/open/pending/hold/solved/closed) — only
+   * meaningful when `source === "zendesk"`; null for other sources.
+   */
+  zendesk_status?: string | null;
   classification: ClassificationResult | null;
   routing: RoutingResult | null;
   draft: DraftResult | null;
@@ -205,6 +216,22 @@ export interface EmailQueueResponse {
   emails: Email[];
   total: number;
   page_info: Record<string, unknown>;
+}
+
+/**
+ * GET /emails/queue/facets — dedicated server-side aggregate for the queue's
+ * status bar + self-hiding source toggle (emails.py::get_queue_facets). Counts
+ * are grouped over the WHOLE matching set (not a capped page), and honor the
+ * active lane / chair / status / search context so they compose with the queue's
+ * other filters.
+ */
+export interface QueueFacets {
+  /** {zendesk_status -> count} over source="zendesk" rows (bar counts). */
+  by_zendesk_status: Record<string, number>;
+  /** {source -> count} over the current context. */
+  by_source: Record<string, number>;
+  /** Distinct sources present in the WHOLE table — length < 2 hides the toggle. */
+  sources: string[];
 }
 
 // ---------------------------------------------------------------------------

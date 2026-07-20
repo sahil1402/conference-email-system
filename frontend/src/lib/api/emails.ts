@@ -6,6 +6,7 @@ import type {
   EmailQueueResponse,
   IngestRequest,
   PipelineResult,
+  QueueFacets,
   ReassignChairRequest,
   RerouteRequest,
 } from "@/types";
@@ -22,11 +23,23 @@ export interface EmailQueueParams {
   unassigned?: boolean;
   /** Lifecycle status exact-match (e.g. "DRAFT_GENERATED"). */
   status?: string;
+  /** Ingestion source exact-match ("zendesk" | "toy_dataset"). */
+  source?: string;
+  /** Zendesk ticket status exact-match ("open" | "new" | …). */
+  zendesk_status?: string;
   /** Case-insensitive match on subject OR sender. */
   search?: string;
   limit?: number;
   offset?: number;
 }
+
+/** Context filters for the facets aggregate — the queue params minus the facet
+ * dimensions (source / zendesk_status) and pagination, so the bar/toggle counts
+ * stay stable while a status/source is selected. */
+export type QueueFacetsParams = Pick<
+  EmailQueueParams,
+  "lane" | "chair_id" | "unassigned" | "status" | "search"
+>;
 
 /** GET /emails/queue — fetch the email review queue (envelope with total + page_info).
  * `total` reflects the same (lane-filtered) query, so it is accurate regardless
@@ -35,6 +48,19 @@ export async function getEmailQueue(
   params?: EmailQueueParams
 ): Promise<EmailQueueResponse> {
   const { data } = await apiClient.get<EmailQueueResponse>("/emails/queue", {
+    params,
+  });
+  return data;
+}
+
+/** GET /emails/queue/facets — grouped counts for the status bar + source toggle.
+ * A dedicated server-side aggregate (not a client tally over a capped page), so
+ * counts include out-of-window rows. Honors the same context filters as the
+ * queue so the facets compose with the active lane/chair/status/search. */
+export async function getQueueFacets(
+  params?: QueueFacetsParams
+): Promise<QueueFacets> {
+  const { data } = await apiClient.get<QueueFacets>("/emails/queue/facets", {
     params,
   });
   return data;
