@@ -288,6 +288,42 @@ cd ../frontend && npm test                # Vitest component tests
 
 ---
 
+## Production Deployment
+
+### Local development (unchanged)
+
+```bash
+docker compose up --build
+```
+
+Uses `localhost` defaults throughout — backend on `http://localhost:8000`, frontend on `http://localhost:3000`, and the frontend's `NEXT_PUBLIC_API_URL` baked to `http://localhost:8000/api/v1`. Nothing extra to set.
+
+### Internal / production deployment
+
+The frontend's API URL is compiled into the browser bundle at **build time**, so it must be set **before** you build — a container restart alone will not pick up a change (a rebuild is required).
+
+**1. Set `NEXT_PUBLIC_API_URL` explicitly** to a URL the browser can reach (shell env or a repo-root `.env`):
+
+```bash
+export NEXT_PUBLIC_API_URL=https://your-host.example/api/v1
+```
+
+**2. Build and run with the production override** (adds loopback-only host bindings):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+```
+
+The `docker-compose.prod.yml` override rebinds backend (`8000`) and frontend (`3000`) to `127.0.0.1` (the `db` service is already loopback-only in the base file).
+
+### What loopback-only bindings mean
+
+With the production override, the app is reachable **only from the server itself** (e.g. over an SSH tunnel: `ssh -L 3000:localhost:3000 user@server`), **not from the public internet**. This is deliberate for a shared-access internal deployment.
+
+Exposing the app more widely — a reverse proxy and TLS termination in front of these loopback ports — is **out of scope here and a separate future piece**. Until that decision is made explicitly, the app stays internal-only.
+
+---
+
 ## Domain Model
 
 **Intents** — 14 labels in 5 families, single-sourced in `taxonomy.py`:
