@@ -74,7 +74,10 @@ class FusionRetriever:
         faiss_results = await self.faiss.retrieve(query, intent, top_k=pool)
 
         fused_scores: dict[str, float] = {}
-        # Metadata source per document (title/content/category/tags for hydration).
+        # Metadata source per document (title/content/category/tags/intents for
+        # hydration). intents is DB-sourced identically by both rankers (no
+        # asymmetry like tags historically had), so it just carries through
+        # whichever chunk is kept below.
         chunk_by_id: dict[str, RetrievedChunk] = {}
 
         for results in (bm25_results, faiss_results):
@@ -103,6 +106,7 @@ class FusionRetriever:
                     score=float(score),
                     category=base.category,
                     tags=base.tags,
+                    intents=base.intents,
                 )
             )
 

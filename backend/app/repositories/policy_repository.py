@@ -18,7 +18,7 @@ from app.db.models import PolicyDocument
 _POLICY_COLUMNS = {
     # [tags-dropped E007] "tags" removed — column dropped, no retrieval signal.
     "policy_key", "title", "content", "category", "score", "source",
-    "visibility", "status",
+    "visibility", "status", "intents",
 }
 
 
@@ -43,7 +43,7 @@ class PolicyRepository:
     # Content fields the importer owns. status/visibility are chair-owned and are
     # never written on update (prevents a re-scrape resurrecting a retired policy).
     # [tags-dropped E007] "tags" removed from the importer fields.
-    _IMPORTER_FIELDS = ("title", "content", "category")
+    _IMPORTER_FIELDS = ("title", "content", "category", "intents")
 
     async def get_all_policies(self, db: AsyncSession) -> list[PolicyDocument]:
         """Return every policy document, ordered by id."""

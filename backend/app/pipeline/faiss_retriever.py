@@ -111,6 +111,7 @@ class FAISSRetriever:
                 "category": getattr(p, "category", "") or "",
                 # [tags-dropped E007] tag column dropped; no retrieval signal.
                 # "tags": getattr(p, "tags", None) or [],
+                "intents": getattr(p, "intents", None) or [],
             }
             for p in policies
         ]
@@ -187,6 +188,7 @@ class FAISSRetriever:
                     score=float(score),
                     category=doc["category"],
                     # [tags-dropped E007] tags=doc["tags"],
+                    intents=doc["intents"],
                 )
             )
 

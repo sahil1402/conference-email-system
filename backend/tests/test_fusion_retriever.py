@@ -18,7 +18,9 @@ pytestmark = pytest.mark.ml
 _RRF_K = 60
 
 
-def _chunk(pid: str, tags: list[str] | None = None) -> RetrievedChunk:
+def _chunk(
+    pid: str, tags: list[str] | None = None, intents: list[str] | None = None
+) -> RetrievedChunk:
     return RetrievedChunk(
         policy_id=pid,
         title=f"Title {pid}",
@@ -26,6 +28,7 @@ def _chunk(pid: str, tags: list[str] | None = None) -> RetrievedChunk:
         score=0.0,
         category="cat",
         tags=tags or [],
+        intents=intents or [],
     )
 
 
@@ -109,6 +112,24 @@ async def test_metadata_prefers_tagged_chunk():
     fusion = FusionRetriever(bm25, faiss)
     results = await fusion.retrieve("q", "i", top_k=1)
     assert results[0].tags == ["deadline"]
+
+
+async def test_intents_round_trip_through_fusion():
+    # Both rankers surface the same underlying doc, so both carry the same
+    # seeded intents — the fused chunk must carry them through.
+    bm25 = _MockRetriever([_chunk("A", intents=["submission_format_policy"])])
+    faiss = _MockRetriever([_chunk("A", intents=["submission_format_policy"])])
+    fusion = FusionRetriever(bm25, faiss)
+    results = await fusion.retrieve("q", "i", top_k=1)
+    assert results[0].intents == ["submission_format_policy"]
+
+
+async def test_intents_default_to_empty_list():
+    bm25 = _MockRetriever([_chunk("A")])
+    faiss = _MockRetriever([_chunk("A")])
+    fusion = FusionRetriever(bm25, faiss)
+    results = await fusion.retrieve("q", "i", top_k=1)
+    assert results[0].intents == []
 
 
 # ---------------------------------------------------------------------------

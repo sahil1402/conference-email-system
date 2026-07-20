@@ -41,6 +41,9 @@ class RetrievedChunk(BaseModel):
     score: float = Field(..., description="BM25 relevance score (>= 0).")
     category: str = Field(default="", description="Policy category.")
     tags: list[str] = Field(default_factory=list, description="Chunk tags.")
+    intents: list[str] = Field(
+        default_factory=list, description="Intents this chunk can answer."
+    )
 
 
 class PolicyRetriever:
@@ -76,6 +79,7 @@ class PolicyRetriever:
                 "category": r.category or "",
                 # [tags-dropped E007] tag column dropped; no retrieval signal.
                 # "tags": r.tags or [],
+                "intents": getattr(r, "intents", None) or [],
             }
             for r in rows
         ]
@@ -120,6 +124,7 @@ class PolicyRetriever:
                 score=float(scores[i]),
                 category=self._policies[i]["category"],
                 # [tags-dropped E007] tags=self._policies[i]["tags"],
+                intents=self._policies[i]["intents"],
             )
             for i in chosen
         ]

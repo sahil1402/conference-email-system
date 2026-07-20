@@ -47,6 +47,7 @@ def _fake_policies() -> list:
                 "page limit, and follow the two-column format with anonymized authors."
             ),
             category="formatting_requirements",
+            intents=["submission_format_policy"],
         ),
         SimpleNamespace(
             policy_key="policy_003",
@@ -171,6 +172,24 @@ async def test_faiss_retriever_result_type(faiss_retriever):
         assert r.content is not None
         assert isinstance(r.score, float)
         assert r.category is not None
+
+
+async def test_faiss_intents_round_trip_from_seeded_chunk(faiss_retriever):
+    results = await faiss_retriever.retrieve(
+        "formatting page limit", "submission_format_policy", top_k=5
+    )
+    match = next(r for r in results if r.policy_id == "policy_002")
+    assert match.intents == ["submission_format_policy"]
+
+
+async def test_faiss_intents_default_to_empty_list_when_absent(faiss_retriever):
+    # policy_001 (SimpleNamespace fake) has no `intents` attribute at all —
+    # exercises the getattr(..., None) fallback, not just a NULL column value.
+    results = await faiss_retriever.retrieve(
+        "paper submission deadline", "submission_requirements", top_k=5
+    )
+    match = next(r for r in results if r.policy_id == "policy_001")
+    assert match.intents == []
 
 
 async def test_faiss_index_rebuild(faiss_retriever):

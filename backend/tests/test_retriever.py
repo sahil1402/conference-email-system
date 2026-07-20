@@ -48,6 +48,7 @@ async def factory():
                 ),
                 category="formatting_requirements",
                 # [tags-dropped E007] tags=["formatting", "page-limit"],
+                intents=["submission_format_policy"],
                 visibility="public",
                 status="active",
             ),
@@ -100,3 +101,19 @@ async def test_rebuild_index_does_not_crash(retriever: PolicyRetriever) -> None:
     retriever.rebuild_index()
     results = await retriever.retrieve("deadline", "submission_requirements")
     assert len(results) > 0
+
+
+async def test_intents_round_trip_from_seeded_chunk(retriever: PolicyRetriever) -> None:
+    results = await retriever.retrieve(
+        "formatting page limit", "submission_format_policy", top_k=3
+    )
+    match = next(r for r in results if r.policy_id == "policy_102")
+    assert match.intents == ["submission_format_policy"]
+
+
+async def test_intents_default_to_empty_list_when_null(retriever: PolicyRetriever) -> None:
+    results = await retriever.retrieve(
+        "paper submission deadline", "submission_requirements"
+    )
+    match = next(r for r in results if r.policy_id == "policy_101")
+    assert match.intents == []
