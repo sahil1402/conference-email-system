@@ -16,11 +16,11 @@ it is intentionally NOT draft-quality-aware (making the bandit draft-aware is
 out of scope; the rule-based router's draft-quality gate is not replicated
 here). Because of that, the bandit could otherwise pick "auto_reply" for a
 draft that turns out to have unresolved ``[CHAIR: ...]`` placeholders or
-notes-for-chair. That case is caught by a SEPARATE, strategy-independent
-safety floor in the pipeline (``app.pipeline.orchestrator`` /
-``app.pipeline.reevaluation``, applied right after ``router.route()`` returns,
-whatever the routing strategy) — so a draft that is not self-sufficient can
-never reach the FAQ lane even under ``rl``.
+notes-for-chair. That case is caught by a SEPARATE, strategy-independent safety floor,
+``app.pipeline.router.apply_self_sufficiency_floor``, which both
+``app.pipeline.orchestrator`` and ``app.pipeline.reevaluation`` call right
+after ``router.route()`` returns, whatever the routing strategy — so a draft
+that is not self-sufficient can never reach the FAQ lane even under ``rl``.
 
 Arms (actions):     "auto_reply" | "human_review"
 Reward signal:      approved → +1 win (the lane was right)

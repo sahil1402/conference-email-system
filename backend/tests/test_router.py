@@ -2,8 +2,8 @@
 
 The FAQ lane is now a property of the generated *draft* (completeness,
 grounding, and the drafter's self-rated answer confidence), not the email's
-classified intent. ``FAQ_ELIGIBLE_INTENTS`` is retired; ``SENSITIVE_INTENTS``
-is kept as an (empty) seam — see router.py.
+classified intent. ``SENSITIVE_INTENTS`` is kept as an (empty) seam — see
+router.py.
 """
 
 from app.pipeline.classifier import ClassificationResult
