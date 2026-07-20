@@ -1,0 +1,18 @@
+# Production override — internal-only host bindings. Invoke with BOTH files:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+# Binds backend (8000) and frontend (3000) to 127.0.0.1 so they are reachable
+# only from the host / an SSH tunnel, never 0.0.0.0 (the public network). Local
+# dev (`docker compose up`, base file alone) is unaffected. `db` is already
+# loopback-bound in the base file.
+
+services:
+  backend:
+    # !override REPLACES the base ports list instead of concatenating with it —
+    # without it Compose keeps the base 0.0.0.0 binding alongside this one,
+    # leaving the port publicly reachable. Requires Compose >= 2.24.
+    ports: !override
+      - "127.0.0.1:8000:8000"
+
+  frontend:
+    ports: !override
+      - "127.0.0.1:3000:3000"
