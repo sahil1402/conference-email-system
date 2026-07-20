@@ -67,9 +67,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Baked into the client bundle at build time; must be browser-reachable
-        # (the host), so localhost — not the `backend` service name.
-        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        # Baked into the client bundle at BUILD time; must be browser-reachable
+        # (the host), so localhost — not the `backend` service name. Defaults to
+        # localhost for local dev. Production deployments MUST set
+        # NEXT_PUBLIC_API_URL explicitly (shell env or repo-root .env) BEFORE
+        # running `docker compose build`/`up` — restarting the container alone
+        # will NOT pick up a change, since the value is compiled into the static
+        # bundle at build time and requires a rebuild.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
     ports:
       - "3000:3000"
     depends_on:
