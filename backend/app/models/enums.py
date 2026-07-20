@@ -8,19 +8,6 @@ DB and frontend depend on these string values.
 from enum import Enum
 
 
-class EmailIntent(str, Enum):
-    """High-level classification of an incoming email's intent."""
-
-    FAQ_DEADLINE = "FAQ_DEADLINE"
-    FAQ_FORMAT = "FAQ_FORMAT"
-    FAQ_SUBMISSION = "FAQ_SUBMISSION"
-    REVIEW_ASSIGNMENT = "REVIEW_ASSIGNMENT"
-    VISA_LETTER = "VISA_LETTER"
-    APPEAL = "APPEAL"
-    AMBIGUOUS = "AMBIGUOUS"
-    OTHER = "OTHER"
-
-
 class RoutingLane(str, Enum):
     """The two-lane workflow destination."""
 

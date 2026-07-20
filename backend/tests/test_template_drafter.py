@@ -48,7 +48,7 @@ def _email() -> dict:
 # TemplateDrafter behavior
 # ---------------------------------------------------------------------------
 def test_output_contains_chunk_text_verbatim():
-    result = TemplateDrafter().draft(_email(), "submission_deadline", _chunks())
+    result = TemplateDrafter().draft(_email(), "submission_requirements", _chunks())
     for chunk in _chunks():
         assert chunk.content in result.draft_text  # verbatim, not paraphrased
     assert result.citations == ["policy_002", "policy_001"]
@@ -59,22 +59,22 @@ def test_output_contains_chunk_text_verbatim():
 def test_opening_line_differs_by_intent():
     email = _email()
     chunks = _chunks()
-    deadline = TemplateDrafter().draft(email, "submission_deadline", chunks).draft_text
-    ethics = TemplateDrafter().draft(email, "ethics_concern", chunks).draft_text
+    requirements = TemplateDrafter().draft(email, "submission_requirements", chunks).draft_text
+    anonymity = TemplateDrafter().draft(email, "anonymity_violation", chunks).draft_text
     # Each starts with its own hand-written opening.
-    assert deadline.startswith(_OPENINGS["submission_deadline"])
-    assert ethics.startswith(_OPENINGS["ethics_concern"])
-    assert _OPENINGS["submission_deadline"] != _OPENINGS["ethics_concern"]
+    assert requirements.startswith(_OPENINGS["submission_requirements"])
+    assert anonymity.startswith(_OPENINGS["anonymity_violation"])
+    assert _OPENINGS["submission_requirements"] != _OPENINGS["anonymity_violation"]
 
 
-def test_all_eight_intents_have_openings():
+def test_all_fourteen_intents_have_openings():
     from app.pipeline.classifier import VALID_INTENTS
 
     assert set(_OPENINGS) == set(VALID_INTENTS)
 
 
 def test_no_chunks_returns_human_review_and_never_fabricates():
-    result = TemplateDrafter().draft(_email(), "submission_deadline", [])
+    result = TemplateDrafter().draft(_email(), "submission_requirements", [])
     assert result.generation_metadata["grounded"] is False
     assert result.generation_metadata["reason"] == "no_policy_chunks"
     assert result.citations == []
@@ -103,7 +103,7 @@ async def test_template_provider_makes_no_network_call(monkeypatch):
     drafter = ResponseDrafter(provider="template")
     result = await drafter.draft(
         _email(),
-        SimpleNamespace(intent="submission_deadline", confidence=0.9),
+        SimpleNamespace(intent="submission_requirements", confidence=0.9),
         _chunks(),
         SimpleNamespace(lane="faq", reason="FAQ match."),
     )

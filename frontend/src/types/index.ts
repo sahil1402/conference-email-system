@@ -40,20 +40,27 @@ export type EmailStatus =
   | "approved"
   | "rerouted";
 
-/** The 11 intent labels the classifier can emit (classifier.py: VALID_INTENTS). */
+/**
+ * The 14 intent labels the classifier can emit (backend/app/pipeline/taxonomy.py:
+ * VALID_INTENTS — the single source of truth; mirrored here for documentation
+ * and typo-safety only, not re-derived). 5 families: review_workflow,
+ * submission_compliance, appeals_integrity, committee, systems.
+ */
 export type IntentLabel =
-  | "submission_deadline"
-  | "formatting_requirements"
-  | "general_inquiry"
-  | "review_assignment"
-  | "authorship_dispute"
-  | "submission_withdrawal"
-  | "ethics_concern"
-  | "technical_issue"
-  // Phase 6A conference-operations intents.
-  | "sponsorship"
-  | "publicity"
-  | "media_inquiry";
+  | "reviewer_assignment"
+  | "review_submission_help"
+  | "paper_bidding"
+  | "author_profile_compliance"
+  | "submission_upload_help"
+  | "submission_requirements"
+  | "submission_format_policy"
+  | "author_list_change"
+  | "review_decision_appeal"
+  | "desk_reject_appeal"
+  | "anonymity_violation"
+  | "reviewer_workload_role"
+  | "committee_invitation"
+  | "cms_support";
 
 // ---------------------------------------------------------------------------
 // Pipeline result sub-objects (as stored in the emails JSON columns)

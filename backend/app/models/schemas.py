@@ -11,7 +11,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import (
-    EmailIntent,
     EmailStatus,
     RoutingLane,
     SensitivityLevel,
@@ -41,14 +40,14 @@ class EmailIn(BaseModel):
 class IntentMatch(BaseModel):
     """A single candidate intent and its score from the classifier."""
 
-    intent: EmailIntent
+    intent: str
     score: float = Field(..., ge=0.0, le=1.0, description="Match score in [0, 1].")
 
 
 class ClassificationResult(BaseModel):
     """Output of the Classifier module."""
 
-    intent: EmailIntent = Field(..., description="Best-guess intent.")
+    intent: str = Field(..., description="Best-guess intent.")
     confidence: float = Field(
         ..., ge=0.0, le=1.0, description="Confidence of the chosen intent."
     )

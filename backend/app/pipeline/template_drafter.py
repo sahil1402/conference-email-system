@@ -20,20 +20,24 @@ an import cycle.
 
 from app.pipeline.drafter import DraftResponse
 
-# One hand-written opening line per intent (VALID_INTENTS). Kept deliberately
-# short and neutral; the substantive content is the verbatim policy text below.
+# One hand-written opening line per intent (VALID_INTENTS, taxonomy.py). Kept
+# deliberately short and neutral; the substantive content is the verbatim
+# policy text below.
 _OPENINGS: dict[str, str] = {
-    "submission_deadline": "Thank you for your question about the submission deadline.",
-    "formatting_requirements": "Thank you for your question about the formatting requirements.",
-    "general_inquiry": "Thank you for reaching out to the program committee.",
-    "review_assignment": "Thank you for contacting us about your review assignment.",
-    "authorship_dispute": "Thank you for raising your authorship concern.",
-    "submission_withdrawal": "Thank you for your message about withdrawing a submission.",
-    "ethics_concern": "Thank you for bringing this concern to our attention.",
-    "technical_issue": "Thank you for reporting this technical issue.",
-    "sponsorship": "Thank you for your interest in sponsoring the conference.",
-    "publicity": "Thank you for helping promote the conference.",
-    "media_inquiry": "Thank you for your media inquiry about the conference.",
+    "reviewer_assignment": "Thank you for contacting us about reviewer assignments.",
+    "review_submission_help": "Thank you for your message about submitting a review.",
+    "paper_bidding": "Thank you for your question about paper bidding.",
+    "author_profile_compliance": "Thank you for your question about your author profile.",
+    "submission_upload_help": "Thank you for your message about uploading your submission.",
+    "submission_requirements": "Thank you for your question about submission requirements.",
+    "submission_format_policy": "Thank you for your question about the formatting requirements.",
+    "author_list_change": "Thank you for your request to update the author list.",
+    "review_decision_appeal": "Thank you for raising your concern about the review decision.",
+    "desk_reject_appeal": "Thank you for your appeal regarding the desk rejection.",
+    "anonymity_violation": "Thank you for bringing this anonymity concern to our attention.",
+    "reviewer_workload_role": "Thank you for your message about reviewer workload or role.",
+    "committee_invitation": "Thank you for your response to the committee invitation.",
+    "cms_support": "Thank you for contacting the program committee.",
 }
 
 _DEFAULT_OPENING = "Thank you for contacting the program committee."
