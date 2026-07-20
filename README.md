@@ -265,8 +265,8 @@ Interactive docs at `http://localhost:8000/docs`
 cd frontend
 
 npm install
-cp ../.env.example .env.local
-# Set NEXT_PUBLIC_API_URL=http://localhost:8000
+cp .env.example .env.local
+# Set NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 
 npm run dev
 ```
