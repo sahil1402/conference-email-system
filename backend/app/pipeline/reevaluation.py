@@ -26,7 +26,7 @@ from app.db.database import async_session_factory
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.drafter import ResponseDrafter
 from app.pipeline.retriever import get_retriever, grounded_chunks_hash
-from app.pipeline.router import LANE_HUMAN_REVIEW, EmailRouter
+from app.pipeline.router import EmailRouter, apply_self_sufficiency_floor
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
 
@@ -181,23 +181,13 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 )
                 routing = router.route(classification, fresh_chunks, draft)
 
-                # Safety floor (strategy-independent): a draft that is not self-
-                # sufficient (chair placeholders or notes-for-chair) can NEVER be
-                # auto-answered, whatever the router returned. Same floor as the
-                # orchestrator's Pass-1 draft — this is Pass-2's re-draft, so it
-                # needs the identical guard (defense-in-depth, deliberately
-                # redundant for the rule_based router).
-                if (
-                    draft.placeholders or draft.notes_for_chair
-                ) and routing.lane != LANE_HUMAN_REVIEW:
-                    routing = routing.model_copy(update={
-                        "lane": LANE_HUMAN_REVIEW,
-                        "override_reason": (
-                            f"draft is not self-sufficient "
-                            f"({len(draft.placeholders)} placeholder(s), "
-                            f"notes={'yes' if draft.notes_for_chair else 'no'}) — requires a human"
-                        ),
-                    })
+                # Safety floor (strategy-independent, shared with the orchestrator's
+                # Pass-1 draft): a draft that is not self-sufficient can NEVER be
+                # auto-answered, whatever the router returned. Same floor as
+                # orchestrator.py's — this is Pass-2's re-draft, so it needs the
+                # identical guard (defense-in-depth, deliberately redundant for the
+                # rule_based router).
+                routing = apply_self_sufficiency_floor(routing, draft)
 
                 new_ctx = {
                     "query": item["ctx"].get("query", ""),

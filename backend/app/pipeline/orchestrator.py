@@ -36,7 +36,12 @@ from app.pipeline.retriever import (
     get_retriever,
     grounded_chunks_hash,
 )
-from app.pipeline.router import LANE_HUMAN_REVIEW, EmailRouter, RoutingDecision
+from app.pipeline.router import (
+    LANE_HUMAN_REVIEW,
+    EmailRouter,
+    RoutingDecision,
+    apply_self_sufficiency_floor,
+)
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.chair_repository import ChairRepository
 from app.repositories.email_repository import EmailRepository
@@ -258,7 +263,12 @@ class EmailPipeline:
             }
         status = "draft_failed" if draft.generation_metadata.get("error") else "complete"
 
-        # --- route (now draft-aware): lane = FAQ iff the draft is self-sufficient
+        # --- route (now draft-aware): lane = FAQ iff the draft is self-sufficient.
+        # The strategy-independent safety floor (chair placeholders or
+        # notes-for-chair can NEVER be auto-answered) is applied INSIDE this stage,
+        # before output_summary is set, so the persisted trace's lane always
+        # matches the final lane (email.routing / audit log) — load-bearing for
+        # the RL strategy, which routes without ever seeing the draft.
         with tracer.stage(
             "router",
             {
@@ -267,26 +277,11 @@ class EmailPipeline:
             },
         ) as st:
             routing = self.router.route(classification, retrieved_chunks, draft)
+            routing = apply_self_sufficiency_floor(routing, draft)
             st.output_summary = {
                 "lane": routing.lane,
                 "reason": routing.reason,
             }
-
-        # Safety floor (strategy-independent): a draft that is not self-sufficient
-        # (chair placeholders or notes-for-chair) can NEVER be auto-answered, whatever
-        # the router returned. The rule_based router already enforces this via its
-        # draft-quality gate; this floor also covers the RL strategy, which routes
-        # without ever seeing the draft. Defense-in-depth, deliberately redundant for
-        # rule_based.
-        if (draft.placeholders or draft.notes_for_chair) and routing.lane != LANE_HUMAN_REVIEW:
-            routing = routing.model_copy(update={
-                "lane": LANE_HUMAN_REVIEW,
-                "override_reason": (
-                    f"draft is not self-sufficient "
-                    f"({len(draft.placeholders)} placeholder(s), "
-                    f"notes={'yes' if draft.notes_for_chair else 'no'}) — requires a human"
-                ),
-            })
 
         # --- chair assignment (the second routing decision) ---------------
         # Human-review only; returns None for FAQ-lane emails. Kept out of the
