@@ -105,12 +105,10 @@ async def test_template_provider_makes_no_network_call(monkeypatch):
         _email(),
         SimpleNamespace(intent="submission_requirements", confidence=0.9),
         _chunks(),
-        SimpleNamespace(lane="faq", reason="FAQ match."),
     )
-    # Reached here → no network call attempted. Lane is stamped for parity.
+    # Reached here → no network call attempted.
     assert result.model_used == "template"
     assert result.generation_metadata["provider"] == "template"
-    assert result.generation_metadata["lane"] == "faq"
     assert "Anywhere on Earth" in result.draft_text
 
 

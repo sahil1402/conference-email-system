@@ -34,7 +34,7 @@ _SAMPLE_EMAIL = {
     "timestamp": "2026-07-01T09:00:00Z",
 }
 
-_EXPECTED_STAGES = ["classifier", "retriever", "router", "drafter"]
+_EXPECTED_STAGES = ["classifier", "retriever", "drafter", "router"]
 
 
 @pytest_asyncio.fixture
@@ -113,6 +113,7 @@ async def test_stage_summaries_capture_expected_fields(client):
         "provider",
         "model_used",
         "placeholders",
+        "answer_confidence",
     }
     # The trace records the draft length, never the draft text itself.
     assert isinstance(drafter_out["draft_length"], int)

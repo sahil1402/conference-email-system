@@ -26,6 +26,7 @@ from app.pipeline.classifier import (
     IntentClassifier,
     keyword_classify,
 )
+from app.pipeline.drafter import DraftResponse
 from app.pipeline.router import EmailRouter
 
 # A FAQ-eligible email that raw-scores below the 0.65 gate but classifies right.
@@ -213,14 +214,23 @@ def test_router_prefers_calibrated_confidence():
     """Router acts on the calibrated value (not the raw score) when present.
 
     The observable signal is ``confidence_used``: with a calibrated value the
-    router considers 0.90; without one it falls back to the raw 0.40.
-    ``submission_requirements`` is in the KB-coverage-derived
-    FAQ_ELIGIBLE_INTENTS (Task B4), so the calibrated case (0.90 >= the 0.65
-    gate, with grounding chunks) now genuinely reaches the "faq" lane, while
-    the raw-only case (0.40, below the gate) still lands in human_review.
+    router considers 0.90; without one it falls back to the raw 0.40. The FAQ
+    lane is a property of the generated *draft* (completeness, grounding,
+    self-rated answer confidence), not the classified intent — so both calls
+    use the SAME complete/grounded/confident draft, making the classifier
+    confidence (calibrated vs. raw) the only variable distinguishing the two
+    assertions: the calibrated case (0.90 >= the 0.65 gate) reaches the "faq"
+    lane, while the raw-only case (0.40, below the gate) still lands in
+    human_review.
     """
     router = EmailRouter(strategy="rule_based")
     chunks = [object()]  # router only reads len(retrieved_chunks)
+    draft = DraftResponse(
+        draft_text="ok",
+        citations=["policy_101"],
+        model_used="m",
+        answer_confidence=0.95,
+    )
 
     # Raw 0.40 (below the 0.65 gate) but calibrated 0.90 → the router uses 0.90.
     calibrated = ClassificationResult(
@@ -229,12 +239,12 @@ def test_router_prefers_calibrated_confidence():
         raw_confidence=0.40,
         calibrated_confidence=0.90,
     )
-    decision = router.route(calibrated, chunks)
+    decision = router.route(calibrated, chunks, draft)
     assert decision.confidence_used == 0.90  # calibrated value drove the decision
-    assert decision.lane == "faq"  # eligible + confident + grounded
+    assert decision.lane == "faq"  # confident + complete + grounded draft
 
     # Same raw score, no calibrated value → falls back to raw 0.40.
     raw_only = ClassificationResult(intent="submission_requirements", confidence=0.40)
-    raw_decision = router.route(raw_only, chunks)
+    raw_decision = router.route(raw_only, chunks, draft)
     assert raw_decision.confidence_used == 0.40
     assert raw_decision.lane == "human_review"

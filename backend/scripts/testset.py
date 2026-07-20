@@ -131,19 +131,18 @@ async def drafts(model: str) -> None:
             f"{email['subject']} {email['body'][:300]}", "",
             settings.MAX_RETRIEVED_CHUNKS,
         )
-        routing = router.route(classification, chunks)
         async with sem:
             draft = await ResponseDrafter(provider="local").draft(
-                email, classification, chunks, routing
+                email, classification, chunks
             )
-        lane = routing.lane
-        if draft.placeholders and lane != "human_review":
-            lane = "human_review"  # mirrors the orchestrator's downgrade
+        # The router is itself draft-aware now, so a placeholder draft is
+        # already routed to human_review without any post-route override.
+        routing = router.route(classification, chunks, draft)
         rec = {
             "ticket_id": row["ticket_id"],
             "intent": row["intent"],
             "policy_answerable": row["policy_answerable"],
-            "lane": lane,
+            "lane": routing.lane,
             "draft_text": draft.draft_text,
             "placeholders": draft.placeholders,
             "notes_for_chair": draft.notes_for_chair,

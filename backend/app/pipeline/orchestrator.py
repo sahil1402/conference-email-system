@@ -1,15 +1,20 @@
-"""Pipeline orchestrator (classify → retrieve → route → draft → persist).
+"""Pipeline orchestrator (classify → retrieve → draft → route → persist).
 
 Wires the four pipeline modules together and the persistence layer behind a
 single entry point, `process_email`. It owns sequencing, timing, persistence,
 and audit logging — the modules themselves stay unaware of each other and of
 the database.
 
+The router runs AFTER the drafter: the FAQ-vs-human_review lane is a property
+of the generated draft's completeness/groundedness/self-rated confidence, not
+of the classification alone (see `app.pipeline.router`).
+
 Failure policy:
-- A failure in classify / retrieve / route is fatal: it is logged and re-raised
-  with status "error" (no partial record is persisted).
+- A failure in classify / retrieve is fatal: it is logged and re-raised with
+  status "error" (no partial record is persisted).
 - A failed draft is non-fatal: the partial result is persisted with status
-  "draft_failed" and returned (the drafter itself never raises).
+  "draft_failed" and returned (the drafter itself never raises). Routing then
+  runs on that (possibly failed) draft.
 """
 
 import logging
@@ -69,7 +74,7 @@ class _Computed:
     """Everything one pipeline run produces, before it is persisted.
 
     Lets ``process_email`` (create a new row) and ``reprocess_email`` (update an
-    existing row in place) share the exact same classify→retrieve→route→draft
+    existing row in place) share the exact same classify→retrieve→draft→route
     compute and audit/trace finalization.
     """
 
@@ -85,7 +90,7 @@ class _Computed:
 
 
 class EmailPipeline:
-    """Orchestrates the full classify → retrieve → route → draft → save flow."""
+    """Orchestrates the full classify → retrieve → draft → route → save flow."""
 
     def __init__(self) -> None:
         # Each module is instantiated from its swappable settings flag.
@@ -117,8 +122,8 @@ class EmailPipeline:
         roster via the repository, projects it onto DB-free ``ChairInfo`` objects,
         and delegates the decision to the swappable strategy. A failure here (no
         chairs, DB hiccup) leaves the email unassigned rather than breaking the
-        pipeline — chair assignment is additive to the core classify→route→draft
-        flow.
+        pipeline — chair assignment is additive to the core classify→retrieve→
+        draft→route flow.
         """
         if routing.lane != LANE_HUMAN_REVIEW:
             return None
@@ -142,7 +147,7 @@ class EmailPipeline:
             return None
 
     async def _compute(self, email_data: dict, db: AsyncSession) -> _Computed:
-        """Run classify → retrieve → route → draft → chair-assign (no persistence).
+        """Run classify → retrieve → draft → route → chair-assign (no persistence).
 
         Shared by ``process_email`` (creates a new row) and ``reprocess_email``
         (updates an existing row). Builds the persistence ``record`` but does not
@@ -156,7 +161,7 @@ class EmailPipeline:
         # email is persisted (its id is known then). Additive only.
         tracer = PipelineTracer()
 
-        # --- classify → retrieve → route (fatal on failure) ---------------
+        # --- classify → retrieve (fatal on failure) ------------------------
         try:
             with tracer.stage(
                 "classifier",
@@ -235,52 +240,42 @@ class EmailPipeline:
                     "backend": settings.RETRIEVAL_BACKEND,
                 }
 
-            with tracer.stage(
-                "router",
-                {
-                    "confidence": round(float(classification.confidence), 4),
-                    "intent": classification.intent,
-                },
-            ) as st:
-                routing = self.router.route(classification, retrieved_chunks)
-                st.output_summary = {
-                    "lane": routing.lane,
-                    "reason": routing.reason,
-                }
         except Exception:
             logger.exception("Pipeline failed before drafting; aborting.")
             raise
 
         # --- draft (non-fatal: failure downgrades status) -----------------
-        with tracer.stage("drafter", {"lane": routing.lane}) as st:
+        with tracer.stage("drafter", {}) as st:
             draft = await self.drafter.draft(
-                email_data, classification, retrieved_chunks, routing
+                email_data, classification, retrieved_chunks
             )
             st.output_summary = {
                 "draft_length": len(draft.draft_text),
                 "provider": draft.generation_metadata.get("provider", self.drafter.provider),
                 "model_used": draft.model_used,
                 "placeholders": len(draft.placeholders),
+                "answer_confidence": draft.answer_confidence,
             }
         status = "draft_failed" if draft.generation_metadata.get("error") else "complete"
 
-        # A draft with [CHAIR: ...] placeholders needs chair input by
-        # construction — it is never FAQ-complete, whatever the router chose.
-        if draft.placeholders and routing.lane != LANE_HUMAN_REVIEW:
-            routing = routing.model_copy(
-                update={
-                    "lane": LANE_HUMAN_REVIEW,
-                    "override_reason": (
-                        f"draft contains {len(draft.placeholders)} chair "
-                        "placeholder(s) requiring input before sending"
-                    ),
-                }
-            )
+        # --- route (now draft-aware): lane = FAQ iff the draft is self-sufficient
+        with tracer.stage(
+            "router",
+            {
+                "intent": classification.intent,
+                "confidence": round(float(classification.confidence), 4),
+            },
+        ) as st:
+            routing = self.router.route(classification, retrieved_chunks, draft)
+            st.output_summary = {
+                "lane": routing.lane,
+                "reason": routing.reason,
+            }
 
         # --- chair assignment (the second routing decision) ---------------
         # Human-review only; returns None for FAQ-lane emails. Kept out of the
-        # tracer stages (the trace contract is exactly classify→retrieve→route→
-        # draft) and best-effort so it never breaks the core flow.
+        # tracer stages (the trace contract is exactly classify→retrieve→draft→
+        # route) and best-effort so it never breaks the core flow.
         chair_assignment = await self._assign_chair(db, classification, routing)
 
         record = {
@@ -385,8 +380,8 @@ class EmailPipeline:
     async def reprocess_email(self, db: AsyncSession, email) -> PipelineResult:
         """Re-run the full pipeline for an EXISTING email and update it in place.
 
-        Backs the per-email "retry" action: the same classify → retrieve → route
-        → draft flow as ``process_email``, but the fresh outputs overwrite the
+        Backs the per-email "retry" action: the same classify → retrieve → draft
+        → route flow as ``process_email``, but the fresh outputs overwrite the
         existing row (its id, ``received_at`` and any chair-edit history stay put)
         instead of creating a new one. ``retrieval_context`` is refreshed too, and
         the transient ``redrafting`` flag is cleared as the new draft lands.

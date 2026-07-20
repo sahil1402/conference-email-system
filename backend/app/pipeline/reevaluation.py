@@ -26,7 +26,7 @@ from app.db.database import async_session_factory
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.drafter import ResponseDrafter
 from app.pipeline.retriever import get_retriever, grounded_chunks_hash
-from app.pipeline.router import LANE_HUMAN_REVIEW, EmailRouter
+from app.pipeline.router import EmailRouter
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
 
@@ -176,22 +176,10 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
             try:
                 classification = item["classification"]
                 fresh_chunks = item["fresh_chunks"]
-                routing = router.route(classification, fresh_chunks)
                 draft = await drafter.draft(
-                    item["email_data"], classification, fresh_chunks, routing
+                    item["email_data"], classification, fresh_chunks
                 )
-                # Same placeholder→human_review rule the orchestrator applies:
-                # a draft with [CHAIR: …] gaps always needs a human.
-                if draft.placeholders and routing.lane != LANE_HUMAN_REVIEW:
-                    routing = routing.model_copy(
-                        update={
-                            "lane": LANE_HUMAN_REVIEW,
-                            "override_reason": (
-                                f"draft contains {len(draft.placeholders)} chair "
-                                "placeholder(s) requiring input before sending"
-                            ),
-                        }
-                    )
+                routing = router.route(classification, fresh_chunks, draft)
 
                 new_ctx = {
                     "query": item["ctx"].get("query", ""),

@@ -82,11 +82,11 @@ async def generate(model: str) -> None:
             f"{email['subject']} {email['body'][:300]}", "",
             settings.MAX_RETRIEVED_CHUNKS,
         )
-        routing = router.route(classification, chunks)
         async with sem:
             draft = await ResponseDrafter(provider="local").draft(
-                email, classification, chunks, routing
+                email, classification, chunks
             )
+        routing = router.route(classification, chunks, draft)
         rec = {
             "ticket_id": row["ticket_id"],
             "config": "v2_placeholder",

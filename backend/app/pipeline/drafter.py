@@ -2,9 +2,10 @@
 
 Generates a reply draft strictly grounded in the retrieved policy chunks. The
 system prompt forbids inventing policies; the user prompt hands the model the
-original email, the classification, the retrieved policy context, and the
-routing decision so it can tailor an FAQ answer vs. a human-review starting
-draft.
+original email, the classification, and the retrieved policy context. The
+drafter runs BEFORE the router (it has no notion of "lane") — the router then
+decides FAQ vs. human-review from the draft's own completeness/groundedness/
+self-rated confidence (see app.pipeline.router).
 
 Provider behaviour:
 - No API key configured → returns a deterministic fallback (no network call).
@@ -294,7 +295,7 @@ class DraftResponse(BaseModel):
     )
     generation_metadata: dict = Field(
         default_factory=dict,
-        description="Token usage, lane, errors, and other generation context.",
+        description="Token usage, errors, and other generation context.",
     )
 
 
@@ -302,7 +303,6 @@ def _build_user_prompt(
     email: dict,
     classification,
     retrieved_chunks: list,
-    routing,
 ) -> str:
     """Assemble the grounded user prompt from all pipeline inputs."""
     sender = email.get("from") or email.get("sender") or "unknown"
@@ -328,9 +328,6 @@ def _build_user_prompt(
         f"Intent: {classification.intent} (confidence: {classification.confidence:.2f})\n\n"
         "--- RETRIEVED POLICY CONTEXT ---\n"
         f"{context}\n\n"
-        # "--- ROUTING ---\n"
-        # f"Lane: {routing.lane}\n"
-        # f"Reason: {routing.reason}\n\n"
         "--- TASK ---\n"
         "Using only the policy context above for grounding, answer only the "
         "question(s) the requester raised — nothing more."
@@ -346,9 +343,9 @@ def _parse_citations(text: str) -> list[str]:
     return seen
 
 
-def _fallback(text: str, routing, extra: dict | None = None) -> DraftResponse:
+def _fallback(text: str, extra: dict | None = None) -> DraftResponse:
     """Build a deterministic fallback draft (never raises, no network)."""
-    metadata = {"lane": routing.lane}
+    metadata = {}
     if extra:
         metadata.update(extra)
     return DraftResponse(
@@ -377,51 +374,41 @@ class ResponseDrafter:
         email: dict,
         classification,
         retrieved_chunks: list,
-        routing,
     ) -> DraftResponse:
         """Generate a grounded draft via the configured provider, or fall back."""
         # The template provider makes no model call, so it skips prompt assembly.
         if self.provider == "template":
-            return self._draft_template(email, classification, retrieved_chunks, routing)
+            return self._draft_template(email, classification, retrieved_chunks)
 
-        user_prompt = _build_user_prompt(
-            email, classification, retrieved_chunks, routing
-        )
+        user_prompt = _build_user_prompt(email, classification, retrieved_chunks)
 
         if self.provider in ("anthropic", "anthropic_api"):
-            return await self._draft_anthropic(user_prompt, routing)
+            return await self._draft_anthropic(user_prompt)
         if self.provider == "local":
-            return await self._draft_local(user_prompt, routing)
+            return await self._draft_local(user_prompt)
         # "fallback" or any unrecognized value.
-        return _fallback(
-            "Draft unavailable — model provider set to fallback.", routing
-        )
+        return _fallback("Draft unavailable — model provider set to fallback.")
 
     def _draft_template(
-        self, email: dict, classification, retrieved_chunks: list, routing
+        self, email: dict, classification, retrieved_chunks: list
     ) -> DraftResponse:
         """Fill a response template from retrieved policy chunks — zero model call.
 
         Delegates to ``TemplateDrafter`` (imported lazily to avoid an import
-        cycle: template_drafter imports DraftResponse from this module). The
-        lane is stamped into the returned metadata for parity with the other
-        providers. Fully offline; never raises.
+        cycle: template_drafter imports DraftResponse from this module). Fully
+        offline; never raises.
         """
         from app.pipeline.template_drafter import TemplateDrafter
 
-        response = TemplateDrafter().draft(
-            email, classification.intent, retrieved_chunks
-        )
-        response.generation_metadata.setdefault("lane", routing.lane)
-        return response
+        return TemplateDrafter().draft(email, classification.intent, retrieved_chunks)
 
-    async def _draft_anthropic(self, user_prompt: str, routing) -> DraftResponse:
+    async def _draft_anthropic(self, user_prompt: str) -> DraftResponse:
         """Draft via the hosted Anthropic API, falling back on missing key/error."""
         api_key = settings.ANTHROPIC_API_KEY
 
         # No key configured → deterministic fallback, no network call.
         if not api_key:
-            return _fallback("Draft unavailable — API key not configured.", routing)
+            return _fallback("Draft unavailable — API key not configured.")
 
         try:
             # Imported lazily so the module imports cleanly without the SDK
@@ -441,7 +428,6 @@ class ResponseDrafter:
             )
             reply, citations, notes, confidence = _split_structured(raw_text)
             metadata = {
-                "lane": routing.lane,
                 "stop_reason": message.stop_reason,
                 "input_tokens": message.usage.input_tokens,
                 "output_tokens": message.usage.output_tokens,
@@ -460,11 +446,10 @@ class ResponseDrafter:
         except Exception as exc:  # noqa: BLE001 - drafter must never raise
             return _fallback(
                 "Draft unavailable — an error occurred during generation.",
-                routing,
                 {"error": str(exc), "error_type": type(exc).__name__},
             )
 
-    async def _draft_local(self, user_prompt: str, routing) -> DraftResponse:
+    async def _draft_local(self, user_prompt: str) -> DraftResponse:
         """Draft via an OpenAI-compatible local endpoint (e.g. Ollama).
 
         POSTs to ``{LOCAL_MODEL_BASE_URL}/chat/completions`` with the same
@@ -503,7 +488,7 @@ class ResponseDrafter:
 
             raw_text = data["choices"][0]["message"]["content"]
             reply, citations, notes, confidence = _split_structured(raw_text)
-            metadata = {"lane": routing.lane, "provider": "local"}
+            metadata = {"provider": "local"}
             usage = data.get("usage")
             if isinstance(usage, dict):
                 metadata["input_tokens"] = usage.get("prompt_tokens")
@@ -527,6 +512,5 @@ class ResponseDrafter:
             )
             return _fallback(
                 "Draft unavailable — local model error.",
-                routing,
                 {"error": str(exc), "error_type": type(exc).__name__, "provider": "local"},
             )

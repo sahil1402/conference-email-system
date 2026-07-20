@@ -162,11 +162,11 @@ async def generate_drafts(model: str, backend: str) -> None:
             "",
             settings.MAX_RETRIEVED_CHUNKS,
         )
-        routing = router.route(classification, chunks)
         async with sem:
             draft = await ResponseDrafter(provider="local").draft(
-                email, classification, chunks, routing
+                email, classification, chunks
             )
+        routing = router.route(classification, chunks, draft)
         rec = {
             "ticket_id": row["ticket_id"],
             "config": config,

@@ -23,10 +23,6 @@ def _classification():
     return SimpleNamespace(intent="submission_requirements", confidence=0.82)
 
 
-def _routing():
-    return SimpleNamespace(lane="faq", reason="High-confidence FAQ match.")
-
-
 def _chunks():
     return [
         SimpleNamespace(
@@ -42,7 +38,7 @@ def _email():
 
 
 async def _draft_with(drafter: ResponseDrafter):
-    return await drafter.draft(_email(), _classification(), _chunks(), _routing())
+    return await drafter.draft(_email(), _classification(), _chunks())
 
 
 # ---------------------------------------------------------------------------
