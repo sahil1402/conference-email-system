@@ -62,32 +62,60 @@ DRAFTS_OUT = EVAL_DIR / "testset_20_drafts_current.jsonl"
 JUDGE_OUT = EVAL_DIR / "testset_20_judge.jsonl"
 REPORT = EVAL_DIR / "testset_20_judge_report.md"
 
-DIMS = ["factual_correctness", "completeness", "helpfulness", "tone", "overall"]
+DIMS = ["factual_correctness", "completeness", "helpfulness", "placeholder_quality", "tone", "overall"]
 
 _JUDGE_SYSTEM = """You are a strict expert evaluator for an AAAI conference \
 support-email assistant. You are given: a requester's INQUIRY, the CHAIR'S ACTUAL \
-REPLY (ground truth, written by the human program chair), and an AI-GENERATED \
-DRAFT reply. Judge how well the AI draft matches the correctness and quality of \
-the chair's actual reply.
+REPLY (ground truth, written by the human program chair), an AI-GENERATED DRAFT \
+reply, and the draft's NOTES FOR CHAIR.
 
-The assistant intentionally DEFERS uncertain or chair-only decisions with inline \
-[CHAIR: ...] placeholders instead of guessing. Treat a correct, well-placed \
-deferral as acceptable (do NOT score it as a factual error), but a draft that \
-defers something the chair actually answered directly is LESS COMPLETE than the \
-ground truth.
+IMPORTANT — how to read the draft. The draft is NOT a final, send-ready email; it \
+is a DRAFT prepared for a program chair to review and COMPLETE before sending. The \
+assistant deliberately inserts inline [CHAIR: ...] placeholders wherever the reply \
+needs information the policy knowledge base cannot provide or a decision only a \
+chair can make (e.g. the status of a specific submission, whether to grant an \
+exception, the outcome of an operational step). In those cases a placeholder is \
+the EXPECTED, CORRECT behavior — NOT a mistake or an omission. Evaluate the draft \
+as "a draft a chair will finish," assuming the chair fills each placeholder with \
+the obvious required information. Many drafts are human-review drafts that are not \
+complete or helpful until their placeholders are filled — do NOT penalize them for \
+that alone.
+
+A placeholder is GOOD when its inline hint AND the matching NOTES FOR CHAIR line \
+are specific and ACTIONABLE — telling the chair exactly what to confirm, decide, \
+or provide. A placeholder is BAD when it is vague/empty (no useful guidance), or \
+defers something the chair actually answered directly from policy (the draft could \
+and should have answered it), or is missing where the draft instead GUESSED/asserted \
+something only a chair should decide (under-deferral).
 
 Score each dimension as an integer 1-5 (5 = best):
 - factual_correctness: policy/facts asserted are correct and consistent with the \
-chair's reply; no hallucinated, invented, or contradictory claims.
-- completeness: covers what the chair addressed (a correct [CHAIR] deferral is \
-partial credit, not full).
-- helpfulness: would resolve the requester's need about as well as the chair's reply.
+chair's reply; no hallucinated, invented, or contradictory claims. A correct, \
+well-placed [CHAIR] deferral is NOT a factual error.
+- completeness: does the draft address every part of the inquiry, EITHER by \
+answering from policy OR by deferring with an appropriate placeholder? An \
+appropriate deferral counts as ADDRESSED (full credit) — do NOT dock completeness \
+merely because a placeholder is still unfilled. Dock it only for parts left neither \
+answered nor deferred, or for content wrongly deferred that the chair answered.
+- helpfulness: ASSUMING the chair fills the placeholders with the expected \
+information, would the finished reply resolve the requester's need about as well as \
+the chair's actual reply? Do not penalize helpfulness merely because the raw \
+(unfilled) draft is incomplete; do penalize if it would not help even once filled, \
+or if the placeholders leave the chair doing work the draft should have done.
+- placeholder_quality: quality of the draft's DEFERRAL judgment — does it defer \
+exactly the right things (chair-only / non-KB info) with specific, actionable hints \
+(+ notes), neither over-deferring (vague or unnecessary placeholders) nor \
+under-deferring (guessing what it should have placeheld)? If no placeholders were \
+needed and none were used, score 5. If placeholders were needed but hints are vague, \
+or needed deferrals are missing, score low.
 - tone: professional, appropriate, matches a program chair's voice.
-- overall: holistic quality relative to the chair's actual reply.
+- overall: holistic quality of this draft AS A CHAIR-FACING DRAFT — a concise draft \
+that answers what it can from policy and defers the rest with clear, actionable \
+placeholders is excellent, even if not send-ready as-is.
 
 Return ONLY a JSON object with exactly these keys and no prose outside it:
-{"factual_correctness":int,"completeness":int,"helpfulness":int,"tone":int,\
-"overall":int,"rationale":"one or two sentences"}"""
+{"factual_correctness":int,"completeness":int,"helpfulness":int,\
+"placeholder_quality":int,"tone":int,"overall":int,"rationale":"one or two sentences"}"""
 
 
 def _load_testset(limit: int | None) -> list[dict]:
@@ -166,10 +194,12 @@ def _extract_json(text: str) -> dict:
 async def _judge_one(client: httpx.AsyncClient, draft: dict) -> dict:
     inquiry = f"Subject: {draft['subject']}\n\n{draft['body']}"
     ph = len(draft.get("placeholders", []))
+    notes = draft.get("notes_for_chair") or "(none)"
     user = (
         f"### REQUESTER INQUIRY\n{inquiry}\n\n"
         f"### CHAIR'S ACTUAL REPLY (ground truth)\n{draft['chair_reply']}\n\n"
         f"### AI-GENERATED DRAFT (contains {ph} [CHAIR: ...] placeholder(s))\n{draft.get('draft_text','')}\n\n"
+        f"### DRAFT'S NOTES FOR CHAIR (per-placeholder guidance)\n{notes}\n\n"
         "Score the AI draft against the chair's actual reply per the rubric. JSON only."
     )
     url = f"{settings.LOCAL_MODEL_BASE_URL}/chat/completions"
@@ -238,14 +268,15 @@ def _write_report(results: list[dict]) -> None:
         "",
         "## Per-ticket",
         "",
-        "| ticket | intent | lane | ph | fact | compl | help | tone | overall |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| ticket | intent | lane | ph | fact | compl | help | pq | tone | overall |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
         lines.append(
             f"| {r['ticket_id']} | {r.get('intent','')} | {r.get('lane','')} | "
             f"{r.get('placeholders','')} | {r.get('factual_correctness','-')} | "
             f"{r.get('completeness','-')} | {r.get('helpfulness','-')} | "
+            f"{r.get('placeholder_quality','-')} | "
             f"{r.get('tone','-')} | {r.get('overall','-')} |"
         )
     lines += ["", "## Rationales", ""]

@@ -35,7 +35,7 @@ async def factory():
                     "for the conference."
                 ),
                 category="submission_deadlines",
-                tags=["deadline", "submission"],
+                # [tags-dropped E007] tags=["deadline", "submission"],
                 visibility="public",
                 status="active",
             ),
@@ -47,7 +47,7 @@ async def factory():
                     "including the strict page limit."
                 ),
                 category="formatting_requirements",
-                tags=["formatting", "page-limit"],
+                # [tags-dropped E007] tags=["formatting", "page-limit"],
                 visibility="public",
                 status="active",
             ),
@@ -59,7 +59,7 @@ async def factory():
                     "and pay the conference fee to present."
                 ),
                 category="general_faq",
-                tags=["registration"],
+                # [tags-dropped E007] tags=["registration"],
                 visibility="public",
                 status="active",
             ),

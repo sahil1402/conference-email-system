@@ -78,7 +78,7 @@ async def test_upsert_by_key_insert_handles_real_shaped_raw_dict_with_source(ses
         "title": "v1",
         "content": "a",
         "source": "AAAI-27 — x.md",
-        "tags": ["t"],
+        # [tags-dropped E007] "tags": ["t"],  (filtered by importer; column dropped)
     }
     assert await repo.upsert_by_key(session, raw, source="aaai_scrape") == "inserted"
 
@@ -91,7 +91,7 @@ async def test_upsert_by_key_insert_handles_real_shaped_raw_dict_with_source(ses
     assert got.status == "active"
     assert got.source == "aaai_scrape"   # explicit source arg wins over raw dict's source
     assert got.title == "v1"
-    assert got.tags == ["t"]
+    # [tags-dropped E007] assert got.tags == ["t"]
 
 
 async def test_create_internal_and_retire(session):

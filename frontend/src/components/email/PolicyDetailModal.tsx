@@ -154,18 +154,13 @@ export function PolicyDetailModal({ policyKey, onClose }: PolicyDetailModalProps
 
           {policy && !isLoading && !isError && (
             <div className="space-y-4">
-              {(policy.tags.length > 0 || policy.category) && (
+              {/* [tags-dropped E007] tags removed; category badge retained. */}
+              {policy.category && (
                 <div className="flex flex-wrap items-center gap-2">
-                  {policy.category && (
-                    <Badge variant="neutral" size="sm">
-                      {policy.category}
-                    </Badge>
-                  )}
-                  {policy.tags.map((tag) => (
-                    <Badge key={tag} variant="faq" size="sm">
-                      {tag}
-                    </Badge>
-                  ))}
+                  <Badge variant="neutral" size="sm">
+                    {policy.category}
+                  </Badge>
+                  {/* [tags-dropped E007] policy.tags.map(...) badges removed */}
                 </div>
               )}
               <p

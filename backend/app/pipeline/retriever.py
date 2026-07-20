@@ -74,12 +74,15 @@ class PolicyRetriever:
                 "title": r.title or "",
                 "content": r.content or "",
                 "category": r.category or "",
-                "tags": r.tags or [],
+                # [tags-dropped E007] tag column dropped; no retrieval signal.
+                # "tags": r.tags or [],
             }
             for r in rows
         ]
         corpus = [
-            _tokenize(f"{p['title']} {p['content']} {' '.join(p['tags'])}")
+            # [tags-dropped E007] BM25 doc string was
+            # f"{p['title']} {p['content']} {' '.join(p['tags'])}"
+            _tokenize(f"{p['title']} {p['content']}")
             for p in self._policies
         ]
         # rank_bm25 requires a non-empty corpus; guard the empty-KB case.
@@ -116,7 +119,7 @@ class PolicyRetriever:
                 content=self._policies[i]["content"],
                 score=float(scores[i]),
                 category=self._policies[i]["category"],
-                tags=self._policies[i]["tags"],
+                # [tags-dropped E007] tags=self._policies[i]["tags"],
             )
             for i in chosen
         ]

@@ -16,7 +16,8 @@ from app.db.models import PolicyDocument
 # dicts (e.g. raw policies.json with id/source/tags) are filtered to these, and
 # the knowledge-base "id" is accepted as an alias for the unique ``policy_key``.
 _POLICY_COLUMNS = {
-    "policy_key", "title", "content", "category", "score", "tags", "source",
+    # [tags-dropped E007] "tags" removed — column dropped, no retrieval signal.
+    "policy_key", "title", "content", "category", "score", "source",
     "visibility", "status",
 }
 
@@ -41,7 +42,8 @@ class PolicyRepository:
 
     # Content fields the importer owns. status/visibility are chair-owned and are
     # never written on update (prevents a re-scrape resurrecting a retired policy).
-    _IMPORTER_FIELDS = ("title", "content", "category", "tags")
+    # [tags-dropped E007] "tags" removed from the importer fields.
+    _IMPORTER_FIELDS = ("title", "content", "category")
 
     async def get_all_policies(self, db: AsyncSession) -> list[PolicyDocument]:
         """Return every policy document, ordered by id."""
@@ -146,6 +148,8 @@ class PolicyRepository:
         title: str,
         content: str,
         category: str | None = None,
+        # [tags-dropped E007] tags param retained (accepts + ignores) so callers
+        # need no change; the value is no longer persisted (column dropped).
         tags: list | None = None,
         actor: str,
     ) -> PolicyDocument:
@@ -157,7 +161,8 @@ class PolicyRepository:
             key = f"{base}-{n}"
         row = PolicyDocument(
             policy_key=key, title=title, content=content, category=category,
-            tags=tags or [], source=f"chair:{actor}", visibility="internal", status="active",
+            # [tags-dropped E007] tags=tags or [],
+            source=f"chair:{actor}", visibility="internal", status="active",
         )
         db.add(row)
         await db.commit()
