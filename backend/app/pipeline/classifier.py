@@ -18,90 +18,65 @@ logger = logging.getLogger(__name__)
 # Backends we've already warned about (missing calibrator) — warn only once each.
 _calibration_warned: set[str] = set()
 
-VALID_INTENTS = [
-    "submission_deadline",
-    "formatting_requirements",
-    "general_inquiry",
-    "review_assignment",
-    "authorship_dispute",
-    "submission_withdrawal",
-    "ethics_concern",
-    "technical_issue",
-    # Phase 6A: conference-operations intents. These give the
-    # Publicity/Sponsorship Chair a genuine auto-routing path (before, no intent
-    # the classifier emitted mapped to that chair — a coverage gap). They are
-    # neither FAQ-eligible nor sensitive, so the router escalates them to human
-    # review, where the chair router assigns them.
-    "sponsorship",
-    "publicity",
-    "media_inquiry",
-]
+from app.pipeline.taxonomy import VALID_INTENTS, FALLBACK_INTENT  # noqa: F401
 
 # Keyword cues per intent, chosen for recall on the toy dataset's vocabulary.
 # Lowercase; substring-matched against subject and body independently.
+# The keyword path is a dormant fallback (production uses the distiller), so
+# this ruleset is best-effort, not exhaustive.
 KEYWORD_RULES: dict[str, list[str]] = {
-    "submission_deadline": [
-        "deadline", "due date", "submission date", "extension", "aoe",
-        "anywhere on earth", "abstract deadline", "camera-ready", "cutoff",
-        "when is", "timezone", "midnight", "notification date",
+    "reviewer_assignment": [
+        "reviewer", "assign", "assignment", "emergency reviewer",
+        "add a reviewer", "reassign",
     ],
-    "formatting_requirements": [
-        "page limit", "template", "latex", "format", "formatting", "font",
-        "two-column", "anonymiz", "double-blind", "supplementary", "margins",
-        "style file", "references", "appendix", "word limit",
+    "review_submission_help": [
+        "submit my review", "cannot submit review", "openreview down",
+        "review site", "late review", "meta-review",
     ],
-    "general_inquiry": [
-        "registration", "fee", "virtual", "attend", "workshop", "first time",
-        "how many", "proceedings", "present", "co-author", "inquiry",
+    "paper_bidding": ["bidding", "bid", "reviewer preference"],
+    "author_profile_compliance": [
+        "dblp", "semantic scholar", "google scholar", "profile",
+        "subject area", "conflict",
     ],
-    "review_assignment": [
-        "review", "reviewer", "assigned", "assignment", "reassign",
-        "conflict of interest", "decline", "review load", "papers to review",
-        "area chair", "cannot access", "reviewer account",
+    "submission_upload_help": [
+        "upload", "resubmit", "restore", "withdrawn by mistake",
+        "camera-ready file", "supplementary",
     ],
-    "authorship_dispute": [
-        "author order", "authorship", "co-author added", "without my consent",
-        "without consent", "contribution", "credit", "author list",
-        "remove me", "added as", "author dispute", "missing co-author",
+    "submission_requirements": [
+        "deadline", "due date", "eligible", "how do i submit",
+        "camera-ready deadline", "abstract deadline",
     ],
-    "submission_withdrawal": [
-        "withdraw", "withdrawal", "retract", "remove my submission",
-        "pull our paper", "delete our submission", "data deletion",
-        "withdraw submission", "after acceptance",
+    "submission_format_policy": [
+        "page limit", "appendix", "checklist", "format", "anonymized code",
+        "template",
     ],
-    "ethics_concern": [
-        "plagiarism", "plagiar", "ethics", "ethical", "violation",
-        "misconduct", "irb", "human subjects", "consent", "confidentiality",
-        "breach", "dual submission", "fabricat", "undisclosed conflict",
-        "report",
+    "author_list_change": [
+        "add author", "remove author", "author order", "co-author",
+        "author list",
     ],
-    "technical_issue": [
-        "upload", "error", "cannot log in", "can't log in", "login",
-        "password reset", "portal", "system", "failed", "broken", "bug",
-        "wrong title", "missing file", "submission system",
+    "review_decision_appeal": [
+        "appeal the decision", "unfair review", "rebuttal",
+        "reconsider our paper", "review quality",
     ],
-    # --- Phase 6A conference-operations intents -----------------------------
-    # Cues are deliberately distinctive (domain terms / multi-word phrases) so
-    # they don't collide with the eight submission-content intents above under
-    # substring matching. Bare "press"/"media" are intentionally NOT used —
-    # they would match unrelated words like "Pressure".
-    "sponsorship": [
-        "sponsor", "sponsorship", "sponsorship package", "sponsorship tier",
-        "sponsor prospectus", "prospectus", "become a sponsor",
-        "sponsorship opportunit", "gold sponsor", "exhibitor", "exhibit booth",
-        "booth", "in-kind", "vendor", "financial support",
+    "desk_reject_appeal": [
+        "desk reject", "desk-reject", "appeal the desk",
+        "rejected for formatting",
     ],
-    "publicity": [
-        "publicity", "publiciz", "promote", "promotion", "promotional",
-        "social media", "hashtag", "advertise", "advertising", "newsletter",
-        "mailing list", "cross-promote", "amplify", "spread the word",
-        "call for participation",
+    "anonymity_violation": [
+        "double blind", "double-blind", "anonymity", "de-anonymize",
+        "identifying information",
     ],
-    "media_inquiry": [
-        "journalist", "reporter", "press release", "press pass",
-        "press credential", "press badge", "press inquiry", "media inquiry",
-        "media accreditation", "media kit", "media pass", "media contact",
-        "news coverage", "embargo", "interview request", "member of the press",
+    "reviewer_workload_role": [
+        "too many papers", "reduce my load", "volunteer to review",
+        "senior program committee", "area chair",
+    ],
+    "committee_invitation": [
+        "invitation", "accept the invitation", "decline", "resend the link",
+        "reactivate",
+    ],
+    "cms_support": [
+        "account", "login", "cannot log in", "email address",
+        "duplicate account",
     ],
 }
 
@@ -186,9 +161,9 @@ def keyword_classify(subject: str, body: str) -> ClassificationResult:
     # No keyword matched anywhere — fall back to a low-confidence inquiry.
     if top_score == 0:
         return ClassificationResult(
-            intent="general_inquiry",
+            intent=FALLBACK_INTENT,
             confidence=0.3,
-            reasoning="No policy keywords matched; defaulting to general_inquiry.",
+            reasoning=f"No policy keywords matched; defaulting to {FALLBACK_INTENT}.",
             secondary_intents=[],
             method="keyword",
         )
