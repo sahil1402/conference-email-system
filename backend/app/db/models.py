@@ -314,6 +314,10 @@ class PolicyDocument(Base):
     # tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Intents this chunk can answer (Task B, controlled vocab from
+    # taxonomy.VALID_INTENTS).
+    intents: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     # Phase F (layered KB): the layer/trust axis and the soft on/off lifecycle.
     # visibility: "public" (official corpus, freely citable) | "internal"
     # (chair-authored, not on the public site — retrievable & citable, marked for

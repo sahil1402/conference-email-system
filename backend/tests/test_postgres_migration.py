@@ -151,6 +151,8 @@ def test_schema_has_all_tables_and_key_columns(pg_schema):
     # [tags-dropped E007] tags column dropped by migration e7a9c1f2b3d4; source stays.
     assert {"source"} <= policy_cols
     assert "tags" not in policy_cols
+    # Task B1: intents column (nullable JSON, populated offline by Task B3).
+    assert "intents" in policy_cols
     # audit context column is named "metadata" at the DB level.
     assert "metadata" in {c["name"] for c in insp.get_columns("audit_logs")}
     # the chair FK the queue/analytics aggregates depend on.
