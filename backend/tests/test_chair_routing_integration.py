@@ -14,6 +14,10 @@ No network, no API key (the drafter takes its deterministic fallback path).
 """
 
 import json
+import os
+import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -37,6 +41,8 @@ from app.pipeline.drafter import DraftResponse
 from app.pipeline.orchestrator import EmailPipeline
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 # backend/tests/… → parents[2] is the repo root.
 _ROOT = Path(__file__).resolve().parents[2]
@@ -313,3 +319,72 @@ async def test_reassign_unknown_chair_404(ctx):
         json={"reassigned_by": "c", "new_chair_id": 999999},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Migration b2c3d4e5f6a7 (Task F4): the DB-seeded chairs.areas must agree with
+# this fixture's _SEED_CHAIRS (both are supposed to describe the same
+# 14-intent mapping — this test is the tripwire if they ever drift apart).
+# ---------------------------------------------------------------------------
+def _run_alembic(args, db_url: str):
+    env = {**os.environ, "DATABASE_URL": db_url}
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", *args],
+        cwd=str(BACKEND_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_migration_reseed_matches_fixture_mapping(tmp_path):
+    """`alembic upgrade head` seeds chairs.areas identically to _SEED_CHAIRS.
+
+    Runs against a throwaway SQLite file (never the real/demo database).
+    Confirms migration b2c3d4e5f6a7's upgrade() mapping agrees with this
+    module's _SEED_CHAIRS (the fixture used by every other test above), which
+    in turn is the same 14-intent mapping used by scripts/bench_real.py's
+    CHAIR_AREAS.
+    """
+    db_file = tmp_path / "reseed_roundtrip.db"
+    db_url = f"sqlite:///{db_file.as_posix()}"
+
+    up = _run_alembic(["upgrade", "head"], db_url)
+    assert up.returncode == 0, f"upgrade failed:\n{up.stderr}"
+
+    expected = {name: areas for name, _role, areas in _SEED_CHAIRS}
+
+    con = sqlite3.connect(db_file)
+    try:
+        rows = con.execute("SELECT name, areas FROM chairs").fetchall()
+        actual = {name: json.loads(areas) for name, areas in rows}
+    finally:
+        con.close()
+
+    assert actual == expected
+
+    # downgrade -1 restores the original Phase 6A areas verbatim...
+    down = _run_alembic(["downgrade", "-1"], db_url)
+    assert down.returncode == 0, f"downgrade failed:\n{down.stderr}"
+
+    original = {
+        "Program Chair": [
+            "submission_deadline", "formatting_requirements",
+            "submission_withdrawal", "review_assignment", "technical_issue",
+        ],
+        "Diversity & Ethics Chair": ["ethics_concern", "authorship_dispute"],
+        "Local Arrangements Chair": ["general_inquiry"],
+        "Publicity/Sponsorship Chair": ["sponsorship", "publicity", "media_inquiry"],
+        "General Chair": [],
+    }
+    con = sqlite3.connect(db_file)
+    try:
+        rows = con.execute("SELECT name, areas FROM chairs").fetchall()
+        actual = {name: json.loads(areas) for name, areas in rows}
+    finally:
+        con.close()
+    assert actual == original
+
+    # ...and re-upgrading is clean (proves the down/up cycle is repeatable).
+    up2 = _run_alembic(["upgrade", "head"], db_url)
+    assert up2.returncode == 0, f"re-upgrade failed:\n{up2.stderr}"
