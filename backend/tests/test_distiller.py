@@ -158,6 +158,7 @@ _EMAIL = {
 
 async def test_pipeline_uses_distilled_queries_and_intent(monkeypatch, db_factory):
     monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    assert settings.INTENT_PRIOR_ENABLED is False  # default (B7 / E010 gate)
     pipeline = EmailPipeline()
     pipeline.distiller = _StubDistiller(
         DistillResult(
@@ -178,7 +179,33 @@ async def test_pipeline_uses_distilled_queries_and_intent(monkeypatch, db_factor
     # Distilled lines joined into one query; NO intent token (E001/E003).
     assert call["query"] == "add co-author after deadline author list change"
     assert call["intent"] == ""
-    # The classified intent rides the separate prior_intent (soft-boost) channel (B5).
+    # B7: INTENT_PRIOR_ENABLED defaults off (E010 showed the boost regresses
+    # fusion retrieval hit@1 .730→.243) → production forwards prior_intent="".
+    assert call["prior_intent"] == ""
+
+
+async def test_pipeline_prior_intent_flows_when_flag_enabled(monkeypatch, db_factory):
+    """B7 opt-in path: with INTENT_PRIOR_ENABLED=True the classified intent still
+    reaches the retriever's soft-boost channel (B5), while the query text stays
+    untouched (E001 guard)."""
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    monkeypatch.setattr(settings, "INTENT_PRIOR_ENABLED", True)
+    pipeline = EmailPipeline()
+    pipeline.distiller = _StubDistiller(
+        DistillResult(
+            queries=["add co-author after deadline", "author list change"],
+            intent="author_list_change",
+            confidence=0.9,
+        )
+    )
+    pipeline.retriever = _CapturingRetriever()
+
+    async with db_factory() as db:
+        await pipeline.process_email(_EMAIL, db)
+
+    call = pipeline.retriever.calls[0]
+    assert call["query"] == "add co-author after deadline author list change"
+    assert call["intent"] == ""
     assert call["prior_intent"] == "author_list_change"
 
 

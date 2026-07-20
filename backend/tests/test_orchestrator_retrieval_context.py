@@ -50,19 +50,22 @@ async def test_process_email_persists_retrieval_context(session):
     assert ctx["retrieved_ids"] == [c.policy_id for c in result.retrieved_chunks]
 
 
-async def test_distill_mode_prior_intent_never_enters_query_e001_guard(
-    session, monkeypatch
-):
-    """E001 guard: in distill mode the classified intent feeds the soft prior
-    (a SEPARATE ``prior_intent`` channel), never the query text.
+class _PriorSpyRetriever:
+    """Captures the retriever call so tests can assert on query/intent/prior_intent."""
 
-    Historically (E001/E003) folding the intent token into the query hurt
-    retrieval, so distill mode passes ``retrieval_intent=""``. B5 must keep that
-    invariant: the query string handed to the retriever stays byte-identical to the
-    distilled queries, and the intent reaches only the boost channel.
-    """
-    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    def __init__(self):
+        self.captured: dict = {}
 
+    async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
+        self.captured["query"] = query
+        self.captured["intent"] = intent
+        self.captured["prior_intent"] = prior_intent
+        return [
+            RetrievedChunk(policy_id="policy_101", title="t", content="c", score=1.0)
+        ]
+
+
+def _make_distill_pipeline(spy):
     pipeline = EmailPipeline()
 
     class _FakeDistiller:
@@ -74,19 +77,29 @@ async def test_distill_mode_prior_intent_never_enters_query_e001_guard(
             )
 
     pipeline.distiller = _FakeDistiller()
+    pipeline.retriever = spy
+    return pipeline
 
-    captured: dict = {}
 
-    class _SpyRetriever:
-        async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
-            captured["query"] = query
-            captured["intent"] = intent
-            captured["prior_intent"] = prior_intent
-            return [
-                RetrievedChunk(policy_id="policy_101", title="t", content="c", score=1.0)
-            ]
+async def test_distill_mode_prior_intent_empty_by_default_e001_guard(
+    session, monkeypatch
+):
+    """E001 guard + B7 gate: in distill mode the classified intent never enters
+    the query text, and by default (``INTENT_PRIOR_ENABLED=False``) it does not
+    reach the retriever's ``prior_intent`` boost channel either.
 
-    pipeline.retriever = _SpyRetriever()
+    Historically (E001/E003) folding the intent token into the query hurt
+    retrieval, so distill mode passes ``retrieval_intent=""``. B6's E010 ablation
+    then showed B5's ``prior_intent`` boost itself badly regresses fusion
+    retrieval (hit@1 .730→.243), so B7 gates it behind ``INTENT_PRIOR_ENABLED``
+    (default off): production must forward ``prior_intent=""`` regardless of
+    what the classifier/distiller found.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    assert settings.INTENT_PRIOR_ENABLED is False  # default
+
+    spy = _PriorSpyRetriever()
+    pipeline = _make_distill_pipeline(spy)
 
     result = await pipeline.process_email(
         {"from": "a@b.com", "subject": "Formatting", "body": "How many pages allowed?"},
@@ -94,14 +107,48 @@ async def test_distill_mode_prior_intent_never_enters_query_e001_guard(
     )
 
     # Query = distilled queries joined, byte-identical — NO intent token appended.
-    assert captured["query"] == "paper page limit appendix placement policy"
-    assert "submission_format_policy" not in captured["query"]
-    # The query-shaping ``intent`` arg stays empty in distill mode (E001 protection);
-    # the classified intent rides ONLY the separate prior_intent (boost) channel.
-    assert captured["intent"] == ""
-    assert captured["prior_intent"] == "submission_format_policy"
+    assert spy.captured["query"] == "paper page limit appendix placement policy"
+    assert "submission_format_policy" not in spy.captured["query"]
+    # The query-shaping ``intent`` arg stays empty in distill mode (E001 protection).
+    assert spy.captured["intent"] == ""
+    # B7: prior gate is off by default → the boost channel gets "", not the
+    # classified intent.
+    assert spy.captured["prior_intent"] == ""
 
-    # Persisted context mirrors this: empty query-intent, prior recorded, stable hash.
+    # Persisted context mirrors this: empty query-intent, empty prior, stable hash.
+    ctx = (
+        await EmailRepository().get_email_by_id(session, result.email_id)
+    ).retrieval_context
+    assert ctx["intent"] == ""
+    assert ctx["prior_intent"] == ""
+    assert isinstance(ctx["chunk_hash"], str) and len(ctx["chunk_hash"]) == 40
+
+
+async def test_distill_mode_prior_intent_flows_when_flag_enabled_e001_guard(
+    session, monkeypatch
+):
+    """B7 opt-in path: with ``INTENT_PRIOR_ENABLED=True``, the classified intent
+    flows through to the retriever's ``prior_intent`` boost channel again — but
+    the E001 guard (query text unchanged, no intent token) must still hold.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    monkeypatch.setattr(settings, "INTENT_PRIOR_ENABLED", True)
+
+    spy = _PriorSpyRetriever()
+    pipeline = _make_distill_pipeline(spy)
+
+    result = await pipeline.process_email(
+        {"from": "a@b.com", "subject": "Formatting", "body": "How many pages allowed?"},
+        session,
+    )
+
+    # E001 guard still holds: query byte-identical, no intent token appended.
+    assert spy.captured["query"] == "paper page limit appendix placement policy"
+    assert "submission_format_policy" not in spy.captured["query"]
+    assert spy.captured["intent"] == ""
+    # The classified intent now rides the separate prior_intent (boost) channel.
+    assert spy.captured["prior_intent"] == "submission_format_policy"
+
     ctx = (
         await EmailRepository().get_email_by_id(session, result.email_id)
     ).retrieval_context

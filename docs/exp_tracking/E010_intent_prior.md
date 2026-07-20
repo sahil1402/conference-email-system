@@ -47,10 +47,14 @@ throughout.
   score boost (B5)... so B6 can ablate the boost cleanly"*). So **dense is
   identical between `prior_off`/`prior_on` by design** — confirmed below, not a
   harness bug. **Fusion is the only arm this ablation actually tests.**
-- **Sanity check:** `prior_off | fusion` reproduces E007's `tags_off | fusion` /
-  E008's `minilm | fusion` row exactly (hit@1 .730, hit@3 .892, hit@5 .919, ndcg@3
-  .645, mrr .814, mean gold rank 2.0) — the harness matches; the delta is
-  trustworthy.
+- **Sanity check:** `prior_off | fusion` reproduces E007's `tags_off | fusion` row
+  exactly (hit@1 .730, hit@3 .892, hit@5 .919, ndcg@3 .645, mrr .814, mean gold
+  rank 2.0) — the harness matches; the delta is trustworthy. **Baseline
+  attribution, corrected:** the `.730` anchor is E007's `tags_off | fusion`, not
+  E008's `minilm | fusion` — E008's own script docstring/sanity target for
+  `minilm | fusion` is the *pre*-tag-drop `.703` (E005/E007 `tags_on`), so citing
+  E008 alongside E007 for `.730` was misleading even though E008's actual run
+  (on the post-tag-drop corpus) happened to land on `.730` too.
 
 ## Results (n=37)
 
@@ -105,12 +109,21 @@ between adjacent documents near the top of a 93-chunk corpus:
    mapped to it, e.g. ticket 15765 had the correct chunk (`policy_186`) at rank 1
    before the boost; after, an unrelated but same-intent-tagged `policy_102` wins
    the tie-break and the correct chunk falls to rank 13.
-3. **Per-ticket breakdown:** of the 37 tickets, only **14/37** even have the
-   mapped intent tagged on their *own* gold chunk (the ceiling on how many tickets
-   the prior could possibly help). Of all 37: **24 got worse, 2 got better, 11
-   unchanged.** Even restricted to the 14 "could help" tickets, most still got
-   worse — the boost frequently promotes a *different*, same-intent-tagged chunk
-   ahead of the correct one rather than the correct one itself.
+3. **Per-ticket breakdown (manual/out-of-band analysis — not a committed harness
+   output):** of the 37 tickets, only **14/37** even have the mapped intent
+   tagged on their *own* gold chunk (the ceiling on how many tickets the prior
+   could possibly help). A manual pass over the harness's per-ticket rank
+   printouts (not a metric the committed script aggregates or asserts) counted
+   roughly **24 got worse, 2 got better, 11 unchanged**. Even restricted to the
+   14 "could help" tickets, most still got worse — the boost frequently promotes
+   a *different*, same-intent-tagged chunk ahead of the correct one rather than
+   the correct one itself. The individual rank examples above (`18464`, `17871`,
+   `15765`) are similarly manual spot-checks, not harness assertions. The
+   committed `scripts/e010_intent_prior_ablation.py` only emits the aggregate
+   `total_boosted` (226 boost events fired) and `gold_intent_hits` (14/37,
+   confirmed above) — the exact per-ticket split was not persisted as harness
+   output, so treat the 24/2/11 counts as indicative, not reproducible from a
+   single command.
 
 **Verdict on magnitude: yes, `INTENT_PRIOR_BOOST` is too strong for the current
 intent-coverage density.** Sized as "a full single-ranker rank-1 RRF vote" (see the
@@ -151,22 +164,38 @@ Two directions this cuts:
 
 **Do not adopt `prior_intent` boosting as currently sized on this eval.** The
 measured effect on the only arm it touches (fusion) is a severe regression (hit@1
-−.487, MRR −.365), not the gentle nudge it was designed to be. Because
-`prior_intent` is wired in **unconditionally** (no feature flag — `orchestrator.py`
-always passes `classification.intent`) on the **default** `RETRIEVAL_BACKEND=fusion`
-config, this is a live-path finding, not a hypothetical: any current fusion-backend
-deployment is exposed to this regression today, gated only by how often
+−.487, MRR −.365), not the gentle nudge it was designed to be. `prior_intent` had
+been wired in **unconditionally** (no feature flag — `orchestrator.py` always
+passed `classification.intent`) on the **default** `RETRIEVAL_BACKEND=fusion`
+config, making this a live-path finding, not a hypothetical: any fusion-backend
+deployment was exposed to this regression, gated only by how often
 `classification.intent` and a chunk's `intents` happen to line up in production
 traffic (unmeasured — this eval used a gold-label proxy, not the live classifier).
 
-This task (B6) is scoped to *measure*, not to fix — per the brief, the boost value
-and scoring logic are explicitly not to be changed here. Recommended follow-up
-(not done in this task): (1) a magnitude sweep (smaller `INTENT_PRIOR_BOOST`
-values) to find a size that helps or is at least neutral; (2) densifying/auditing
-B3's intent→chunk coverage so no single intent collapses onto one chunk; (3) until
-either lands, consider gating `prior_intent` behind a flag (defaulting off) rather
-than leaving it unconditional, so a fusion deployment doesn't inherit this
-regression silently.
+**Resolution (B7):** `prior_intent` is now gated behind the config flag
+`INTENT_PRIOR_ENABLED` (`backend/app/core/config.py`), **default `False`**.
+`app/pipeline/orchestrator.py` forwards `prior_intent=""` unless the flag is
+explicitly enabled, so production runs `RETRIEVAL_BACKEND=fusion` **without** the
+boost — restoring the `.730` hit@1 / `.814` MRR baseline (E007 `tags_off | fusion`)
+measured above. The boost logic itself (`fusion_retriever.py`) and the B5
+infrastructure (`intents` column, retriever plumbing, coverage map, FAQ
+eligibility, the re-eval hash) are all left intact — the flag only controls
+whether production *applies* the boost; it stays available as an explicit opt-in
+for future tuning and for this harness (which imports the boost directly and is
+unaffected by the flag).
+
+This task (B6) was scoped to *measure*, not to fix — the boost value and scoring
+logic were explicitly not changed there, and B7's gating change also leaves them
+untouched (gating only, no change to boost magnitude or fusion logic). Future
+work (not done in either task): (1) a magnitude sweep — a much smaller
+`INTENT_PRIOR_BOOST` (rough order of magnitude 5–10x smaller than the current
+`1/(k+1)` full rank-1 vote, i.e. ~0.0015–0.0033) to find a size that helps or is
+at least neutral; (2) densifying/auditing B3's intent→chunk coverage so no single
+intent collapses onto one chunk; (3) re-run this ablation with the harness's
+fusion truncated to production's `candidate_pool=10` per ranker (see Threats to
+validity below) before drawing conclusions about production magnitude, not just
+direction. Only after (1)/(2)/(3) land should `INTENT_PRIOR_ENABLED` be
+reconsidered for a default flip.
 
 ## Threats to validity
 
@@ -179,6 +208,21 @@ regression silently.
   construction (confirmed, not assumed).
 - Same E009 selection-bias caveat as always: author-submission slice only: see
   above.
+- **Harness fuses the FULL 93-chunk ranking per ticket; production truncates.**
+  `FusionRetriever.retrieve()` only fuses each sub-ranker's top `candidate_pool`
+  (default **10**, `fusion_retriever.py`) before the boost is applied, while this
+  harness's `fuse()` (`scripts/e010_intent_prior_ablation.py`) RRF-fuses the
+  *entire* ranking (all 93 chunks) with no pool truncation. A boosted chunk that
+  only ranks well once the full 93-chunk tail is considered may never even reach
+  the fused candidate set in production, so the measured **−.487 hit@1 / −.365
+  MRR** is a **pessimistic upper bound** on the true production harm, not a
+  calibrated production estimate — the real regression could be smaller in
+  magnitude. **This does not affect the gate-off decision**: the direction (harm,
+  not benefit) and the mechanism (a large boost overturning near-top rankings for
+  broad/sparse intent tags) are structural and apply regardless of pool size; only
+  the exact magnitude is unconfirmed at production truncation. A `candidate_pool`-
+  truncated re-ablation (item 3 above) would tighten this estimate but is not
+  required to justify keeping the flag off.
 
 ## Reproduction
 

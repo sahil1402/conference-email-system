@@ -214,7 +214,13 @@ class EmailPipeline:
             # This is why it does NOT reintroduce E001 — ``query`` and
             # ``retrieval_intent`` (the args that shape the query text, "" in distill
             # mode) are unchanged; ``prior_intent`` never enters the query string.
-            prior_intent = classification.intent or ""
+            # Gated by INTENT_PRIOR_ENABLED (default False, B7): E010 showed this
+            # boost badly regresses fusion retrieval (hit@1 .730→.243) as currently
+            # sized, so production withholds the intent unless explicitly opted in
+            # (docs/exp_tracking/E010_intent_prior.md).
+            prior_intent = (
+                (classification.intent or "") if settings.INTENT_PRIOR_ENABLED else ""
+            )
 
             with tracer.stage("retriever", {"query": query}) as st:
                 retrieved_chunks = await self.retriever.retrieve(

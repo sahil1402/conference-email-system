@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # until a model is trained). Default stays "keyword".
     CLASSIFIER_BACKEND: Literal["keyword", "trainable"] = "keyword"
 
+    # Soft intent→KB retrieval prior. OFF by default — E010
+    # (docs/exp_tracking/E010_intent_prior.md) showed the current boost
+    # regresses fusion retrieval (hit@1 .730→.243); re-enable only after
+    # magnitude tuning.
+    INTENT_PRIOR_ENABLED: bool = False
+
     # Confidence calibration (Phase 5B). When True AND a fitted calibrator
     # artifact exists for the active CLASSIFIER_BACKEND, the router uses the
     # calibrated confidence instead of the raw classifier score. Off by default
