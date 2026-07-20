@@ -28,6 +28,15 @@ _DEFAULT_RRF_K = 60
 # usual top_k so a document ranked highly by only ONE ranker can still surface.
 _DEFAULT_CANDIDATE_POOL = 10
 
+# Soft intent-prior boost (B5). When we know the email's intent, a chunk that can
+# answer that intent (``intent in chunk.intents``) gets this ADDED to its fused
+# score — a gentle nudge, never a filter. Sized at one RRF rank-step
+# (1/(k+1) ≈ 0.0164 for k=60): roughly the score a single ranker contributes by
+# moving a document up one position, so a matching chunk overtakes at most about
+# one non-matching neighbour rather than dominating the ranking. A non-matching
+# chunk keeps its exact fused score (never starved). Tunable.
+INTENT_PRIOR_BOOST = 1.0 / (_DEFAULT_RRF_K + 1)
+
 
 class FusionRetriever:
     """Fuses BM25 + FAISS rankings via Reciprocal Rank Fusion."""
@@ -61,13 +70,20 @@ class FusionRetriever:
         return 1.0 / (rrf_k + rank)
 
     async def retrieve(
-        self, query: str, intent: str, top_k: int = 3
+        self, query: str, intent: str, top_k: int = 3, *, prior_intent: str = ""
     ) -> list[RetrievedChunk]:
         """Return up to ``top_k`` policy chunks by fused RRF score.
 
         Pulls a candidate pool from each underlying retriever, sums the RRF
         contributions per document, and returns the top_k by fused score. Ties
         break by policy_id for deterministic ordering.
+
+        ``prior_intent`` is a soft prior applied as METADATA only: after fusion, a
+        chunk whose ``intents`` include it gets ``INTENT_PRIOR_BOOST`` added to its
+        score. It is deliberately NOT forwarded into ``query`` — the sub-retrievers
+        receive the query string byte-for-byte, so the boost never re-introduces the
+        intent-token-in-query regression (E001/E003). It is a separate channel from
+        the ``intent`` arg (which BM25 may fold into its query text in prefix mode).
         """
         pool = max(top_k, self.candidate_pool)
         bm25_results = await self.bm25.retrieve(query, intent, top_k=pool)
@@ -92,6 +108,16 @@ class FusionRetriever:
                 if existing is None or (not existing.tags and chunk.tags):
                     chunk_by_id[pid] = chunk
 
+        # Soft intent prior (B5): ADD a small boost to any chunk that can answer the
+        # email's intent. Additive, never a filter — a non-matching chunk keeps its
+        # exact fused score and is never removed or penalised.
+        boosted = 0
+        if prior_intent:
+            for pid, chunk in chunk_by_id.items():
+                if prior_intent in (chunk.intents or []):
+                    fused_scores[pid] += INTENT_PRIOR_BOOST
+                    boosted += 1
+
         # Sort by fused score desc, then policy_id asc for a stable, deterministic order.
         ranked = sorted(fused_scores.items(), key=lambda kv: (-kv[1], kv[0]))
 
@@ -111,14 +137,16 @@ class FusionRetriever:
             )
 
         logger.info(
-            "Fusion retrieve: query=%r intent=%r top_k=%d → %d results "
-            "(bm25=%d, faiss=%d candidates, rrf_k=%d).",
+            "Fusion retrieve: query=%r intent=%r prior_intent=%r top_k=%d → %d results "
+            "(bm25=%d, faiss=%d candidates, rrf_k=%d, intent_boosted=%d).",
             query,
             intent,
+            prior_intent,
             top_k,
             len(results),
             len(bm25_results),
             len(faiss_results),
             self.rrf_k,
+            boosted,
         )
         return results

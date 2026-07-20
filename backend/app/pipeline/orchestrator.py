@@ -26,7 +26,11 @@ from app.models.enums import EmailStatus
 from app.pipeline.classifier import ClassificationResult, IntentClassifier
 from app.pipeline.distiller import EmailDistiller
 from app.pipeline.drafter import DraftResponse, ResponseDrafter
-from app.pipeline.retriever import RetrievedChunk, get_retriever
+from app.pipeline.retriever import (
+    RetrievedChunk,
+    get_retriever,
+    grounded_chunks_hash,
+)
 from app.pipeline.router import LANE_HUMAN_REVIEW, EmailRouter, RoutingDecision
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.chair_repository import ChairRepository
@@ -205,11 +209,19 @@ class EmailPipeline:
                 query = body[:_RETRIEVAL_QUERY_CHARS]
                 retrieval_intent = classification.intent
 
+            # Soft intent prior (B5): the classified intent feeds a fusion-only
+            # score boost as METADATA on a SEPARATE channel from ``retrieval_intent``.
+            # This is why it does NOT reintroduce E001 — ``query`` and
+            # ``retrieval_intent`` (the args that shape the query text, "" in distill
+            # mode) are unchanged; ``prior_intent`` never enters the query string.
+            prior_intent = classification.intent or ""
+
             with tracer.stage("retriever", {"query": query}) as st:
                 retrieved_chunks = await self.retriever.retrieve(
                     query,
                     retrieval_intent,
                     top_k=settings.MAX_RETRIEVED_CHUNKS,
+                    prior_intent=prior_intent,
                 )
                 st.output_summary = {
                     "chunk_ids": [c.policy_id for c in retrieved_chunks],
@@ -278,11 +290,17 @@ class EmailPipeline:
                 chair_assignment.chair_id if chair_assignment else None
             ),
             # Exact retriever inputs + the grounding set, so a later KB-change
-            # sweep can re-run retrieval with no model call and compare.
+            # sweep can re-run retrieval with no model call and compare. ``prior_intent``
+            # is stored so re-eval reproduces the SAME boosted ranking from ctx alone
+            # (legacy rows lack it → re-eval passes "" → their unboosted ids still
+            # match). ``chunk_hash`` fingerprints (id, intents) so a KB intent re-label
+            # that leaves the id-set unchanged is still detected (B5).
             "retrieval_context": {
                 "query": query,
                 "intent": retrieval_intent,
+                "prior_intent": prior_intent,
                 "retrieved_ids": [c.policy_id for c in retrieved_chunks],
+                "chunk_hash": grounded_chunks_hash(retrieved_chunks),
             },
         }
         return _Computed(

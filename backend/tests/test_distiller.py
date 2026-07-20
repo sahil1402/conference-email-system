@@ -117,8 +117,10 @@ class _CapturingRetriever:
     def __init__(self):
         self.calls: list[dict] = []
 
-    async def retrieve(self, query, intent, top_k=3):
-        self.calls.append({"query": query, "intent": intent})
+    async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
+        self.calls.append(
+            {"query": query, "intent": intent, "prior_intent": prior_intent}
+        )
         return []
 
 
@@ -176,6 +178,8 @@ async def test_pipeline_uses_distilled_queries_and_intent(monkeypatch, db_factor
     # Distilled lines joined into one query; NO intent token (E001/E003).
     assert call["query"] == "add co-author after deadline author list change"
     assert call["intent"] == ""
+    # The classified intent rides the separate prior_intent (soft-boost) channel (B5).
+    assert call["prior_intent"] == "author_list_change"
 
 
 async def test_pipeline_falls_back_when_distillation_fails(monkeypatch, db_factory):

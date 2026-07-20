@@ -25,7 +25,7 @@ from app.core.config import settings
 from app.db.database import async_session_factory
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.drafter import ResponseDrafter
-from app.pipeline.retriever import get_retriever
+from app.pipeline.retriever import get_retriever, grounded_chunks_hash
 from app.pipeline.router import LANE_HUMAN_REVIEW, EmailRouter
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
@@ -36,10 +36,19 @@ _ACTOR = "reevaluation"
 
 
 async def _fresh_topk_ids(retriever, ctx: dict, top_k: int):
-    """Re-run retrieval from a ticket's stored context; return (ids, chunks)."""
+    """Re-run retrieval from a ticket's stored context; return (ids, chunks).
+
+    ``prior_intent`` is replayed from the stored context so the fresh ranking
+    reproduces the SAME soft intent-prior boost (B5) applied at ingest — otherwise
+    an unboosted re-run could shuffle the top-k and force a spurious re-draft.
+    Legacy rows lack ``prior_intent`` → "" → unboosted, matching their stored ids.
+    """
     query = (ctx or {}).get("query") or ""
     intent = (ctx or {}).get("intent") or ""
-    chunks = await retriever.retrieve(query, intent, top_k=top_k)
+    prior_intent = (ctx or {}).get("prior_intent") or ""
+    chunks = await retriever.retrieve(
+        query, intent, top_k=top_k, prior_intent=prior_intent
+    )
     return [c.policy_id for c in chunks], chunks
 
 
@@ -101,9 +110,19 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 continue
             ctx = email.retrieval_context
             stored_ids = set(ctx.get("retrieved_ids") or [])
+            stored_hash = ctx.get("chunk_hash")
 
             fresh_ids_list, fresh_chunks = await _fresh_topk_ids(retriever, ctx, top_k)
-            if set(fresh_ids_list) == stored_ids:
+            fresh_hash = grounded_chunks_hash(fresh_chunks)
+            # Two independent axes make a ticket "affected":
+            #  (1) the grounded id-SET moved (a different chunk now ranks top-k), or
+            #  (2) a grounded chunk was re-labelled — same ids, different intents —
+            #      caught by the (id, intents) hash. Legacy rows have no stored hash;
+            #      treat that axis as unchanged so they never spuriously re-draft (the
+            #      id-set gate still applies to them exactly as before).
+            ids_changed = set(fresh_ids_list) != stored_ids
+            hash_changed = stored_hash is not None and stored_hash != fresh_hash
+            if not ids_changed and not hash_changed:
                 stats["unaffected"] += 1
                 continue
 
@@ -138,6 +157,7 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 "ctx": ctx,
                 "stored_ids": stored_ids,
                 "fresh_ids_list": fresh_ids_list,
+                "fresh_hash": fresh_hash,
                 "fresh_chunks": fresh_chunks,
                 "classification": ClassificationResult(**(email.classification or {})),
                 "email_data": {
@@ -176,7 +196,9 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 new_ctx = {
                     "query": item["ctx"].get("query", ""),
                     "intent": item["ctx"].get("intent", ""),
+                    "prior_intent": item["ctx"].get("prior_intent", ""),
                     "retrieved_ids": item["fresh_ids_list"],
+                    "chunk_hash": item["fresh_hash"],
                 }
                 saved = await email_repo.save_redraft(
                     db, email_id,

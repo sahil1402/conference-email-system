@@ -157,9 +157,14 @@ class FAISSRetriever:
 
     # --- retrieval --------------------------------------------------------
     async def retrieve(
-        self, query: str, intent: str, top_k: int = 3
+        self, query: str, intent: str, top_k: int = 3, *, prior_intent: str = ""
     ) -> list[RetrievedChunk]:
-        """Return up to ``top_k`` policy chunks most similar to the query."""
+        """Return up to ``top_k`` policy chunks most similar to the query.
+
+        ``prior_intent`` is accepted for the uniform ``retrieve()`` contract but
+        unused here: the soft intent prior is a *fusion-only* score boost (B5).
+        Dense scoring stays untouched so B6 can ablate the boost cleanly.
+        """
         await self._ensure_built()
 
         if self._index is None or not self._docs:

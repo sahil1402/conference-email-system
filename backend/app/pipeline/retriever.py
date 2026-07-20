@@ -11,6 +11,8 @@ Indexed documents carry: policy_key (id), category, title, content, tags. We
 index title + content + tags and return chunks ranked by BM25 relevance.
 """
 
+import hashlib
+import json
 import logging
 
 from pydantic import BaseModel, Field
@@ -44,6 +46,25 @@ class RetrievedChunk(BaseModel):
     intents: list[str] = Field(
         default_factory=list, description="Intents this chunk can answer."
     )
+
+
+def grounded_chunks_hash(chunks: list["RetrievedChunk"]) -> str:
+    """Stable fingerprint of the grounded chunks' ``(policy_id, sorted intents)``.
+
+    The re-eval sweep's primary gate compares the top-k policy id *set*. That set
+    cannot detect an intent *re-label* — a chunk keeping its id but gaining/losing
+    entries in its ``intents`` list (Part B lets a chair edit chunk intents without
+    changing ``policy_key``). This hash gives re-eval a second axis to notice such a
+    change. It is sha1 over a sorted, canonical JSON of ``(policy_id, sorted
+    intents)`` pairs, so it is independent of retrieval order and byte-stable across
+    processes (unlike Python's salted ``hash()``).
+    """
+    payload = sorted(
+        [chunk.policy_id, sorted(chunk.intents or [])] for chunk in chunks
+    )
+    return hashlib.sha1(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 class PolicyRetriever:
@@ -103,9 +124,14 @@ class PolicyRetriever:
         return len(self._policies or [])
 
     async def retrieve(
-        self, query: str, intent: str, top_k: int = 3
+        self, query: str, intent: str, top_k: int = 3, *, prior_intent: str = ""
     ) -> list[RetrievedChunk]:
-        """Return up to ``top_k`` active policy chunks most relevant to the query."""
+        """Return up to ``top_k`` active policy chunks most relevant to the query.
+
+        ``prior_intent`` is accepted for the uniform ``retrieve()`` contract but
+        intentionally unused here: the soft intent prior is a *fusion-only* score
+        boost (B5). BM25 scoring stays untouched so B6 can ablate the boost cleanly.
+        """
         await self._ensure_loaded()
         if not self._policies or self._index is None:
             return []

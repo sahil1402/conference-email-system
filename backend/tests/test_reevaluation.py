@@ -59,16 +59,23 @@ def _open_email(**ctx_over) -> Email:
 
 
 class _StubRetriever:
-    """Returns a fixed id list regardless of query, to drive the gate."""
+    """Returns a fixed id list regardless of query, to drive the gate.
 
-    def __init__(self, ids):
+    Optional ``intents`` (parallel to ``ids``) let a test hold the id-set fixed
+    while changing a chunk's intents — exercising the chunk-hash axis of the gate.
+    """
+
+    def __init__(self, ids, intents=None):
         from app.pipeline.retriever import RetrievedChunk
+        intents = intents or [[] for _ in ids]
         self._chunks = [
-            RetrievedChunk(policy_id=i, title=i, content=f"body {i}", score=1.0)
-            for i in ids
+            RetrievedChunk(
+                policy_id=i, title=i, content=f"body {i}", score=1.0, intents=ints
+            )
+            for i, ints in zip(ids, intents)
         ]
 
-    async def retrieve(self, query, intent, top_k=3):
+    async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
         return self._chunks[:top_k]
 
 
@@ -228,6 +235,56 @@ async def test_empty_retrieved_ids_with_context_stays_eligible(session, monkeypa
     assert stats["skipped_no_context"] == 0
     reloaded = (await EmailRepository().get_open_tickets(session))[0]
     assert reloaded.retrieval_context["retrieved_ids"] == ["policy_777"]
+
+
+async def test_intent_relabel_fires_redraft_via_hash(session, monkeypatch):
+    # Same top-k id SET, but the grounded chunk's intents changed (a chair re-labelled
+    # the KB). The id-set gate alone calls this unaffected; the (id, intents) chunk-hash
+    # gate must notice and fire a re-draft. The stored hash reflects the OLD intents.
+    from app.pipeline.retriever import RetrievedChunk, grounded_chunks_hash
+
+    old = [RetrievedChunk(policy_id="policy_101", title="t", content="c", score=1.0,
+                          intents=["submission_requirements"])]
+    e = _open_email(retrieved_ids=["policy_101"], chunk_hash=grounded_chunks_hash(old))
+    session.add(e)
+    await session.commit()
+
+    # Fresh retrieval: SAME id, DIFFERENT intents → hash differs.
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever",
+        lambda: _StubRetriever(["policy_101"], intents=[["submission_format_policy"]]),
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["redrafted"] == 1
+    assert stats["unaffected"] == 0
+
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    # Id-set unchanged, but context (and its hash) refreshed to the new intents.
+    assert reloaded.retrieval_context["retrieved_ids"] == ["policy_101"]
+    assert reloaded.retrieval_context["chunk_hash"] == grounded_chunks_hash(
+        [RetrievedChunk(policy_id="policy_101", title="t", content="c", score=1.0,
+                        intents=["submission_format_policy"])]
+    )
+
+
+async def test_legacy_row_without_hash_does_not_redraft_on_relabel(session, monkeypatch):
+    # Legacy row: retrieval_context PRESENT but with NO chunk_hash. Even if the fresh
+    # chunk's intents differ, with no stored hash to compare the sweep must NOT
+    # spuriously re-draft — the id-set gate still governs (here the id-set is stable).
+    e = _open_email(retrieved_ids=["policy_101"])   # default ctx has no chunk_hash
+    assert "chunk_hash" not in e.retrieval_context
+    session.add(e)
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever",
+        lambda: _StubRetriever(["policy_101"], intents=[["anything_else"]]),
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["unaffected"] == 1
+    assert stats["redrafted"] == 0
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    assert reloaded.draft["draft_text"] == "old"    # untouched
 
 
 async def test_batch_marked_before_any_redraft(session, monkeypatch):

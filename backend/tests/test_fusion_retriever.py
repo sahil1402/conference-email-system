@@ -9,7 +9,7 @@ are trivial async mocks. Wiring through get_retriever("fusion") is also checked.
 import pytest
 
 import app.pipeline.retriever as retriever_module
-from app.pipeline.fusion_retriever import FusionRetriever
+from app.pipeline.fusion_retriever import INTENT_PRIOR_BOOST, FusionRetriever
 from app.pipeline.retriever import PolicyRetriever, RetrievedChunk
 
 # Heavy ML module (embedding model loads/training) — deselected by -m 'not ml'.
@@ -130,6 +130,81 @@ async def test_intents_default_to_empty_list():
     fusion = FusionRetriever(bm25, faiss)
     results = await fusion.retrieve("q", "i", top_k=1)
     assert results[0].intents == []
+
+
+# ---------------------------------------------------------------------------
+# Soft intent prior (B5): additive boost, never a filter
+# ---------------------------------------------------------------------------
+async def test_prior_intent_boosts_matching_chunk_score():
+    # A and B both appear at the same ranks in both rankers → equal base RRF score.
+    # A can answer the intent; B cannot. A's fused score must be exactly base+BOOST;
+    # B's must be exactly its (unchanged) base score.
+    intent = "submission_format_policy"
+    bm25 = _MockRetriever([_chunk("A", intents=[intent]), _chunk("B")])
+    faiss = _MockRetriever([_chunk("A", intents=[intent]), _chunk("B")])
+    fusion = FusionRetriever(bm25, faiss, rrf_k=_RRF_K, candidate_pool=10)
+
+    results = await fusion.retrieve("q", "", top_k=2, prior_intent=intent)
+    scores = {c.policy_id: c.score for c in results}
+
+    assert scores["A"] == pytest.approx(_rrf(1, 1) + INTENT_PRIOR_BOOST)
+    assert scores["B"] == pytest.approx(_rrf(2, 2))  # non-matching → unchanged
+    # The boost lifts A clearly above B.
+    assert [c.policy_id for c in results] == ["A", "B"]
+
+
+async def test_non_matching_chunk_score_unchanged_and_not_filtered():
+    # With a prior intent that NO returned chunk answers, every score must equal the
+    # plain RRF score and NO chunk may be dropped (boost is additive, never a filter).
+    bm25 = _MockRetriever([_chunk("A", intents=["other_intent"]), _chunk("B")])
+    faiss = _MockRetriever([_chunk("A", intents=["other_intent"]), _chunk("B")])
+    fusion = FusionRetriever(bm25, faiss, rrf_k=_RRF_K, candidate_pool=10)
+
+    with_prior = await fusion.retrieve("q", "", top_k=5, prior_intent="unmatched_intent")
+    without_prior = await fusion.retrieve("q", "", top_k=5)
+
+    # Same chunk set (nothing starved) and identical scores (nothing boosted).
+    assert {c.policy_id for c in with_prior} == {"A", "B"}
+    assert {c.policy_id: c.score for c in with_prior} == {
+        c.policy_id: c.score for c in without_prior
+    }
+
+
+async def test_empty_prior_intent_applies_no_boost():
+    # Chunk can answer an intent, but no prior_intent is supplied → no boost.
+    intent = "submission_format_policy"
+    bm25 = _MockRetriever([_chunk("A", intents=[intent])])
+    faiss = _MockRetriever([_chunk("A", intents=[intent])])
+    fusion = FusionRetriever(bm25, faiss, rrf_k=_RRF_K)
+    results = await fusion.retrieve("q", "", top_k=1, prior_intent="")
+    assert results[0].score == pytest.approx(_rrf(1, 1))
+
+
+async def test_prior_intent_never_enters_the_forwarded_query_e001_guard():
+    # E001 guard at the fusion seam: the soft prior is metadata only. When a
+    # prior_intent is supplied, the query string (and the query-shaping ``intent``
+    # arg) forwarded to BOTH sub-retrievers must be byte-identical to the inputs —
+    # the intent token must never be appended to the query.
+    seen: list[tuple[str, str]] = []
+
+    class _SpyRetriever:
+        def __init__(self, chunks):
+            self._chunks = chunks
+
+        async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
+            seen.append((query, intent))
+            return list(self._chunks)
+
+    bm25 = _SpyRetriever([_chunk("A", intents=["submission_format_policy"])])
+    faiss = _SpyRetriever([_chunk("A", intents=["submission_format_policy"])])
+    fusion = FusionRetriever(bm25, faiss)
+
+    q = "page limit appendix supplementary"
+    await fusion.retrieve(q, "", top_k=1, prior_intent="submission_format_policy")
+
+    assert seen == [(q, ""), (q, "")]  # query unchanged, intent arg stays ""
+    for fwd_query, _ in seen:
+        assert "submission_format_policy" not in fwd_query
 
 
 # ---------------------------------------------------------------------------
