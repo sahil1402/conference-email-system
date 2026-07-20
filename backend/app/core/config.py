@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     # auto-reply lane. Kept distinct from CONFIDENCE_THRESHOLD so the FAQ
     # gate can be tuned independently of the general confidence floor.
     FAQ_CONFIDENCE_THRESHOLD: float = 0.65
+    FAQ_ANSWER_CONFIDENCE_THRESHOLD: float = 0.85  # min drafter self-rated answer confidence for the FAQ lane
     # Max policy chunks the retriever returns as grounding context.
     MAX_RETRIEVED_CHUNKS: int = 5
 
