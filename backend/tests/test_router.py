@@ -80,7 +80,8 @@ def test_apply_self_sufficiency_floor_demotes_faq_with_placeholders():
     routing = apply_self_sufficiency_floor(_faq_routing(), _draft(placeholders=["date"]))
     assert routing.lane == LANE_HUMAN_REVIEW
     assert routing.override_reason == (
-        "draft is not self-sufficient (1 placeholder(s), notes=no) — requires a human"
+        "draft is not self-sufficient (1 placeholder(s), notes=no, "
+        "answer_confidence=set, grounded) — requires a human"
     )
 
 
@@ -88,7 +89,26 @@ def test_apply_self_sufficiency_floor_demotes_faq_with_notes():
     routing = apply_self_sufficiency_floor(_faq_routing(), _draft(notes="verify X"))
     assert routing.lane == LANE_HUMAN_REVIEW
     assert routing.override_reason == (
-        "draft is not self-sufficient (0 placeholder(s), notes=yes) — requires a human"
+        "draft is not self-sufficient (0 placeholder(s), notes=yes, "
+        "answer_confidence=set, grounded) — requires a human"
+    )
+
+
+def test_apply_self_sufficiency_floor_demotes_faq_with_no_answer_confidence():
+    routing = apply_self_sufficiency_floor(_faq_routing(), _draft(conf=None))
+    assert routing.lane == LANE_HUMAN_REVIEW
+    assert routing.override_reason == (
+        "draft is not self-sufficient (0 placeholder(s), notes=no, "
+        "answer_confidence=none, grounded) — requires a human"
+    )
+
+
+def test_apply_self_sufficiency_floor_demotes_faq_with_no_citations():
+    routing = apply_self_sufficiency_floor(_faq_routing(), _draft(citations=()))
+    assert routing.lane == LANE_HUMAN_REVIEW
+    assert routing.override_reason == (
+        "draft is not self-sufficient (0 placeholder(s), notes=no, "
+        "answer_confidence=set, ungrounded) — requires a human"
     )
 
 

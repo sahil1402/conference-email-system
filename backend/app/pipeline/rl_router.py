@@ -15,8 +15,9 @@ This router decides the lane from intent + confidence BEFORE a draft exists —
 it is intentionally NOT draft-quality-aware (making the bandit draft-aware is
 out of scope; the rule-based router's draft-quality gate is not replicated
 here). Because of that, the bandit could otherwise pick "auto_reply" for a
-draft that turns out to have unresolved ``[CHAIR: ...]`` placeholders or
-notes-for-chair. That case is caught by a SEPARATE, strategy-independent safety floor,
+draft that is not self-sufficient — unresolved ``[CHAIR: ...]`` placeholders,
+notes-for-chair, an unrated answer confidence, or no citations at all. That
+case is caught by a SEPARATE, strategy-independent safety floor,
 ``app.pipeline.router.apply_self_sufficiency_floor``, which both
 ``app.pipeline.orchestrator`` and ``app.pipeline.reevaluation`` call right
 after ``router.route()`` returns, whatever the routing strategy — so a draft

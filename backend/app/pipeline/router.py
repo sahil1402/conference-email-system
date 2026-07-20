@@ -48,18 +48,27 @@ class RoutingDecision(BaseModel):
 
 def apply_self_sufficiency_floor(routing: "RoutingDecision", draft) -> "RoutingDecision":
     """Strategy-independent safety floor: a draft that is not self-sufficient
-    (chair placeholders or notes-for-chair) can NEVER be auto-answered, whatever
-    the router returned. The rule_based router's draft-quality gate already
-    enforces this; this floor also covers the RL strategy, which routes without
-    ever seeing the draft. Deliberately redundant for rule_based; load-bearing
-    for rl. Returns routing unchanged when the draft is self-sufficient."""
-    if (draft.placeholders or draft.notes_for_chair) and routing.lane != LANE_HUMAN_REVIEW:
+    (chair placeholders, notes-for-chair, an unrated answer confidence, or an
+    ungrounded citation set) can NEVER be auto-answered, whatever the router
+    returned. The rule_based router's draft-quality gate already enforces this;
+    this floor also covers the RL strategy, which routes without ever seeing
+    the draft. Deliberately redundant for rule_based; load-bearing for rl.
+    Returns routing unchanged when the draft is self-sufficient."""
+    not_self_sufficient = (
+        bool(draft.placeholders)
+        or bool(draft.notes_for_chair)
+        or draft.answer_confidence is None
+        or not draft.citations
+    )
+    if not_self_sufficient and routing.lane != LANE_HUMAN_REVIEW:
         return routing.model_copy(update={
             "lane": LANE_HUMAN_REVIEW,
             "override_reason": (
-                f"draft is not self-sufficient "
-                f"({len(draft.placeholders)} placeholder(s), "
-                f"notes={'yes' if draft.notes_for_chair else 'no'}) — requires a human"
+                "draft is not self-sufficient ("
+                f"{len(draft.placeholders)} placeholder(s), "
+                f"notes={'yes' if draft.notes_for_chair else 'no'}, "
+                f"answer_confidence={'none' if draft.answer_confidence is None else 'set'}, "
+                f"{'grounded' if draft.citations else 'ungrounded'}) — requires a human"
             ),
         })
     return routing

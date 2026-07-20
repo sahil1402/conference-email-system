@@ -1,7 +1,7 @@
 """Per-email pipeline tracing (Phase 5A observability).
 
-Emits one JSON log line per pipeline stage (classify → retrieve → route →
-draft) so an email's journey through the pipeline can be reconstructed
+Emits one JSON log line per pipeline stage (classify → retrieve → draft →
+route) so an email's journey through the pipeline can be reconstructed
 end-to-end. The trace record is deliberately narrow:
 
     {timestamp, email_id, stage, input_summary, output_summary, duration_ms}
@@ -38,7 +38,7 @@ _MAX_BYTES = 5 * 1024 * 1024
 _BACKUP_COUNT = 3
 
 # The ordered pipeline stages a full run emits.
-STAGES = ("classifier", "retriever", "router", "drafter")
+STAGES = ("classifier", "retriever", "drafter", "router")
 
 # Dedicated logger — isolated from the app's root logging so trace lines never
 # leak into normal application logs and vice versa.

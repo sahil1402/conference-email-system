@@ -45,19 +45,21 @@ policy or incident can re-populate it to force specific intents to a human
 under any routing strategy.
 
 **Strategy-independent self-sufficiency floor.** The rule-based router's
-gate above already enforces "no placeholders, no notes" before returning
+gate above already enforces "complete, grounded, rated" before returning
 `faq`, so the floor is redundant there. It is NOT redundant for the RL
 routing strategy (`ROUTING_STRATEGY=rl`, dormant — see below): the bandit
 picks a lane from intent + confidence alone, before a draft exists, and
-cannot see placeholders or notes-for-chair. `app.pipeline.router.
-apply_self_sufficiency_floor(routing, draft)` is a small, strategy-independent
-check called right after `router.route()` returns, from both
-`app.pipeline.orchestrator` and `app.pipeline.reevaluation` — the two
-callers that produce a `RoutingDecision` alongside a draft. It demotes any
-`faq` decision to `human_review` if the draft carries placeholders or notes,
-whatever routing strategy produced that decision. This guarantees a
-placeholder/notes draft never auto-answers even if a future routing
-strategy forgets to check draft quality itself.
+cannot see placeholders, notes-for-chair, answer confidence, or citations.
+`app.pipeline.router.apply_self_sufficiency_floor(routing, draft)` is a
+small, strategy-independent check called right after `router.route()`
+returns, from both `app.pipeline.orchestrator` and
+`app.pipeline.reevaluation` — the two callers that produce a
+`RoutingDecision` alongside a draft. It demotes any `faq` decision to
+`human_review` if the draft is not self-sufficient (placeholders,
+notes-for-chair, no self-rated answer confidence, or ungrounded), whatever
+routing strategy produced that decision. This guarantees a draft that is
+not self-sufficient in any of those ways never auto-answers even if a
+future routing strategy forgets to check draft quality itself.
 
 **The intent→chunk coverage map lives on, demoted.**
 `backend/reports/kb_intent_coverage.json` (produced by the KB-labeling
