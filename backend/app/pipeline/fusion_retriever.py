@@ -30,11 +30,11 @@ _DEFAULT_CANDIDATE_POOL = 10
 
 # Soft intent-prior boost (B5). When we know the email's intent, a chunk that can
 # answer that intent (``intent in chunk.intents``) gets this ADDED to its fused
-# score — a gentle nudge, never a filter. Sized at one RRF rank-step
-# (1/(k+1) ≈ 0.0164 for k=60): roughly the score a single ranker contributes by
-# moving a document up one position, so a matching chunk overtakes at most about
-# one non-matching neighbour rather than dominating the ranking. A non-matching
-# chunk keeps its exact fused score (never starved). Tunable.
+# score — a gentle nudge, never a filter. Sized at a full single-ranker rank-1 RRF
+# vote (1/(k+1) ≈ 0.0164 for k=60) — NOT a one-position rank-step (the marginal
+# delta from moving up one spot near the top is ~60x smaller than this). Strong
+# enough to promote a matching pool member well up the ranking. A non-matching
+# chunk keeps its exact fused score (never starved). Tunable — validated in E010.
 INTENT_PRIOR_BOOST = 1.0 / (_DEFAULT_RRF_K + 1)
 
 

@@ -1,0 +1,61 @@
+{
+  "n_tickets": 37,
+  "n_chunks": 93,
+  "n_chunks_with_intents": 49,
+  "gold_intent_hits": 14,
+  "intent_prior_boost": 0.01639344262295082,
+  "results": {
+    "prior_off|dense": {
+      "hit@1": 0.649,
+      "recall@1": 0.392,
+      "ndcg@1": 0.649,
+      "hit@3": 0.838,
+      "recall@3": 0.581,
+      "ndcg@3": 0.582,
+      "hit@5": 0.919,
+      "recall@5": 0.698,
+      "ndcg@5": 0.641,
+      "mrr": 0.756,
+      "mean_gold_rank": 2.5
+    },
+    "prior_off|fusion": {
+      "hit@1": 0.73,
+      "recall@1": 0.464,
+      "ndcg@1": 0.73,
+      "hit@3": 0.892,
+      "recall@3": 0.64,
+      "ndcg@3": 0.645,
+      "hit@5": 0.919,
+      "recall@5": 0.712,
+      "ndcg@5": 0.686,
+      "mrr": 0.814,
+      "mean_gold_rank": 2.0
+    },
+    "prior_on|dense": {
+      "hit@1": 0.649,
+      "recall@1": 0.392,
+      "ndcg@1": 0.649,
+      "hit@3": 0.838,
+      "recall@3": 0.581,
+      "ndcg@3": 0.582,
+      "hit@5": 0.919,
+      "recall@5": 0.698,
+      "ndcg@5": 0.641,
+      "mrr": 0.756,
+      "mean_gold_rank": 2.5
+    },
+    "prior_on|fusion": {
+      "hit@1": 0.243,
+      "recall@1": 0.158,
+      "ndcg@1": 0.243,
+      "hit@3": 0.541,
+      "recall@3": 0.423,
+      "ndcg@3": 0.343,
+      "hit@5": 0.73,
+      "recall@5": 0.563,
+      "ndcg@5": 0.409,
+      "mrr": 0.449,
+      "mean_gold_rank": 4.1
+    }
+  }
+}
