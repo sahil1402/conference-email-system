@@ -1,9 +1,9 @@
 # ConfMail — Automated Conference Email Reply & Routing System
 
-> An AI-powered email management platform for academic conference organizations. Built for the Melady Lab at USC, targeting venues like AAAI, NeurIPS, ICML, and ICLR.
+> An AI-powered email management platform for academic conference organizations. Built for the Melady Lab at USC, piloting on **AAAI-27**, with NeurIPS/ICML/ICLR as longer-term targets.
 
-![Status](https://img.shields.io/badge/status-Phase%200--5%20complete%20%7C%20Phase%206A%20in%20progress-brightgreen)
-![Tests](https://img.shields.io/badge/tests-111%2F111%20passing-brightgreen)
+![Status](https://img.shields.io/badge/status-research%20MVP%20%C2%B7%20AAAI--27%20pilot-brightgreen)
+![Tests](https://img.shields.io/badge/tests-325%20incl--ml%20%7C%20303%20non--ml%20%7C%207%20skipped-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -12,391 +12,336 @@
 
 ## Overview
 
-Conference program chairs receive hundreds of emails per cycle — submission deadline questions, formatting queries, visa letter requests, review conflicts, and appeals. Most are repetitive and answerable from public policy documents. A small fraction require genuine human judgment.
+Conference program chairs receive thousands of emails per cycle — submission-deadline questions, formatting queries, reviewer-assignment issues, appeals, and CMS support requests. Most are repetitive and answerable from public policy documents. A minority require genuine human judgment.
 
 ConfMail separates these two classes automatically.
 
-**FAQ Lane** — High-confidence, policy-grounded emails are answered automatically. No hallucinated policies. Every response is traced to a source document.
+**FAQ lane** — When (and only when) a generated reply is fully grounded, self-contained, and high-confidence, it becomes eligible for auto-reply. No hallucinated policies: every sentence is traceable to a retrieved source chunk.
 
-**Human Review Lane** — Novel, ambiguous, or sensitive emails are routed to a chair queue with an AI-generated draft. Chairs can approve, edit, or reroute with a full audit trail. As of Phase 6, this lane branches further: instead of landing in one generic queue, each email is assigned to the specific chair responsible for that area (Program, Diversity & Ethics, Local Arrangements, Publicity/Sponsorship, or General as fallback) — with reroutes between chairs captured as a future training signal.
+**Human-review lane** — Novel, ambiguous, low-confidence, or incomplete emails are routed to a chair queue with an AI-generated draft. Each is assigned to the responsible chair (Program, Diversity & Ethics, Local Arrangements, Publicity/Sponsorship, or a General fallback). Chairs approve, edit, or reroute — with a full audit trail, and reroutes captured as a future training signal.
 
-The system is designed as a research platform: every component (classifier, retriever, router, chair assignment, drafter, database) is modular and config-flag-swappable, with reinforcement-learning-based routing and local-only deployment already implemented for conferences with external API restrictions.
+This is a **research-grade MVP**. Every component — classifier, retriever, router, chair router, drafter, persistence — is a separate, config-flag-swappable module (an explicit architectural boundary, never mixed). It integrates live with Zendesk (read + write-back) and runs against the **real AAAI-27 policy corpus**.
 
 ---
 
 ## Architecture
 
+The six modules are independently replaceable. A key property of the current design: **the router runs *after* the drafter** — FAQ eligibility is a property of the *generated draft's* quality (grounded, complete, confident), not of the intent label alone.
+
+```mermaid
+flowchart TD
+    subgraph ingest["Ingestion"]
+        API["API ingest<br/>POST /emails/ingest"]
+        ZD["Zendesk sync<br/>read-only incremental poller"]
+    end
+
+    subgraph mClass["Module 1 · Classifier"]
+        KW["keyword | trainable"]
+        DS["Distiller (QUERY_STRATEGY=distill)<br/>one call: classify + build queries"]
+    end
+
+    subgraph mRet["Module 2 · Retriever"]
+        R["bm25 | faiss | fusion"]
+        KB[("Policy KB<br/>real AAAI-27 corpus, 93 chunks")]
+    end
+
+    subgraph mDraft["Module 4 · Drafter"]
+        D["anthropic_api | anthropic | local | template | fallback<br/>emits draft + self-rated answer_confidence"]
+    end
+
+    subgraph mRoute["Module 3 · Router — runs AFTER the drafter"]
+        RT["rule_based | rl<br/>+ strategy-independent self-sufficiency floor"]
+    end
+
+    subgraph lanes["Two-lane outcome"]
+        FAQ["FAQ lane<br/>grounded auto-reply (eligible)"]
+        HR["Human-review lane"]
+        CR["Chair Router<br/>intent_mapping"]
+        AP["Module 6 · UI<br/>chair approval queue"]
+    end
+
+    subgraph persist["Module 5 · Persistence & Audit (cross-cutting)"]
+        DB[("PostgreSQL / SQLite<br/>emails · chairs · policies")]
+        AU[("Audit log<br/>append-only")]
+    end
+
+    API --> mClass
+    ZD --> mClass
+    mClass --> mRet
+    mRet --> mDraft
+    mDraft --> mRoute
+    mRoute --> FAQ
+    mRoute --> HR
+    HR --> CR --> AP
+    KB -.-> R
+    FAQ -.persist.-> DB
+    AP -.persist.-> DB
+    mRoute -.audit.-> AU
+    AP -.audit.-> AU
 ```
-Inbound Email
-      │
-      ▼
-┌─────────────┐
-│  Classifier │  ── Intent classification with confidence score
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Retriever  │  ── FAQ knowledge base search
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│   Router    │  ── Confidence-threshold or bandit-based lane decision
-└──────┬──────┘
-       │
-   ┌───┴───┐
-   │       │
-   ▼       ▼
- FAQ    Human
- Lane   Review
-   │       │
-   │       ▼
-   │  ┌───────────────┐
-   │  │ Chair Router  │  ── Which chair owns this email (intent-to-area mapping)
-   │  └───────┬───────┘
-   │          │
-   │          ▼
-   │  ┌──────────┐
-   │  │  Drafter │  ── AI draft generation with policy citations
-   │  └──────────┘
-   │          │
-   ▼          ▼
-Auto-    Chair-Specific
-Reply    Approval Queue
+
+### Two-lane routing decision
+
+Where the confidence thresholds, routing strategy, self-sufficiency floor, and transport gate fit:
+
+```mermaid
+flowchart TD
+    Start["Draft generated<br/>classification + retrieved chunks + draft"] --> Q1{"ROUTING_STRATEGY?"}
+
+    Q1 -->|rl| RL["contextual bandit<br/>lane decision"]
+    RL --> Floor
+    Q1 -->|rule_based| G1{"Any #91;CHAIR: ...#93; placeholder<br/>or notes_for_chair?"}
+
+    G1 -->|yes| HR["Human-review lane"]
+    G1 -->|no| G2{"Grounded?<br/>cites at least 1 policy chunk"}
+    G2 -->|no| HR
+    G2 -->|yes| G3{"classifier confidence<br/>>= FAQ_CONFIDENCE_THRESHOLD (0.65)?"}
+    G3 -->|no| HR
+    G3 -->|yes| G4{"answer_confidence<br/>>= FAQ_ANSWER_CONFIDENCE_THRESHOLD (0.85)?"}
+    G4 -->|no or unrated| HR
+    G4 -->|yes| FAQ["FAQ lane - eligible"]
+
+    Floor{"Self-sufficiency floor:<br/>placeholder / ungrounded / unrated draft?"}
+    Floor -->|fails| HR
+    Floor -->|passes| FAQ
+
+    FAQ --> Gate{"ALLOW_AUTO_SEND?"}
+    Gate -->|False, default| Q["queued for chair approval"]
+    Gate -->|True| Send["release without per-email approval"]
+
+    HR --> CR["assign chair to approval queue"]
 ```
 
-### Pipeline Stages
+> Non-LLM drafters report `answer_confidence = None`, which fails the floor by design — so a draft is never auto-eligible unless a model explicitly rated it. `ALLOW_AUTO_SEND` stays `False` until production sign-off; today every send requires explicit chair approval.
 
-Every stage is a swappable, config-flag-controlled module — none of these are phase-gated placeholders; all backends listed are live for each stage unless marked planned.
+### Pipeline module backends
 
-| Stage | Backend Options | Notes |
+| Module | Backend options | Notes |
 |---|---|---|
-| Classifier | `keyword` · `trainable` | Trainable backend uses sentence-transformers embeddings + LogisticRegression, exposed via `/api/v1/train/classifier` |
-| Retriever | `bm25` · `faiss` · `fusion` | Grounds replies in the real **AAAI-27 policy corpus** (93 chunks parsed from 6 official AAAI policy documents — call for papers, submission instructions, code of conduct, publication ethics, publication policies, and a cross-reference guide — each tagged from its document frontmatter and section headings). `bm25` is lexical; `faiss` uses sentence-transformers (`all-MiniLM-L6-v2`) with `IndexFlatIP` cosine similarity; `fusion` is reciprocal-rank fusion over both. Both `bm25` (from the corpus file) and `faiss` (from the DB) now surface chunk tags — tag parity across backends |
-| Router (lane) | `threshold` · `rl` | RL backend is an online, epsilon-greedy contextual bandit updated on every approve/reroute |
-| Chair Router | `intent_mapping` · `learned` (planned) | Assigns human-review emails to a specific chair by matching classified intent against each chair's owned areas; falls back to a general/catch-all chair on no match. Reroutes are logged as the future training signal for a learned assignment policy |
-| Drafter | `anthropic_api` · `local` · `template` | `local` targets an Ollama-compatible endpoint (pending GPU compute); `template` is a zero-dependency, zero-API fallback |
-| Database | `sqlite` · `postgresql` | SQLite for MVP, PostgreSQL migration-ready via asyncpg + Alembic |
+| **Classifier** | `keyword` · `trainable` | 14-intent taxonomy (5 families) single-sourced in `taxonomy.py`. Trainable backend = sentence-embeddings + LogisticRegression; auto-falls back to keyword until trained |
+| **Retriever** | `bm25` · `faiss` · `fusion` | Grounds replies in the real AAAI-27 corpus (93 chunks from 6 official policy docs). `bm25` lexical; `faiss` dense (CPU sentence-embeddings, `IndexFlatIP` cosine); `fusion` = reciprocal-rank fusion. **Default `fusion`** (E003: distill+fusion lifted hit@3 .649 → .892 on real tickets) |
+| **Router (lane)** | `rule_based` · `rl` | Runs after the drafter. `rl` = online epsilon-greedy contextual bandit updated on approve/reroute (groundwork; `rule_based` is the default path) |
+| **Chair Router** | `intent_mapping` | Second routing decision — which chair owns a human-review email; matches classified intent to each chair's areas, falls back to a general chair. Literal is a swap seam for a future learned policy |
+| **Drafter** | `anthropic_api` · `anthropic` · `local` · `template` · `fallback` | `local` = self-hosted OpenAI-compatible endpoint (pending GPU); `template` = zero-model, verbatim-grounded; `fallback` = deterministic no-network stub |
+| **Query strategy** | `prefix` · `distill` | `distill` rewrites the email into 1–3 policy-vocabulary queries **and** classifies intent in one call; any failure falls back to keyword classifier + prefix query. **Default `distill`** |
+| **Persistence** | PostgreSQL · SQLite | PostgreSQL in Docker (production/demo); SQLite is the safe local/test/CI default. Single async `DATABASE_URL` drives both the app engine and Alembic |
+
+---
+
+## Configuration
+
+All backend behavior is env-driven (`backend/.env`; see `backend/.env.example`). Flags below are pulled from `app/core/config.py`; defaults are the **code defaults**.
+
+### Swappable module seams
+
+| Flag | Options | Controls | Default |
+|---|---|---|---|
+| `MODEL_PROVIDER` | `anthropic_api` · `anthropic` · `local` · `template` · `fallback` | Drafter backend | `anthropic_api` ¹ |
+| `CLASSIFIER_BACKEND` | `keyword` · `trainable` | Classifier backend | `keyword` |
+| `RETRIEVAL_BACKEND` | `bm25` · `faiss` · `fusion` | Retriever backend | `fusion` |
+| `QUERY_STRATEGY` | `prefix` · `distill` | Retrieval-query build (+ intent) | `distill` |
+| `ROUTING_STRATEGY` | `rule_based` · `rl` | Lane router | `rule_based` |
+| `CHAIR_ROUTING_STRATEGY` | `intent_mapping` | Which chair a human-review email goes to | `intent_mapping` |
+
+### Routing / confidence tuning
+
+| Flag | Type | Controls | Default |
+|---|---|---|---|
+| `CONFIDENCE_THRESHOLD` | float | General classifier-confidence floor | `0.75` |
+| `FAQ_CONFIDENCE_THRESHOLD` | float | Min classifier confidence for the FAQ lane | `0.65` |
+| `FAQ_ANSWER_CONFIDENCE_THRESHOLD` | float | Min drafter self-rated answer confidence for the FAQ lane | `0.85` |
+| `CALIBRATION_ENABLED` | bool | Use fitted confidence calibrator when present | `False` |
+| `INTENT_PRIOR_ENABLED` | bool | Soft intent→KB retrieval prior (regresses fusion per E010; kept off) | `False` |
+| `ALLOW_AUTO_SEND` | bool | Transport gate — allow complete FAQ drafts to release without per-email approval | `False` |
+
+### Retriever / drafter tuning
+
+| Flag | Type | Controls | Default |
+|---|---|---|---|
+| `MAX_RETRIEVED_CHUNKS` | int | Grounding chunks returned | `5` ² |
+| `WARM_RETRIEVER_ON_STARTUP` | bool | Build index (and load embed model) at startup | `True` |
+| `FAISS_MODEL_NAME` | str | CPU sentence-embedding model for `faiss`/`fusion` | `all-MiniLM-L6-v2` |
+| `DRAFTER_MAX_TOKENS` | int | Max tokens per generated reply | `500` |
+| `DRAFTER_TEMPERATURE` / `DRAFTER_SEED` | float / int | Drafter determinism | `0.0` / `7` |
+| `DRAFT_MODEL` | str | Hosted drafter model id (used when `MODEL_PROVIDER=anthropic_api`) | *configurable hosted model id* ³ |
+| `LOCAL_MODEL_BASE_URL` | str | OpenAI-compatible local endpoint | `http://localhost:11434/v1` |
+| `LOCAL_MODEL_NAME` | str | Local model id (used when `MODEL_PROVIDER=local`) | *configurable local model id* ³ |
+| `LOCAL_MODEL_API_KEY` | str? | Optional bearer token for a keyed local/hosted endpoint | `None` |
+| `STYLE_GUIDE_PATH` | str? | Reply style guide appended to the drafter system prompt | `../data/style_guide/style_guide_v2.md` |
+| `AL_CONFIDENCE_MARGIN` / `AL_EDIT_RATIO` | float | Active-learning near-miss / meaningful-edit thresholds | `0.15` / `0.15` |
+
+### Secrets, database & Zendesk
+
+| Flag | Options / type | Controls | Default |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | secret | Cloud API key (only for `anthropic_api`) | `None` |
+| `DATABASE_URL` | str | Single async DB URL (app engine + Alembic) | SQLite ⁴ |
+| `ZENDESK_AUTH_MODE` | `token` · `oauth` | Credential provider | `token` ⁵ |
+| `ZENDESK_SUBDOMAIN` | str? | Account subdomain (REST + OAuth host) | `None` |
+| `ZENDESK_EMAIL` / `ZENDESK_API_TOKEN` | str? | Basic-auth fields (`token` mode) | `None` |
+| `ZENDESK_OAUTH_CLIENT_ID` / `_SECRET` | str? | OAuth client_credentials (`oauth` mode) | `None` |
+| `ZENDESK_OAUTH_SCOPE` | str | OAuth scope | `read` |
+| `ZENDESK_POLLING_ENABLED` | bool | Background ingest poll loop (manual `POST /zendesk/sync` works regardless) | `False` |
+| `ZENDESK_POLL_INTERVAL_SECONDS` | int | Seconds between poll cycles | `300` |
+| `ZENDESK_SYNC_START_TIME` | int | Unix epoch for the first incremental pull | `1` |
+| `ZENDESK_SYNC_PER_PAGE` | int | Incremental export page size (max 1000) | `100` |
+| `ZENDESK_MAX_PAGES_PER_CYCLE` | int | Page bound per cycle | `10` |
+
+**Notes on defaults**
+1. `config.py` defaults `MODEL_PROVIDER=anthropic_api`; `backend/.env.example` ships `local` (self-hosted path). Both `anthropic`/`anthropic_api` spellings are accepted.
+2. `config.py` default is `5`; `backend/.env.example` sets `3`.
+3. Model id is read from config, never hardcoded — paraphrased here per the project's model-name-free documentation policy.
+4. `config.py` defaults to local SQLite (safe for dev/test/CI). Under Docker Compose the backend's `DATABASE_URL` is injected as PostgreSQL (`postgresql+asyncpg://…@db:5432/confmail`) and overrides `.env`.
+5. `config.py` default is `token`; `.env.example` recommends `oauth` (the validated production path).
 
 ---
 
 ## Tech Stack
 
 ### Backend
-- **Python 3.11+** with **FastAPI** — async REST API
-- **SQLAlchemy (async)** + **SQLite / PostgreSQL** — persistence layer, migration-ready
-- **Alembic** — database migrations
-- **Pydantic v2** — schema validation and serialization
-- **rank-bm25** — lexical FAQ retrieval
-- **faiss-cpu** + **sentence-transformers** (`all-MiniLM-L6-v2`) — dense vector retrieval
-- **scikit-learn** — trainable classifier (LogisticRegression), Platt-scaling calibration, and eval metrics
-- **anthropic_api** backend — classification and draft generation (with `local`/Ollama-compatible and `template` fallbacks)
-- **pytest** + **pytest-asyncio** — 111/111 tests passing
+| Area | Technology |
+|---|---|
+| Language / API | Python 3.11+ · FastAPI (async) |
+| Data / ORM | async SQLAlchemy 2.0 · Alembic migrations · Pydantic v2 (`pydantic[email]`) · pydantic-settings |
+| HTTP / utils | httpx · python-dateutil |
+
+### ML / Retrieval
+| Area | Technology |
+|---|---|
+| Lexical retrieval | rank-bm25 |
+| Dense retrieval | faiss-cpu · sentence-transformers (`all-MiniLM-L6-v2`) |
+| Classifier / calibration | scikit-learn (LogisticRegression, Platt scaling) · joblib |
+| Drafting | swappable providers — hosted API (`anthropic` SDK), self-hosted OpenAI-compatible (`local`), `template`, `fallback` |
+| Query distillation | one-call query rewrite + intent classification (`distill`) |
 
 ### Frontend
-- **Next.js 14** (App Router) with **TypeScript**
-- **Tailwind CSS v3** + **shadcn/ui** — component library
-- **recharts** — analytics visualizations
-- **React Query** + **axios** — data fetching layer
-- **lucide-react** — icons
+| Area | Technology |
+|---|---|
+| Framework | Next.js 14.2.35 (App Router) · TypeScript |
+| Styling / UI | Tailwind CSS v3.4 · shadcn/ui (`@radix-ui/react-slot`, `class-variance-authority`, `tailwind-merge`) · lucide-react |
+| Data / charts | `@tanstack/react-query` v5 · axios · recharts v3 |
+| Testing | Vitest · Testing Library (jsdom) |
 
 ### Infrastructure
-- Monorepo structure (`backend/` + `frontend/`)
-- Environment-driven configuration via `.env`
-- Alembic migrations for schema evolution
-- Docker Compose — one-command spin-up (live-verified)
-- GitHub Actions CI — three-job, secret-free pipeline
-- **ReportLab** — auto-generated project progress PDF (`scripts/generate_progress_pdf.py`)
-
----
-
-## Project Structure
-
-```
-conference-email-system/
-├── backend/
-│   ├── main.py                        # FastAPI entry point
-│   ├── pyproject.toml
-│   ├── .env.example
-│   ├── app/
-│   │   ├── core/
-│   │   │   └── config.py              # Swappable backend flags
-│   │   ├── api/
-│   │   │   └── routes/
-│   │   │       ├── emails.py          # Email ingestion + retrieval
-│   │   │       ├── pipeline.py        # Classification + routing
-│   │   │       ├── drafts.py          # Draft approval workflow
-│   │   │       ├── analytics.py       # Dashboard metrics
-│   │   │       ├── audit.py           # Paginated/filterable audit log
-│   │   │       └── train.py           # POST /api/v1/train/classifier
-│   │   ├── pipeline/
-│   │   │   ├── classifier/            # keyword + trainable classifiers
-│   │   │   ├── retriever/             # BM25 + FAISS retrievers (flat module)
-│   │   │   ├── router/                # threshold + RL bandit lane router
-│   │   │   ├── chair_router.py        # NEW (Phase 6A): intent-to-chair assignment strategy
-│   │   │   └── drafter/               # anthropic_api + local + template draft generation
-│   │   ├── models/
-│   │   │   ├── enums.py               # EmailIntent, RoutingLane, EmailStatus
-│   │   │   └── schemas.py             # Pydantic v2 contracts
-│   │   └── db/
-│   │       ├── database.py            # Async SQLAlchemy setup
-│   │       ├── models.py              # ORM models — Email, AuditLog, PolicyDocument, Chair (new)
-│   │       └── repositories/          # Data access layer
-│   ├── data/
-│   │   ├── toy_emails.json            # Labeled toy emails across all intents
-│   │   ├── toy_emails_multichair.py   # NEW (Phase 6A): toy dataset exercising all 5 chairs
-│   │   └── policies.json              # Real AAAI-27 policy corpus — 93 tagged chunks (policy_101-193)
-│   ├── data/eval/
-│   │   └── ground_truth.json          # Eval set covering all classifier intents
-│   ├── models/                        # Trained classifier artifacts
-│   ├── migrations/                    # Alembic migrations
-│   └── scripts/
-│       ├── seed.py                    # DB seeding script
-│       ├── run_eval.py                # Eval CLI (sklearn metrics + JSON report)
-│       └── generate_progress_pdf.py   # Living project progress PDF generator
-└── frontend/
-    └── src/
-        ├── app/
-        │   ├── layout.tsx             # Root layout with sidebar
-        │   ├── dashboard/page.tsx
-        │   ├── queue/page.tsx         # Split-pane email review queue
-        │   ├── auto-replies/page.tsx
-        │   ├── analytics/page.tsx     # recharts-based analytics + calibration reliability diagram
-        │   └── audit/page.tsx         # Timeline audit view
-        ├── components/
-        │   ├── layout/                # Sidebar, Header, PageWrapper
-        │   ├── email/                 # EmailCard, StatusBadge, ConfidenceBar
-        │   ├── pipeline/              # Classification, Retrieval, Routing panels
-        │   └── dashboard/             # StatsCard, Charts, ActivityFeed
-        ├── hooks/                     # queue, analytics, audit, actions hooks
-        ├── lib/
-        │   ├── api.ts                 # Typed API client
-        │   └── utils.ts
-        └── types/
-            └── index.ts               # TypeScript types mirroring backend schemas
-```
-
-> Chair-assignment UI (assigned-chair badges, filter-by-chair, reroute-to-chair dropdown, routing-rationale panel) is planned for Phase 6B, once the backend chair router is verified.
-
----
-
-## Configuration
-
-All backend behavior is controlled by config flags in `backend/.env`:
-
-```env
-# Classifier backend: "keyword" | "trainable"
-CLASSIFIER_BACKEND=keyword
-
-# Retrieval backend: "bm25" | "faiss"
-RETRIEVAL_BACKEND=bm25
-FAISS_MODEL_NAME=all-MiniLM-L6-v2
-
-# Lane routing strategy: "threshold" | "rl"
-ROUTING_STRATEGY=threshold
-
-# Confidence threshold for auto-reply routing (0.0 – 1.0)
-CONFIDENCE_THRESHOLD=0.65
-
-# Classifier confidence calibration (Platt scaling). Defaults False pending
-# held-out validation — see Roadmap, Phase 5B.
-CALIBRATION_ENABLED=False
-
-# Chair assignment strategy: "intent_mapping" (learned/RL planned)
-CHAIR_ROUTING_STRATEGY=intent_mapping
-
-# Model provider: "anthropic_api" | "local" | "template"
-MODEL_PROVIDER=anthropic_api
-ANTHROPIC_API_KEY=sk-ant-...
-# Required when MODEL_PROVIDER=local (Ollama-compatible endpoint)
-# OLLAMA_BASE_URL=http://localhost:11434
-
-# Database backend: "sqlite" | "postgresql"
-DATABASE_URL=sqlite:///./conference_email.db
-```
-
-> Known status: with calibration enabled, in-sample routing accuracy improves from 74.1% to 94.8% (Phase 5B) — but `CALIBRATION_ENABLED` stays `False` by default until validated on held-out data, and the Analytics reliability diagram flags in-sample results with an amber caveat rather than presenting them as ground truth.
+| Area | Technology |
+|---|---|
+| Orchestration | Docker Compose — `postgres:16-alpine` (`db`, loopback `127.0.0.1:5432`, healthcheck) + `backend` (`:8000`) + `frontend` (`:3000`) |
+| Database | PostgreSQL (asyncpg + psycopg2-binary) · SQLite (aiosqlite) local/test fallback |
+| Integrations | Zendesk (token/OAuth credential provider, incremental cursor sync, internal-note / public-reply write-back) |
+| CI / tests | GitHub Actions (secret-free, Postgres service) · pytest + pytest-asyncio (`ml` marker) — **325 tests incl-ml / 303 non-ml / 7 skipped** *(per CLAUDE.md; not re-run this session)* |
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- An Anthropic API key (for `MODEL_PROVIDER=anthropic_api`) — not required for `local` or `template`
-- Docker Desktop (optional, for one-command spin-up)
+- Docker Desktop (recommended path), **or** Python 3.11+ and Node.js 18+ for manual setup.
+- No external keys required to boot — with no `.env` the backend runs on safe defaults (keyword classifier, BM25, no-key drafter fallback).
 
-### Quick Start (Docker)
+### Quick start (Docker Compose)
 
 ```bash
 docker compose up --build
 ```
 
-### Backend Setup (manual)
+Brings up:
+- **backend** → http://localhost:8000 (docs at `/docs`) — runs `alembic upgrade head` on boot
+- **frontend** → http://localhost:3000
+- **db** (PostgreSQL) → `127.0.0.1:5432`, data persisted in the `postgres-data` volume
+
+Override `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` via the shell or a repo-root `.env` (each defaults to `confmail`).
+
+### Manual backend
 
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-
-# Install dependencies
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-
-# Configure environment
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY if using MODEL_PROVIDER=anthropic_api
-
-# Run migrations
+cp .env.example .env               # edit provider/keys as needed
 alembic upgrade head
-
-# Start the server
 uvicorn main:app --reload
 ```
 
-API available at `http://localhost:8000`
-Interactive docs at `http://localhost:8000/docs`
+Defaults to local SQLite unless `DATABASE_URL` points at PostgreSQL.
 
-### Frontend Setup (manual)
+### Manual frontend
 
 ```bash
 cd frontend
-
 npm install
-cp .env.example .env.local
-# Set NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-
+cp .env.example .env.local         # NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 npm run dev
 ```
 
-App available at `http://localhost:3000`
-
-### Seed the Database
+### Seed, test, evaluate
 
 ```bash
 cd backend
-python scripts/seed.py
+python scripts/seed.py                    # load toy dataset through the pipeline
+python -m pytest -m "not ml" -v           # fast suite (skips embedding-heavy tests)
+python -m pytest -v                       # full suite (incl. ml)
+python scripts/run_eval.py                # eval harness (end-to-end, provider-dependent)
+
+cd ../frontend && npm test                # Vitest component tests
 ```
-
-This loads the toy email dataset — including the multi-chair dataset — and runs the full pipeline on each.
-
-### Run the Eval Harness
-
-```bash
-cd backend
-python scripts/run_eval.py
-```
-
-Runs the pipeline against the ground truth set and reports sklearn classification metrics as a JSON report.
-
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | Service health check |
-| POST | `/api/v1/emails` | Ingest a new email |
-| GET | `/api/v1/emails` | List emails (filterable by status, lane) |
-| GET | `/api/v1/emails/{id}` | Get single email with full pipeline output |
-| POST | `/api/v1/pipeline/run/{id}` | Run full pipeline on an email |
-| GET | `/api/v1/drafts/{id}` | Get current draft for an email |
-| PATCH | `/api/v1/drafts/{id}/approve` | Approve, edit, or reroute a draft |
-| GET | `/api/v1/analytics/summary` | Dashboard metrics |
-| GET | `/api/v1/audit` | Paginated, filterable audit log |
-| GET | `/api/v1/retrieval/info` | Active retriever backend + index stats |
-| POST | `/api/v1/train/classifier` | Train the trainable classifier backend |
 
 ---
 
 ## Domain Model
 
-### Email Intents
-`FAQ_DEADLINE` · `FAQ_FORMAT` · `FAQ_SUBMISSION` · `REVIEW_ASSIGNMENT` · `VISA_LETTER` · `APPEAL` · `AMBIGUOUS` · `OTHER` (extended set as classifier taxonomy grows — see Roadmap, Phase 6A)
+**Intents** — 14 labels in 5 families, single-sourced in `taxonomy.py`:
+`reviewer_assignment` · `review_submission_help` · `paper_bidding` · `author_profile_compliance` · `submission_upload_help` · `submission_requirements` · `submission_format_policy` · `author_list_change` · `review_decision_appeal` · `desk_reject_appeal` · `anonymity_violation` · `reviewer_workload_role` · `committee_invitation` · `cms_support`.
 
-### Routing Lanes
-`AUTO_REPLY` — answered automatically from KB
-`HUMAN_REVIEW` — routed to a specific chair's queue with an AI draft (Phase 6A)
+**Lanes** — `faq` (grounded auto-reply, eligible) · `human_review` (routed to a chair with an AI draft).
 
-### Chairs (new, Phase 6A)
-Program Chair · Diversity & Ethics Chair · Local Arrangements Chair · Publicity/Sponsorship Chair · General Chair (fallback). Each chair owns a configurable list of intent/topic areas; `Email.assigned_chair_id` records the assignment, and reroutes between chairs are captured in the audit log as a future training signal for a learned assignment strategy.
-
-### Email Lifecycle
-`PENDING` → `CLASSIFIED` → `ROUTED` → `DRAFT_GENERATED` → `APPROVED` → `SENT` → `ARCHIVED`
-
-> Note: pipeline-assigned statuses are uppercase; action-endpoint statuses (approve/reroute) are lowercase in the current implementation.
+**Chairs** — Program · Diversity & Ethics · Local Arrangements · Publicity/Sponsorship · General (fallback). Each owns a set of intent areas (re-seeded to the 14-intent families); `Email.assigned_chair_id` records the assignment and reroutes are audited as a future training signal.
 
 ---
 
-## Roadmap
+## Current Status & Roadmap
 
-### Phase 0 — Scaffold ✅
-Monorepo structure, FastAPI backend, Next.js 14 frontend skeleton, config flags, async SQLAlchemy + Alembic.
+*Status per CLAUDE.md; test counts not re-run this session.*
 
-### Phase 1 — Data Layer + Pipeline ✅
-Toy dataset, knowledge base, all 5 pipeline modules, REST endpoints, seed script.
+### Complete
+- **Phases 0–2** — Scaffold (FastAPI, async SQLAlchemy + Alembic, Next.js 14 shell), data + pipeline + v1 API, full frontend (dashboard, split-pane queue, auto-replies, recharts analytics, audit timeline, SSE live updates).
+- **Phase 3–5** — Postgres-ready, local + template + trainable backends, RL bandit router, FAISS + RRF fusion retrieval, eval harness, confidence calibration, chair-edit diff, active-learning flagging, Docker Compose + secret-free CI.
+- **Phase 6 (A/B/C)** — Multi-chair routing (chair table, chair router, reassignment), chair-assignment frontend, and the paginated-aggregate bug-class fix.
+- **Real corpus + Phase 7** — 93-chunk real AAAI-27 corpus, query distiller, structured placeholder reply contract, send gate, style guide v2, hermetic test conftest.
+- **PostgreSQL migration** — Docker Postgres service, single-source `DATABASE_URL`, dialect-agnostic JSON accessors, PG test suite + CI Postgres (on `main`).
+- **Re-evaluate on policy change** — KB edit → background sweep re-drafts only tickets whose retrieval set shifted (no model call in the gate).
+- **Retrieval rework (E005)** — embed leaf title, not full path (fusion hit@1 .649 → .703).
+- **Zendesk integration (Pieces 1–5)** — OAuth/token credential provider, ticket schema, read-only ingest adapter, and write-back — **proven end-to-end live** (internal-note write-back verified); single-flight overlap guard hardened.
+- **Queue status bar + self-hiding source toggle**; **E007** (dropped signal-free policy tags).
+- **Intent taxonomy + FAQ-lane rework** — 14-intent taxonomy; FAQ lane decided by draft quality (route-after-draft, self-sufficiency floor). *Post-merge suite 303 non-ml / 325 incl-ml / 7 skipped.*
 
-### Phase 2 — Full UI ✅
-Full Next.js 14 frontend — dashboard, split-pane review queue, auto-replies, recharts-based analytics, audit timeline; hooks for queue/analytics/audit/actions; dark-mode design system.
+### In progress / operational
+- Enabling background Zendesk polling (`ZENDESK_POLLING_ENABLED`) and/or public auto-replies (`ALLOW_AUTO_SEND`) — both off by design pending production sign-off.
+- Applying the overlap-lock migration to the real production DB (already on the demo Postgres).
 
-### Phase 3 — Research Extensions ✅
-Real pagination/filtering audit endpoint, PostgreSQL migration readiness, local LLM backend, trainable sentence-transformers + LogisticRegression classifier, epsilon-greedy RL bandit router wired into approve/reroute feedback.
-
-### Phase 4 — Retrieval, Eval & Reporting ✅
-FAISS retriever, expanded ground-truth eval set, `scripts/run_eval.py` CLI, living progress PDF generator.
-
-### Phase 5 — Calibration, Fusion & Production Readiness ✅
-- **5A**: Eval/tracing infrastructure; retrieval confirmed not the FAQ routing bottleneck; eval set expanded to 58 emails
-- **5B**: Platt-scaling calibration; routing accuracy 74.1% → 94.8% in-sample; `CALIBRATION_ENABLED` defaults `False` pending held-out validation
-- **5C**: Reciprocal rank fusion retriever — honest negative result, does not beat FAISS alone
-- **5D**: Template drafter — third zero-dependency drafter backend, completing the set (`anthropic_api`, `local`, `template`)
-- **5E**: SSE-based live queue updates + calibration reliability diagram in Analytics
-- **5F**: Chair-edit diff view (LCS word-level diffing) + keyboard shortcuts in the review queue
-- **5G**: Active-learning flagging (`low_confidence`, `meaningful_edit` signals; candidates endpoint; no auto-retraining yet)
-- **5H**: Model-agnostic Drafter adapter specification
-- **5I**: Docker Compose (live-verified) + three-job secret-free CI on GitHub Actions
-- **5J**: Demo walkthrough recording — pending
-
-### Phase 6 — Multi-Chair Routing 🔄 (in progress)
-- **6A**: Multi-chair routing backend — DB migration complete (`Chair` table, `Email.assigned_chair_id`, 5 chairs seeded); classifier intent taxonomy extended to give every chair a genuine auto-routing path; `chair_router.py` (intent-to-chair strategy) in progress; toy dataset covering all 5 chairs
-- **6B** (planned): Frontend for chair assignment — assigned-chair badges, filter-by-chair, reroute-to-chair dropdown, routing-rationale panel, per-chair analytics
-- **Held-out validation** (planned): validate calibration (5B) on held-out data before enabling by default
-- **Real conference dataset** (planned): pending AAAI dataset approval
-
-**Outstanding blockers:** NCSA Delta GPU allocation (for local draft generation) is still pending. The **policy corpus is now the real AAAI-27 knowledge base** (93 chunks, see archive/README.md for the corpus unification); the **email dataset remains synthetic** (toy emails) pending real conference email traffic.
+### Open blockers
+- **NCSA Delta GPU access pending** — the `local` self-hosted drafter is implemented + mock-tested but not yet run on real GPU hardware.
+- **Synthetic email dataset** — the policy corpus is real (93 chunks), but the toy email set and eval ground truth remain hand-written; headline eval numbers are on synthetic traffic (real-ticket eval uses gitignored PII data).
 
 ---
 
 ## Research Context
 
-This system is developed as part of a research initiative at the **Melady Lab, University of Southern California**, exploring the application of AI pipelines to academic conference operations.
-
-The architecture supports ongoing research in:
-- Active learning from human reviewer decisions
-- Online reinforcement learning for conference email routing using contextual bandits with human-in-the-loop feedback
-- Learned, feedback-driven chair assignment — using reroute events as training signal (Phase 6+)
-- Retrieval-augmented generation grounded in conference policies
-- Evaluation of AI-assisted human-in-the-loop workflows
+Developed at the **Melady Lab, University of Southern California** (PI: Prof. Yan), exploring AI pipelines for academic conference operations. Active research directions: active learning from chair decisions, online RL routing with human-in-the-loop feedback, learned chair assignment from reroute signal, retrieval-augmented generation grounded in conference policy, and evaluation of AI-assisted human-in-the-loop workflows.
 
 ---
 
 ## Contributing
 
-This is an active research project. If you are a collaborator:
-
-1. Branch from `main`
-2. Work in feature branches (`feature/phase-6a-chair-routing`, etc.)
-3. All pipeline changes must preserve the `classify → retrieve → route → draft` interface contracts
-4. Do not hardcode model names anywhere — code, comments, docs, UI, or commit messages. Use only capability-descriptive identifiers (`anthropic_api`, `local`, `template`)
+Active research project. For collaborators:
+1. Branch from `main`; work in feature branches.
+2. All pipeline changes must preserve the module interface contracts — keep classifier / retriever / router / drafter / persistence / UI **separate**.
+3. **Do not hardcode model names anywhere** — code, comments, docs, UI, or commit messages. Use only capability-descriptive identifiers (`anthropic_api`, `local`, `template`, `fallback`).
 
 ---
 
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
-
----
 
 *Built for the Melady Lab, USC · Conference Email Automation Research*
