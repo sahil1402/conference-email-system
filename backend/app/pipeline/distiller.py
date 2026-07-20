@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.pipeline.classifier import VALID_INTENTS
 from app.pipeline.openai_compat import post_chat
+from app.pipeline.taxonomy import INTENT_DEFS
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,13 @@ _TIMEOUT_SECONDS = 60.0
 # point vs. the legacy 300-char prefix), while bounding cost on huge threads.
 _BODY_CAP_CHARS = 4000
 
+_INTENT_MENU = "\n".join(f"  - {i}: {INTENT_DEFS[i]}" for i in VALID_INTENTS)
+
 _SYSTEM_PROMPT = (
     "You classify one conference help-desk email and turn it into search "
     "queries for the conference's policy documentation.\n\n"
     "Output EXACTLY this structure:\n"
-    "INTENT: <one of: " + ", ".join(VALID_INTENTS) + ">\n"
+    "INTENT: <one of the intents below, by exact name>\n" + _INTENT_MENU + "\n"
     "CONFIDENCE: <your confidence in the intent, 0.0-1.0>\n"
     "QUERY: <search line>\n"
     "(One QUERY line per distinct policy question the sender raises — as "

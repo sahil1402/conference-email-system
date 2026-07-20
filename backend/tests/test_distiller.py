@@ -23,7 +23,7 @@ from app.pipeline.distiller import DistillResult, EmailDistiller, _parse
 from app.pipeline.orchestrator import EmailPipeline
 
 _STRUCTURED = (
-    "INTENT: authorship_dispute\n"
+    "INTENT: author_list_change\n"
     "CONFIDENCE: 0.85\n"
     "QUERY: add co-author to author list after paper submission deadline\n"
     "QUERY: author list change procedure during review\n"
@@ -35,7 +35,7 @@ _STRUCTURED = (
 # ---------------------------------------------------------------------------
 def test_parse_structured_output():
     result = _parse(_STRUCTURED)
-    assert result.intent == "authorship_dispute"
+    assert result.intent == "author_list_change"
     assert result.confidence == 0.85
     assert result.queries == [
         "add co-author to author list after paper submission deadline",
@@ -50,11 +50,11 @@ def test_parse_unknown_intent_keeps_queries():
 
 
 def test_parse_without_queries_is_unusable():
-    assert _parse("INTENT: general_inquiry\nCONFIDENCE: 0.7\n") is None
+    assert _parse("INTENT: cms_support\nCONFIDENCE: 0.7\n") is None
 
 
 def test_parse_keeps_every_query_line():
-    text = "INTENT: general_inquiry\nCONFIDENCE: 0.6\n" + "".join(
+    text = "INTENT: cms_support\nCONFIDENCE: 0.6\n" + "".join(
         f"QUERY: q{i}\n" for i in range(6)
     )
     assert _parse(text).queries == [f"q{i}" for i in range(6)]
@@ -90,7 +90,7 @@ async def test_distill_parses_model_output(monkeypatch):
     monkeypatch.setattr(settings, "MODEL_PROVIDER", "local")
     monkeypatch.setattr(distiller_module.httpx, "AsyncClient", _OkClient)
     result = await EmailDistiller().distill("Co-author omission", "body text")
-    assert result.intent == "authorship_dispute"
+    assert result.intent == "author_list_change"
     assert len(result.queries) == 2
 
 
@@ -160,7 +160,7 @@ async def test_pipeline_uses_distilled_queries_and_intent(monkeypatch, db_factor
     pipeline.distiller = _StubDistiller(
         DistillResult(
             queries=["add co-author after deadline", "author list change"],
-            intent="authorship_dispute",
+            intent="author_list_change",
             confidence=0.9,
         )
     )
@@ -170,7 +170,7 @@ async def test_pipeline_uses_distilled_queries_and_intent(monkeypatch, db_factor
         result = await pipeline.process_email(_EMAIL, db)
 
     assert result.classification.method == "llm_distiller"
-    assert result.classification.intent == "authorship_dispute"
+    assert result.classification.intent == "author_list_change"
     assert result.classification.confidence == 0.9
     call = pipeline.retriever.calls[0]
     # Distilled lines joined into one query; NO intent token (E001/E003).
@@ -199,7 +199,7 @@ async def test_pipeline_prefix_strategy_is_untouched(db_factory):
     # the legacy body[:300]+intent query must be preserved bit-for-bit.
     pipeline = EmailPipeline()
     pipeline.distiller = _StubDistiller(
-        DistillResult(queries=["should never be used"], intent="ethics_concern")
+        DistillResult(queries=["should never be used"], intent="anonymity_violation")
     )
     pipeline.retriever = _CapturingRetriever()
 
