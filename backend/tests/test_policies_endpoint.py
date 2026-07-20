@@ -49,22 +49,24 @@ async def test_get_policy_returns_full_chunk(client):
             content="The camera-ready deadline is specified in AoE time.",
             category="submission_deadlines",
             score=1.0,
-            tags=["deadline", "camera-ready", "aoe"],
+            # [tags-dropped E007] tags=["deadline", "camera-ready", "aoe"],
             source="AAAI-27 call_for_papers.md",
         ))
         await s.commit()
     resp = await c.get("/api/v1/policies/policy_117")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == {"policy_key", "title", "content", "category", "tags", "source", "score"}
+    # [tags-dropped E007] "tags" removed from the response shape.
+    assert set(body) == {"policy_key", "title", "content", "category", "source", "score"}
     assert body["policy_key"] == "policy_117"
     assert body["title"] == "Camera-Ready Deadline"
     assert body["content"].startswith("The camera-ready deadline")
     assert body["category"] == "submission_deadlines"
-    assert body["tags"] == ["deadline", "camera-ready", "aoe"]
+    # [tags-dropped E007] assert body["tags"] == ["deadline", "camera-ready", "aoe"]
     assert body["source"] == "AAAI-27 call_for_papers.md"
 
 
+@pytest.mark.skip(reason="[tags-dropped E007] tags column dropped; null-coercion no longer applies")
 async def test_get_policy_coerces_null_tags_to_list(client):
     c, factory = client
     async with factory() as s:

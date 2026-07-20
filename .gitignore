@@ -90,3 +90,5 @@ claude_hist.md
 # Internal development docs (SDD plans, etc.) — kept locally, not pushed.
 docs/superpowers/
 docs/local/
+# Mining outputs (PII-derived from data/tickets) — never commit
+data/mining/

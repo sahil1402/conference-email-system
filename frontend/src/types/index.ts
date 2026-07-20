@@ -99,7 +99,7 @@ export interface RetrievedChunk {
   content: string;
   score: number;
   category: string;
-  tags: string[];
+  // [tags-dropped E007] tags: string[];
 }
 
 /**
@@ -112,7 +112,7 @@ export interface PolicyDetail {
   title: string;
   content: string;
   category: string | null;
-  tags: string[];
+  // [tags-dropped E007] tags: string[];
   source: string | null;
   score: number | null;
 }
@@ -375,7 +375,7 @@ export interface PolicyDocument {
   title: string;
   content: string;
   category: string | null;
-  tags: string[];
+  // [tags-dropped E007] tags: string[];
   visibility: PolicyVisibility;
   status: PolicyStatus;
   source: string | null;
@@ -412,7 +412,7 @@ export interface CreatePolicyRequest {
   title: string;
   content: string;
   category?: string | null;
-  tags?: string[];
+  // [tags-dropped E007] tags?: string[];
   actor: string;
   retire_keys?: string[];
 }

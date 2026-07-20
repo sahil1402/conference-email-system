@@ -44,7 +44,7 @@ class PolicyDetail(BaseModel):
     title: str = Field(..., description="Chunk title.")
     content: str = Field(..., description="Full chunk body text.")
     category: str | None = Field(default=None, description="Policy category.")
-    tags: list[str] = Field(default_factory=list, description="Taxonomy tags.")
+    # [tags-dropped E007] tags: list[str] = Field(default_factory=list, description="Taxonomy tags.")
     source: str | None = Field(default=None, description="Origin document name.")
     score: float | None = Field(default=None, description="Curation score, if any.")
 
@@ -53,7 +53,7 @@ class CreatePolicyRequest(BaseModel):
     title: str
     content: str
     category: str | None = None
-    tags: list[str] | None = None
+    # [tags-dropped E007] tags: list[str] | None = None
     actor: str
     retire_keys: list[str] = []
 
@@ -87,7 +87,8 @@ async def _rebuild_index() -> None:
 def _policy_dict(p) -> dict:
     return {
         "policy_key": p.policy_key, "title": p.title, "content": p.content,
-        "category": p.category, "tags": p.tags or [], "visibility": p.visibility,
+        # [tags-dropped E007] "tags": p.tags or [],
+        "category": p.category, "visibility": p.visibility,
         "status": p.status, "source": p.source,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
@@ -158,7 +159,7 @@ async def get_policy(
         title=policy.title,
         content=policy.content,
         category=policy.category,
-        tags=list(policy.tags or []),
+        # [tags-dropped E007] tags=list(policy.tags or []),
         source=policy.source,
         score=policy.score,
     )
@@ -168,7 +169,8 @@ async def get_policy(
 async def create_policy(payload: CreatePolicyRequest, db: AsyncSession = Depends(get_db)) -> dict:
     row = await _policies.create_internal(
         db, title=payload.title, content=payload.content,
-        category=payload.category, tags=payload.tags, actor=payload.actor,
+        # [tags-dropped E007] tags=payload.tags,
+        category=payload.category, actor=payload.actor,
     )
     await _audit.log(db, policy_key=row.policy_key, action="policy_created",
                      actor=f"chair:{payload.actor}", after={"title": row.title})
