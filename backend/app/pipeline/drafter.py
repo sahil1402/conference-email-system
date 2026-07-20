@@ -82,13 +82,25 @@ Output EXACTLY this structure:
 <comma-separated internal ids of the policy chunks you relied on \
 (e.g. policy_004, policy_012), or "none">
 === NOTES FOR CHAIR ===
-<anything the chair should verify or decide before sending, or "none">"""
+<anything the chair should verify or decide before sending, or "none">
+=== CONFIDENCE ===
+<a single number 0.0-1.0: your confidence that this REPLY fully and correctly \
+answers every part of the requester's question using ONLY the provided policy \
+context, with no remaining gaps. Use a high value only when the reply is \
+complete and grounded; if you left any placeholder or note, this must be low.>"""
 
-# Structured-output sections emitted per the system prompt above.
+# Structured-output sections emitted per the system prompt above. `notes` is
+# non-greedy so the optional trailing CONFIDENCE group can claim the tail of
+# the text when present; the `\Z` anchor is required for that non-greedy
+# group to still expand all the way to the end of the string when no
+# CONFIDENCE section is present (otherwise the lazy quantifier combined with
+# a wholly-optional trailing group would match `notes` as empty every time —
+# verified empirically; see task-F1-report.md).
 _SECTION_RE = re.compile(
     r"===\s*REPLY\s*===\s*(?P<reply>.*?)"
     r"\s*===\s*CITATIONS\s*===\s*(?P<cites>.*?)"
-    r"\s*===\s*NOTES\s+FOR\s+CHAIR\s*===\s*(?P<notes>.*)",
+    r"\s*===\s*NOTES\s+FOR\s+CHAIR\s*===\s*(?P<notes>.*?)"
+    r"(?:\s*===\s*CONFIDENCE\s*===\s*(?P<confidence>.*))?\Z",
     re.DOTALL | re.IGNORECASE,
 )
 # Inline internal ids — parenthesized citation groups first, then bare ids.
@@ -171,16 +183,34 @@ def _sanitize_reply(reply: str) -> str:
     return reply.strip()
 
 
-def _split_structured(text: str) -> tuple[str, list[str], str | None]:
-    """Split model output into (reply, citations, notes_for_chair).
+def _parse_confidence(raw: str | None) -> float | None:
+    """Parse a self-rated confidence number, clamped to [0, 1].
+
+    Returns None on missing/unparseable input — the safe default for a
+    router precondition that gates FAQ eligibility.
+    """
+    if not raw:
+        return None
+    m = re.search(r"[-+]?\d*\.?\d+", raw)
+    if not m:
+        return None
+    try:
+        return max(0.0, min(1.0, float(m.group(0))))
+    except ValueError:
+        return None
+
+
+def _split_structured(text: str) -> tuple[str, list[str], str | None, float | None]:
+    """Split model output into (reply, citations, notes_for_chair, answer_confidence).
 
     Falls back gracefully on unstructured output (older prompts, small local
     models): the whole text is treated as the reply and citations are parsed
-    from it before sanitization strips them.
+    from it before sanitization strips them; notes and confidence are None
+    in that no-match branch.
     """
     match = _SECTION_RE.search(text)
     if not match:
-        return _sanitize_reply(text), _parse_citations(text), None
+        return _sanitize_reply(text), _parse_citations(text), None, None
     citations: list[str] = []
     for cid in _CITATION_PATTERN.findall(match.group("cites")):
         if cid not in citations:
@@ -188,7 +218,8 @@ def _split_structured(text: str) -> tuple[str, list[str], str | None]:
     notes = match.group("notes").strip()
     if notes.lower() in ("", "none", "n/a", "none."):
         notes = None
-    return _sanitize_reply(match.group("reply")), citations, notes
+    confidence = _parse_confidence(match.group("confidence"))
+    return _sanitize_reply(match.group("reply")), citations, notes, confidence
 
 
 def _load_style_guide() -> str | None:
@@ -251,6 +282,12 @@ class DraftResponse(BaseModel):
         default_factory=list,
         description="Policy ids the draft relied on (e.g. ['policy_004']); "
         "internal provenance, never shown in the reply text.",
+    )
+    answer_confidence: float | None = Field(
+        default=None,
+        description="Drafter self-rated confidence (0-1) that the reply fully and "
+        "correctly answers the request from the provided context. None for non-LLM "
+        "drafters or unparseable output. A router FAQ-lane precondition.",
     )
     model_used: str = Field(
         ..., description='Model id used, or "none" when no draft was generated.'
@@ -402,7 +439,7 @@ class ResponseDrafter:
             raw_text = "".join(
                 block.text for block in message.content if block.type == "text"
             )
-            reply, citations, notes = _split_structured(raw_text)
+            reply, citations, notes, confidence = _split_structured(raw_text)
             metadata = {
                 "lane": routing.lane,
                 "stop_reason": message.stop_reason,
@@ -416,6 +453,7 @@ class ResponseDrafter:
                 notes_for_chair=notes,
                 placeholders=placeholders,
                 citations=citations,
+                answer_confidence=confidence,
                 model_used=settings.DRAFT_MODEL,
                 generation_metadata=metadata,
             )
@@ -464,7 +502,7 @@ class ResponseDrafter:
                 data = response.json()
 
             raw_text = data["choices"][0]["message"]["content"]
-            reply, citations, notes = _split_structured(raw_text)
+            reply, citations, notes, confidence = _split_structured(raw_text)
             metadata = {"lane": routing.lane, "provider": "local"}
             usage = data.get("usage")
             if isinstance(usage, dict):
@@ -477,6 +515,7 @@ class ResponseDrafter:
                 notes_for_chair=notes,
                 placeholders=placeholders,
                 citations=citations,
+                answer_confidence=confidence,
                 model_used=settings.LOCAL_MODEL_NAME,
                 generation_metadata=metadata,
             )

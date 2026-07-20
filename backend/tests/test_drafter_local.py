@@ -266,6 +266,90 @@ async def test_leak_warning_appends_to_existing_notes(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Self-rated answer_confidence (Task F1)
+# ---------------------------------------------------------------------------
+def test_split_parses_confidence():
+    text = (
+        "=== REPLY ===\nHello.\n=== CITATIONS ===\npolicy_101\n"
+        "=== NOTES FOR CHAIR ===\nnone\n=== CONFIDENCE ===\n0.92"
+    )
+    reply, cites, notes, confidence = drafter_module._split_structured(text)
+    assert confidence == 0.92
+    assert cites == ["policy_101"]
+    assert notes is None
+
+
+def test_split_confidence_absent_is_none():
+    text = "=== REPLY ===\nHi.\n=== CITATIONS ===\nnone\n=== NOTES FOR CHAIR ===\nnone"
+    reply, cites, notes, confidence = drafter_module._split_structured(text)
+    assert confidence is None
+
+
+def test_split_confidence_out_of_range_clamped_or_none():
+    text = (
+        "=== REPLY ===\nHi.\n=== CITATIONS ===\nnone\n"
+        "=== NOTES FOR CHAIR ===\nnone\n=== CONFIDENCE ===\n1.7"
+    )
+    _, _, _, confidence = drafter_module._split_structured(text)
+    assert confidence == 1.0  # clamped to [0, 1]
+
+
+def test_split_notes_still_multiline_without_confidence_section():
+    # Regression guard: `notes` became non-greedy to allow an optional
+    # trailing CONFIDENCE group. When no CONFIDENCE section is present, notes
+    # must still capture everything up to the end of the text (not truncate
+    # to the empty match a lazy quantifier would otherwise prefer).
+    text = (
+        "=== REPLY ===\nHi.\n=== CITATIONS ===\nnone\n"
+        "=== NOTES FOR CHAIR ===\nLine one.\nLine two."
+    )
+    _, _, notes, confidence = drafter_module._split_structured(text)
+    assert notes == "Line one.\nLine two."
+    assert confidence is None
+
+
+async def test_confidence_threaded_onto_draft_response(monkeypatch):
+    monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _OkClient)
+    monkeypatch.setattr(
+        _OkClient,
+        "content",
+        "=== REPLY ===\nThe deadline is AoE.\n"
+        "=== CITATIONS ===\npolicy_002\n"
+        "=== NOTES FOR CHAIR ===\nnone\n"
+        "=== CONFIDENCE ===\n0.87",
+    )
+    result = await _draft_with(ResponseDrafter(provider="local"))
+    assert result.answer_confidence == 0.87
+
+
+async def test_confidence_none_when_absent_from_structured_output(monkeypatch):
+    # Default _OkClient content has no CONFIDENCE section.
+    monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _OkClient)
+    result = await _draft_with(ResponseDrafter(provider="local"))
+    assert result.answer_confidence is None
+
+
+async def test_confidence_none_on_unstructured_output(monkeypatch):
+    monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _OkClient)
+    monkeypatch.setattr(
+        _OkClient, "content", "Per policy_002, the deadline is AoE."
+    )
+    result = await _draft_with(ResponseDrafter(provider="local"))
+    # No structured sections at all → the no-match parse-failure branch.
+    assert result.answer_confidence is None
+
+
+async def test_confidence_none_for_fallback_provider():
+    result = await _draft_with(ResponseDrafter(provider="fallback"))
+    assert result.answer_confidence is None
+
+
+async def test_confidence_none_for_template_provider():
+    result = await _draft_with(ResponseDrafter(provider="template"))
+    assert result.answer_confidence is None
+
+
+# ---------------------------------------------------------------------------
 # Bearer-auth for hosted OpenAI-compatible endpoints (Phase 7D)
 # ---------------------------------------------------------------------------
 async def test_local_provider_sends_bearer_header_when_key_set(monkeypatch):
