@@ -16,18 +16,21 @@ from app.core.config import settings
 from app.pipeline.classifier import ClassificationResult
 
 # Intents that can be answered automatically when confidence + grounding allow.
-FAQ_ELIGIBLE_INTENTS = [
-    "submission_deadline",
-    "formatting_requirements",
-    "general_inquiry",
-]
+# INTERIM: empty under the one-chair MVP taxonomy adoption — every intent
+# currently escalates to human_review regardless of confidence/grounding, which
+# is the correct conservative behavior while there is one chair and no derived
+# coverage signal yet. Task B4 (Part B) derives the real FAQ-eligible list from
+# which of the 14 `taxonomy.VALID_INTENTS` actually have KB chunk coverage.
+FAQ_ELIGIBLE_INTENTS: list[str] = []
 
 # Intents that ALWAYS require a human, regardless of confidence — these carry
 # fairness, integrity, or interpersonal stakes an auto-reply must not touch.
+# Vocabulary source: app.pipeline.taxonomy (the appeals_integrity family of the
+# 14-intent taxonomy).
 SENSITIVE_INTENTS = [
-    "authorship_dispute",
-    "ethics_concern",
-    "review_assignment",
+    "review_decision_appeal",
+    "desk_reject_appeal",
+    "anonymity_violation",
 ]
 
 LANE_FAQ = "faq"
