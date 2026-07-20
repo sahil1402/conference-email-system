@@ -8,7 +8,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.models import Base, Email
 from app.models.enums import EmailStatus
+from app.pipeline.drafter import DraftResponse
 from app.pipeline.reevaluation import reevaluate_open_tickets
+from app.pipeline.router import LANE_FAQ, LANE_HUMAN_REVIEW, RoutingDecision
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
 
@@ -339,3 +341,63 @@ async def test_save_refusal_mid_sweep_clears_flag_and_contends(session, monkeypa
     reloaded = (await EmailRepository().get_open_tickets(session))[0]
     assert reloaded.redrafting is False        # stray flag cleared
     assert reloaded.draft["draft_text"] == "old"
+
+
+class _AlwaysFaqRouter:
+    """Stub router that routes to "faq" no matter what — draft-blind, exactly
+    like the RL strategy the safety floor exists to cover."""
+
+    def __init__(self, strategy=None):
+        pass
+
+    def route(self, classification, retrieved_chunks, draft):
+        return RoutingDecision(
+            lane=LANE_FAQ,
+            reason="stub: always faq (simulates a draft-blind routing strategy)",
+            confidence_used=classification.confidence,
+            threshold_applied=0.0,
+        )
+
+
+class _PlaceholderDrafter:
+    """Stub drafter that always returns a draft with an unresolved chair
+    placeholder — i.e. not self-sufficient."""
+
+    def __init__(self, provider=None):
+        pass
+
+    async def draft(self, email_data, classification, retrieved_chunks):
+        return DraftResponse(
+            draft_text="Thanks for reaching out. [CHAIR: confirm exact date].",
+            notes_for_chair=None,
+            placeholders=["[CHAIR: confirm exact date]"],
+            citations=["policy_101"],
+            answer_confidence=0.95,
+            model_used="stub",
+        )
+
+
+async def test_pass2_safety_floor_overrides_faq_when_draft_has_placeholders(
+    session, monkeypatch
+):
+    """Same strategy-independent floor as the orchestrator's, exercised on the
+    Pass-2 re-draft path: even when the (stubbed) router says "faq" for a
+    draft that still has an unresolved placeholder, the saved routing must be
+    forced to human_review."""
+    session.add(_open_email())
+    await session.commit()
+
+    # Fresh retrieval surfaces a different policy → affected → re-draft.
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    monkeypatch.setattr("app.pipeline.reevaluation.EmailRouter", _AlwaysFaqRouter)
+    monkeypatch.setattr("app.pipeline.reevaluation.ResponseDrafter", _PlaceholderDrafter)
+
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats["redrafted"] == 1
+
+    reloaded = (await EmailRepository().get_open_tickets(session))[0]
+    assert reloaded.routing["lane"] == LANE_HUMAN_REVIEW
+    assert reloaded.routing.get("override_reason") is not None
+    assert "placeholder" in reloaded.routing["override_reason"]

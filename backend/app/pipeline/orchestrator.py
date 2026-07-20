@@ -272,6 +272,22 @@ class EmailPipeline:
                 "reason": routing.reason,
             }
 
+        # Safety floor (strategy-independent): a draft that is not self-sufficient
+        # (chair placeholders or notes-for-chair) can NEVER be auto-answered, whatever
+        # the router returned. The rule_based router already enforces this via its
+        # draft-quality gate; this floor also covers the RL strategy, which routes
+        # without ever seeing the draft. Defense-in-depth, deliberately redundant for
+        # rule_based.
+        if (draft.placeholders or draft.notes_for_chair) and routing.lane != LANE_HUMAN_REVIEW:
+            routing = routing.model_copy(update={
+                "lane": LANE_HUMAN_REVIEW,
+                "override_reason": (
+                    f"draft is not self-sufficient "
+                    f"({len(draft.placeholders)} placeholder(s), "
+                    f"notes={'yes' if draft.notes_for_chair else 'no'}) — requires a human"
+                ),
+            })
+
         # --- chair assignment (the second routing decision) ---------------
         # Human-review only; returns None for FAQ-lane emails. Kept out of the
         # tracer stages (the trace contract is exactly classify→retrieve→draft→

@@ -1,9 +1,12 @@
 """Evaluation harness for the ConfMail pipeline (research tool, not an endpoint).
 
-Runs the classifier, retriever, and router independently against a labeled
-ground-truth dataset and emits a structured JSON report plus a human-readable
-summary. Each component is evaluated on its own (we do not run the orchestrator
-or persist anything), so the run needs no database for the default BM25 backend.
+Runs the classifier, retriever, drafter, and router end-to-end against a
+labeled ground-truth dataset and emits a structured JSON report plus a
+human-readable summary. The router decides the lane from the DRAFT (not just
+the classification) — same contract as the orchestrator — so a real draft is
+generated for every email before routing. We still do not run the full
+orchestrator or persist anything, so the run needs no database for the
+default BM25 backend (the drafter does not import ``app.db`` either).
 
 Usage:
     cd backend && python scripts/run_eval.py
@@ -42,6 +45,7 @@ if str(_BACKEND_DIR) not in sys.path:
 from app.core.config import settings  # noqa: E402
 from app.pipeline import retriever as retriever_module  # noqa: E402
 from app.pipeline.classifier import IntentClassifier  # noqa: E402
+from app.pipeline.drafter import ResponseDrafter  # noqa: E402
 from app.pipeline.retriever import get_retriever  # noqa: E402
 from app.pipeline.router import EmailRouter  # noqa: E402
 
@@ -157,6 +161,11 @@ async def _run_pipeline(entries: list[dict], top_k: int, backend: str, verbose: 
     classifier = IntentClassifier(strategy=settings.CLASSIFIER_BACKEND)
     router = EmailRouter(strategy=settings.ROUTING_STRATEGY)
     retriever = get_retriever()
+    # One drafter instance reused across the loop, same as classifier/retriever/
+    # router above — the router's FAQ-lane gate is decided by the DRAFT (see
+    # app.pipeline.router.EmailRouter.route), so a real draft is required before
+    # routing; the eval harness must mirror the orchestrator's contract here.
+    drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
 
     records: list[dict] = []
     faiss_warned = False
@@ -180,7 +189,13 @@ async def _run_pipeline(entries: list[dict], top_k: int, backend: str, verbose: 
                 )
                 faiss_warned = True
 
-        routing = router.route(classification, chunks)
+        email_data = {
+            "from": entry.get("from") or entry.get("sender") or "",
+            "subject": subject,
+            "body": body,
+        }
+        draft = await drafter.draft(email_data, classification, chunks)
+        routing = router.route(classification, chunks, draft)
 
         keywords = [k.lower() for k in entry.get("relevant_policy_keywords", [])]
         hit = any(
@@ -253,6 +268,15 @@ def _compute_metrics(records: list[dict]) -> dict:
     confusion = {"labels": labels, "matrix": [[int(v) for v in row] for row in cm]}
 
     # Routing accuracy + per-lane breakdown (denominator = ground-truth lane count).
+    # NOTE: routing is now DRAFT-DEPENDENT (the router's FAQ-lane gate reads the
+    # draft's completeness/groundedness/answer_confidence), so this is an
+    # END-TO-END, PROVIDER-DEPENDENT metric, not a router-in-isolation one. With
+    # a non-LLM provider (the hermetic default, "fallback"/"template") the
+    # draft's answer_confidence is always None, so the draft-quality gate
+    # conservatively routes everything to human_review — routing_accuracy will
+    # just reflect the ground-truth lane mix, NOT routing quality. A meaningful
+    # FAQ-lane number requires running with a real drafting provider
+    # (MODEL_PROVIDER=anthropic_api/anthropic/local).
     routing_correct = sum(1 for r in records if r["correct_lane"])
     routing_accuracy = routing_correct / len(records) if records else 0.0
 

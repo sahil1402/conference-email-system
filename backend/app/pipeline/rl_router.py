@@ -1,11 +1,26 @@
 """RL routing layer — an epsilon-greedy multi-armed bandit over routing lanes.
 
 This is an *additive* learning layer on top of the rule-based router, not a
-replacement: the same ``RoutingDecision`` contract is returned, and the hard
-safety rules (sensitive intents always escalate; a low-confidence floor always
-escalates) are preserved before the bandit is ever consulted. The bandit only
-gets to choose among lanes once an email is past those guards and clears the
-confidence threshold.
+replacement: the same ``RoutingDecision`` contract is returned. Two hard rules
+run before the bandit is ever consulted:
+
+- Sensitive intent → always human_review. ``SENSITIVE_INTENTS``
+  (``app.pipeline.router.SENSITIVE_INTENTS``) is currently EMPTY (appeals are
+  answerable per the taxonomy rework), so today this check is a no-op seam —
+  re-populate it to force specific intents to a human under any strategy.
+- Confidence below a hard floor → always human_review (see
+  ``_CONFIDENCE_FLOOR`` below; still enforced and accurate).
+
+This router decides the lane from intent + confidence BEFORE a draft exists —
+it is intentionally NOT draft-quality-aware (making the bandit draft-aware is
+out of scope; the rule-based router's draft-quality gate is not replicated
+here). Because of that, the bandit could otherwise pick "auto_reply" for a
+draft that turns out to have unresolved ``[CHAIR: ...]`` placeholders or
+notes-for-chair. That case is caught by a SEPARATE, strategy-independent
+safety floor in the pipeline (``app.pipeline.orchestrator`` /
+``app.pipeline.reevaluation``, applied right after ``router.route()`` returns,
+whatever the routing strategy) — so a draft that is not self-sufficient can
+never reach the FAQ lane even under ``rl``.
 
 Arms (actions):     "auto_reply" | "human_review"
 Reward signal:      approved → +1 win (the lane was right)
