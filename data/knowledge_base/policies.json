@@ -12,6 +12,9 @@
       "formatting",
       "topics",
       "policies"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -28,6 +31,12 @@
       "topics",
       "policies",
       "summary"
+    ],
+    "intents": [
+      "submission_requirements",
+      "submission_format_policy",
+      "desk_reject_appeal",
+      "reviewer_workload_role"
     ]
   },
   {
@@ -48,6 +57,9 @@
       "generative",
       "ai",
       "authors"
+    ],
+    "intents": [
+      "submission_format_policy"
     ]
   },
   {
@@ -67,6 +79,9 @@
       "ethics",
       "violations",
       "statement"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -85,6 +100,11 @@
       "multiple",
       "submissions",
       "policy"
+    ],
+    "intents": [
+      "submission_requirements",
+      "submission_format_policy",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -103,6 +123,9 @@
       "ai-assisted",
       "peer-review",
       "process"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -121,6 +144,9 @@
       "ai-assisted",
       "peer-review",
       "process"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -139,6 +165,9 @@
       "ai-assisted",
       "peer-review",
       "process"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -160,7 +189,8 @@
       "privacy",
       "data",
       "protection"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_110",
@@ -178,7 +208,8 @@
       "collaborative",
       "bridge",
       "theme"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_111",
@@ -194,6 +225,9 @@
       "topics",
       "policies",
       "topics"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -214,6 +248,10 @@
       "ai",
       "social",
       "impact"
+    ],
+    "intents": [
+      "submission_requirements",
+      "review_decision_appeal"
     ]
   },
   {
@@ -233,6 +271,9 @@
       "track",
       "ai",
       "alignment"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -250,7 +291,8 @@
       "policies",
       "review",
       "criteria"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_115",
@@ -267,6 +309,9 @@
       "policies",
       "review",
       "criteria"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -284,6 +329,10 @@
       "policies",
       "questions",
       "suggestions"
+    ],
+    "intents": [
+      "submission_requirements",
+      "cms_support"
     ]
   },
   {
@@ -303,6 +352,12 @@
       "dates",
       "main",
       "track"
+    ],
+    "intents": [
+      "review_submission_help",
+      "paper_bidding",
+      "submission_requirements",
+      "author_list_change"
     ]
   },
   {
@@ -317,7 +372,8 @@
       "professional-standards",
       "plurality",
       "preamble"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_119",
@@ -331,7 +387,8 @@
       "professional-standards",
       "plurality",
       "preamble"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_120",
@@ -353,7 +410,8 @@
       "well-being",
       "acknowledging",
       "that"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_121",
@@ -371,7 +429,8 @@
       "principles",
       "avoid",
       "harm"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_122",
@@ -389,7 +448,8 @@
       "principles",
       "avoid",
       "harm"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_123",
@@ -408,7 +468,8 @@
       "be",
       "honest",
       "trustworthy"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_124",
@@ -430,7 +491,8 @@
       "action",
       "not",
       "discriminate"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_125",
@@ -452,7 +514,8 @@
       "produce",
       "new",
       "ideas"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_126",
@@ -470,7 +533,8 @@
       "principles",
       "respect",
       "privacy"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_127",
@@ -488,7 +552,8 @@
       "principles",
       "respect",
       "privacy"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_128",
@@ -506,7 +571,8 @@
       "principles",
       "honor",
       "confidentiality"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_129",
@@ -527,7 +593,8 @@
       "quality",
       "both",
       "processes"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_130",
@@ -548,7 +615,8 @@
       "professional",
       "competence",
       "conduct"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_131",
@@ -569,7 +637,8 @@
       "rules",
       "pertaining",
       "professional"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_132",
@@ -589,6 +658,9 @@
       "appropriate",
       "professional",
       "review"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -610,7 +682,8 @@
       "evaluations",
       "computer",
       "systems"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_134",
@@ -630,7 +703,8 @@
       "only",
       "areas",
       "competence"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_135",
@@ -651,7 +725,8 @@
       "understanding",
       "computing",
       "related"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_136",
@@ -672,7 +747,8 @@
       "resources",
       "only",
       "when"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_137",
@@ -693,7 +769,8 @@
       "that",
       "are",
       "robustly"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_138",
@@ -709,7 +786,8 @@
       "professional",
       "leadership",
       "principles"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_139",
@@ -731,7 +809,8 @@
       "good",
       "is",
       "central"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_140",
@@ -753,7 +832,8 @@
       "evaluate",
       "fulfillment",
       "social"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_141",
@@ -775,7 +855,8 @@
       "enhance",
       "quality",
       "working"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_142",
@@ -797,7 +878,8 @@
       "policies",
       "processes",
       "that"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_143",
@@ -819,7 +901,8 @@
       "organization",
       "group",
       "grow"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_144",
@@ -841,7 +924,8 @@
       "modifying",
       "retiring",
       "systems"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_145",
@@ -863,7 +947,8 @@
       "care",
       "systems",
       "that"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_146",
@@ -884,7 +969,8 @@
       "respect",
       "principles",
       "code"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_147",
@@ -906,7 +992,8 @@
       "as",
       "inconsistent",
       "with"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_148",
@@ -922,7 +1009,8 @@
       "history",
       "development",
       "code"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_149",
@@ -938,7 +1026,8 @@
       "aaai",
       "plurality",
       "statement"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_150",
@@ -954,7 +1043,8 @@
       "reviewer-policy",
       "confidentiality",
       "disambiguation"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_151",
@@ -974,6 +1064,9 @@
       "usage",
       "ai",
       "authorship"
+    ],
+    "intents": [
+      "submission_format_policy"
     ]
   },
   {
@@ -994,6 +1087,10 @@
       "limits",
       "submission",
       "camera-ready"
+    ],
+    "intents": [
+      "submission_format_policy",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -1014,7 +1111,8 @@
       "confidentiality",
       "llm",
       "use"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_154",
@@ -1034,7 +1132,8 @@
       "confidentiality",
       "llm",
       "use"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_155",
@@ -1048,7 +1147,8 @@
       "authorship",
       "reviewer-responsibilities",
       "confidentiality"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_156",
@@ -1064,6 +1164,10 @@
       "confidentiality",
       "author",
       "responsibilities"
+    ],
+    "intents": [
+      "author_profile_compliance",
+      "submission_requirements"
     ]
   },
   {
@@ -1082,6 +1186,9 @@
       "program",
       "chair",
       "responsibilities"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -1100,7 +1207,8 @@
       "program",
       "chair",
       "responsibilities"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_159",
@@ -1118,6 +1226,9 @@
       "program",
       "chair",
       "responsibilities"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -1134,6 +1245,11 @@
       "confidentiality",
       "reviewer",
       "responsibilities"
+    ],
+    "intents": [
+      "reviewer_assignment",
+      "review_submission_help",
+      "review_decision_appeal"
     ]
   },
   {
@@ -1153,6 +1269,9 @@
       "program",
       "committee",
       "responsibilities"
+    ],
+    "intents": [
+      "review_decision_appeal"
     ]
   },
   {
@@ -1168,6 +1287,9 @@
       "llm-policy",
       "copyright",
       "errata"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -1189,6 +1311,9 @@
       "systems",
       "producing",
       "aaai"
+    ],
+    "intents": [
+      "submission_format_policy"
     ]
   },
   {
@@ -1206,6 +1331,9 @@
       "errata",
       "reviewer",
       "policy"
+    ],
+    "intents": [
+      "review_submission_help"
     ]
   },
   {
@@ -1223,7 +1351,8 @@
       "errata",
       "author",
       "instructions"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_166",
@@ -1242,7 +1371,8 @@
       "ethics",
       "malpractice",
       "statement"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_167",
@@ -1259,7 +1389,8 @@
       "errata",
       "publication",
       "policy"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_168",
@@ -1277,7 +1408,8 @@
       "reproducing",
       "copyright",
       "materials"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_169",
@@ -1295,7 +1427,8 @@
       "submit",
       "erratum",
       "errata"
-    ]
+    ],
+    "intents": []
   },
   {
     "id": "policy_170",
@@ -1312,6 +1445,11 @@
       "modification-guidelines",
       "author",
       "registration"
+    ],
+    "intents": [
+      "submission_requirements",
+      "reviewer_workload_role",
+      "cms_support"
     ]
   },
   {
@@ -1330,6 +1468,11 @@
       "abstract",
       "paper",
       "submission"
+    ],
+    "intents": [
+      "submission_upload_help",
+      "submission_requirements",
+      "cms_support"
     ]
   },
   {
@@ -1348,6 +1491,10 @@
       "abstract",
       "paper",
       "submission"
+    ],
+    "intents": [
+      "submission_requirements",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -1366,6 +1513,12 @@
       "abstract",
       "paper",
       "submission"
+    ],
+    "intents": [
+      "submission_requirements",
+      "submission_format_policy",
+      "desk_reject_appeal",
+      "anonymity_violation"
     ]
   },
   {
@@ -1385,6 +1538,10 @@
       "limit",
       "per",
       "author"
+    ],
+    "intents": [
+      "submission_requirements",
+      "author_list_change"
     ]
   },
   {
@@ -1406,6 +1563,9 @@
       "authors",
       "after",
       "submissions"
+    ],
+    "intents": [
+      "author_list_change"
     ]
   },
   {
@@ -1427,6 +1587,9 @@
       "submissions",
       "scientific",
       "integrity"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -1453,6 +1616,9 @@
       "other",
       "archival",
       "venues"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -1476,6 +1642,11 @@
       "integrity",
       "overlapping",
       "submissions"
+    ],
+    "intents": [
+      "submission_requirements",
+      "submission_format_policy",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -1499,6 +1670,10 @@
       "integrity",
       "overlapping",
       "submissions"
+    ],
+    "intents": [
+      "submission_requirements",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -1516,6 +1691,9 @@
       "modification-guidelines",
       "citation",
       "comparison"
+    ],
+    "intents": [
+      "submission_format_policy"
     ]
   },
   {
@@ -1533,6 +1711,10 @@
       "modification-guidelines",
       "reproducibility",
       "guidelines"
+    ],
+    "intents": [
+      "submission_requirements",
+      "submission_format_policy"
     ]
   },
   {
@@ -1550,6 +1732,10 @@
       "modification-guidelines",
       "ethics",
       "policy"
+    ],
+    "intents": [
+      "submission_requirements",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -1566,6 +1752,9 @@
       "page-limits",
       "modification-guidelines",
       "demonstrations"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -1583,6 +1772,12 @@
       "modification-guidelines",
       "supplementary",
       "material"
+    ],
+    "intents": [
+      "submission_requirements",
+      "submission_format_policy",
+      "anonymity_violation",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -1602,6 +1797,9 @@
       "material",
       "technical",
       "appendix"
+    ],
+    "intents": [
+      "submission_format_policy"
     ]
   },
   {
@@ -1623,6 +1821,12 @@
       "regular",
       "paper",
       "submission"
+    ],
+    "intents": [
+      "submission_upload_help",
+      "submission_requirements",
+      "author_list_change",
+      "desk_reject_appeal"
     ]
   },
   {
@@ -1647,6 +1851,10 @@
       "changes",
       "after",
       "acceptance"
+    ],
+    "intents": [
+      "submission_requirements",
+      "author_list_change"
     ]
   },
   {
@@ -1664,6 +1872,11 @@
       "modification-guidelines",
       "blind",
       "review"
+    ],
+    "intents": [
+      "submission_format_policy",
+      "desk_reject_appeal",
+      "anonymity_violation"
     ]
   },
   {
@@ -1681,6 +1894,10 @@
       "modification-guidelines",
       "blind",
       "review"
+    ],
+    "intents": [
+      "submission_format_policy",
+      "anonymity_violation"
     ]
   },
   {
@@ -1698,6 +1915,10 @@
       "modification-guidelines",
       "blind",
       "review"
+    ],
+    "intents": [
+      "submission_format_policy",
+      "anonymity_violation"
     ]
   },
   {
@@ -1716,6 +1937,10 @@
       "final",
       "paper",
       "publication"
+    ],
+    "intents": [
+      "submission_requirements",
+      "submission_format_policy"
     ]
   },
   {
@@ -1734,6 +1959,9 @@
       "conference",
       "registration",
       "attendance"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   },
   {
@@ -1751,6 +1979,9 @@
       "modification-guidelines",
       "affiliated",
       "events"
+    ],
+    "intents": [
+      "submission_requirements"
     ]
   }
 ]

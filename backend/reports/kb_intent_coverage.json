@@ -1,0 +1,118 @@
+{
+  "reviewer_assignment": [
+    "policy_160"
+  ],
+  "review_submission_help": [
+    "policy_117",
+    "policy_160",
+    "policy_164"
+  ],
+  "paper_bidding": [
+    "policy_117"
+  ],
+  "author_profile_compliance": [
+    "policy_156"
+  ],
+  "submission_upload_help": [
+    "policy_171",
+    "policy_186"
+  ],
+  "submission_requirements": [
+    "policy_101",
+    "policy_102",
+    "policy_104",
+    "policy_105",
+    "policy_111",
+    "policy_112",
+    "policy_113",
+    "policy_116",
+    "policy_117",
+    "policy_156",
+    "policy_162",
+    "policy_170",
+    "policy_171",
+    "policy_172",
+    "policy_173",
+    "policy_174",
+    "policy_176",
+    "policy_177",
+    "policy_178",
+    "policy_179",
+    "policy_181",
+    "policy_182",
+    "policy_183",
+    "policy_184",
+    "policy_186",
+    "policy_187",
+    "policy_191",
+    "policy_192",
+    "policy_193"
+  ],
+  "submission_format_policy": [
+    "policy_102",
+    "policy_103",
+    "policy_105",
+    "policy_151",
+    "policy_152",
+    "policy_163",
+    "policy_173",
+    "policy_178",
+    "policy_180",
+    "policy_181",
+    "policy_184",
+    "policy_185",
+    "policy_188",
+    "policy_189",
+    "policy_190",
+    "policy_191"
+  ],
+  "author_list_change": [
+    "policy_117",
+    "policy_174",
+    "policy_175",
+    "policy_186",
+    "policy_187"
+  ],
+  "review_decision_appeal": [
+    "policy_106",
+    "policy_107",
+    "policy_108",
+    "policy_112",
+    "policy_115",
+    "policy_132",
+    "policy_157",
+    "policy_159",
+    "policy_160",
+    "policy_161"
+  ],
+  "desk_reject_appeal": [
+    "policy_102",
+    "policy_105",
+    "policy_152",
+    "policy_172",
+    "policy_173",
+    "policy_178",
+    "policy_179",
+    "policy_182",
+    "policy_184",
+    "policy_186",
+    "policy_188"
+  ],
+  "anonymity_violation": [
+    "policy_173",
+    "policy_184",
+    "policy_188",
+    "policy_189",
+    "policy_190"
+  ],
+  "reviewer_workload_role": [
+    "policy_102",
+    "policy_170"
+  ],
+  "committee_invitation": [],
+  "cms_support": [
+    "policy_116",
+    "policy_170",
+    "policy_171"
+  ]
+}
