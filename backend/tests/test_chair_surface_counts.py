@@ -43,7 +43,7 @@ def _email(idx: int, chair_id: int, received_at: datetime) -> Email:
         subject=f"chair{chair_id} email {idx}",
         body="body",
         status="DRAFT_GENERATED",
-        classification={"intent": "review_assignment", "confidence": 0.9},
+        classification={"intent": "reviewer_assignment", "confidence": 0.9},
         routing={"lane": "human_review"},
         assigned_chair_id=chair_id,
         received_at=received_at,

@@ -39,7 +39,7 @@ def _email(idx: int, lane: str, received_at: datetime) -> Email:
         subject=f"{lane} email {idx}",
         body="body",
         status="DRAFT_GENERATED",
-        classification={"intent": "submission_deadline", "confidence": 0.9},
+        classification={"intent": "submission_requirements", "confidence": 0.9},
         routing={"lane": lane},
         received_at=received_at,
     )

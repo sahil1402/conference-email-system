@@ -157,8 +157,8 @@ def test_tracer_buffers_until_flush(tmp_path):
     configure_tracing(tmp_path / "trace.jsonl")
     tracer = PipelineTracer()
     with tracer.stage("classifier", {"body_length": 10}) as st:
-        st.output_summary = {"intent": "general_inquiry"}
-    with tracer.stage("router", {"intent": "general_inquiry"}) as st:
+        st.output_summary = {"intent": "cms_support"}
+    with tracer.stage("router", {"intent": "cms_support"}) as st:
         st.output_summary = {"lane": "faq"}
 
     # Nothing persisted before flush.

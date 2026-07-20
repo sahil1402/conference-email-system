@@ -2,7 +2,7 @@
 
 Reads data/mining/marc_qa.jsonl (Phase 0). For each requester question:
   - embeds it (MiniLM, CPU) and clusters the corpus (KMeans, k by silhouette);
-  - labels it with the *keyword* classifier (the 11 VALID_INTENTS, NO LLM) so we
+  - labels it with the *keyword* classifier (the 14 VALID_INTENTS, NO LLM) so we
     can cross-tab discovered clusters against today's taxonomy for free;
   - scores its max cosine similarity to the 93-chunk KB (leaf-title embed) as a
     coverage proxy.
@@ -27,6 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 from app.pipeline.classifier import VALID_INTENTS, keyword_classify  # noqa: E402
+from app.pipeline.taxonomy import FALLBACK_INTENT  # noqa: E402
 
 MINING = REPO_ROOT / "data" / "mining"
 QA_PATH = MINING / "marc_qa.jsonl"
@@ -68,8 +69,8 @@ def main() -> None:
     # --- keyword-intent (the 11), no LLM ---
     kw = [keyword_classify(r["subject"], r["question"]) for r in rows]
     intents = [c.intent for c in kw]
-    # A "catch-all" hit = general_inquiry from a zero-keyword match (conf 0.3).
-    catchall = [c.intent == "general_inquiry" and c.reasoning.startswith("No policy")
+    # A "catch-all" hit = the FALLBACK_INTENT from a zero-keyword match (conf 0.3).
+    catchall = [c.intent == FALLBACK_INTENT and c.reasoning.startswith("No policy")
                 for c in kw]
 
     # --- pick k by silhouette on a sample, then fit full ---
@@ -133,7 +134,7 @@ def main() -> None:
         "n": n,
         "kw_intent_distribution": dict(intent_dist.most_common()),
         "catchall_rate": round(100 * sum(catchall) / n, 1),
-        "general_inquiry_rate": round(100 * intent_dist["general_inquiry"] / n, 1),
+        "fallback_intent_rate": round(100 * intent_dist[FALLBACK_INTENT] / n, 1),
         "mean_kb_sim": round(float(max_sim.mean()), 3),
         "low_kb_cov_rate(<0.35)": round(100 * float((max_sim < 0.35).mean()), 1),
         "top_chair_tags": all_tags.most_common(25),
@@ -147,9 +148,9 @@ def main() -> None:
     # --- console summary (PII-safe: aggregates + topic terms only) ---
     print("\n================ OVERALL ================")
     print(f"n={n}  chosen k={best_k}")
-    print(f"keyword-intent distribution (of the 11): {overall['kw_intent_distribution']}")
-    print(f"catch-all (zero-keyword-match -> general_inquiry): {overall['catchall_rate']}%")
-    print(f"general_inquiry total: {overall['general_inquiry_rate']}%")
+    print(f"keyword-intent distribution (of the 14): {overall['kw_intent_distribution']}")
+    print(f"catch-all (zero-keyword-match -> {FALLBACK_INTENT}): {overall['catchall_rate']}%")
+    print(f"{FALLBACK_INTENT} total: {overall['fallback_intent_rate']}%")
     print(f"mean KB max-sim: {overall['mean_kb_sim']}   low-coverage(<0.35): {overall['low_kb_cov_rate(<0.35)']}%")
     print(f"rows with >=1 chair tag: {overall['n_rows_tagged']}/{n}")
     print(f"top chair tags: {overall['top_chair_tags']}")

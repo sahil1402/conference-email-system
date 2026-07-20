@@ -37,7 +37,7 @@ def _email(idx: int, confidence: float, received_at: datetime) -> Email:
         subject=f"email {idx}",
         body="body",
         status="DRAFT_GENERATED",
-        classification={"intent": "submission_deadline", "confidence": confidence},
+        classification={"intent": "submission_requirements", "confidence": confidence},
         routing={"lane": "faq" if confidence >= 0.65 else "human_review"},
         received_at=received_at,
     )
@@ -120,7 +120,7 @@ async def faq_ctx():
         return Email(
             sender=f"a{idx}@u.edu", subject=f"faq {idx}", body="b",
             status="DRAFT_GENERATED",
-            classification={"intent": "submission_deadline", "confidence": conf},
+            classification={"intent": "submission_requirements", "confidence": conf},
             routing={"lane": "faq"}, received_at=received_at,
         )
 
@@ -180,7 +180,7 @@ async def reassign_ctx():
     async with factory() as session:
         email = Email(
             sender="a@u.edu", subject="s", body="b", status="DRAFT_GENERATED",
-            classification={"intent": "review_assignment", "confidence": 0.9},
+            classification={"intent": "reviewer_assignment", "confidence": 0.9},
             routing={"lane": "human_review"},
         )
         session.add(email)

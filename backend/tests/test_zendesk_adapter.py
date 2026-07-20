@@ -61,7 +61,7 @@ class FakePipeline:
                 "subject": email_data.get("subject") or "",
                 "body": email_data.get("body") or "",
                 "status": EmailStatus.DRAFT_GENERATED.value,
-                "classification": {"intent": "general_inquiry", "confidence": 0.9},
+                "classification": {"intent": "cms_support", "confidence": 0.9},
                 "routing": {"lane": "human_review"},
                 "draft": {"draft_text": "draft"},
             },

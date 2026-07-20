@@ -20,7 +20,7 @@ from app.pipeline.drafter import ResponseDrafter
 # Lightweight stand-ins for the pipeline objects the drafter reads.
 # ---------------------------------------------------------------------------
 def _classification():
-    return SimpleNamespace(intent="submission_deadline", confidence=0.82)
+    return SimpleNamespace(intent="submission_requirements", confidence=0.82)
 
 
 def _routing():

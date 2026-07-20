@@ -44,17 +44,22 @@ _ROOT = Path(__file__).resolve().parents[2]
 _DATASET = _ROOT / "data" / "emails" / "toy_multichair.json"
 
 # The five standing chairs, mirroring the migration seed (order fixes ids 1..5).
+# Each content chair owns one family of the 14-intent taxonomy (submission
+# concepts like publicity / logistics no longer exist as intents, so the two
+# non-paper chairs take the leftover review_workflow / committee families).
 _SEED_CHAIRS = [
     ("Program Chair", "Program Chair", [
-        "submission_deadline", "formatting_requirements", "submission_withdrawal",
-        "review_assignment", "technical_issue",
+        "author_profile_compliance", "submission_upload_help",
+        "submission_requirements", "submission_format_policy", "author_list_change",
     ]),
     ("Diversity & Ethics Chair", "Diversity & Ethics Chair", [
-        "ethics_concern", "authorship_dispute",
+        "review_decision_appeal", "desk_reject_appeal", "anonymity_violation",
     ]),
-    ("Local Arrangements Chair", "Local Arrangements Chair", ["general_inquiry"]),
+    ("Local Arrangements Chair", "Local Arrangements Chair", [
+        "reviewer_assignment", "review_submission_help", "paper_bidding",
+    ]),
     ("Publicity/Sponsorship Chair", "Publicity & Sponsorship Chair", [
-        "sponsorship", "publicity", "media_inquiry",
+        "reviewer_workload_role", "committee_invitation",
     ]),
     ("General Chair", "General Chair", []),
 ]
@@ -166,16 +171,17 @@ async def test_all_five_chairs_have_coverage(ctx):
     ):
         assert ctx.name_to_id[name] in reached, name
 
-    # General Chair (fallback) — deactivate the ethics owner so an ethics email
-    # falls through to the empty-areas catch-all.
+    # General Chair (fallback) — deactivate the appeals/integrity owner so an
+    # integrity email falls through to the empty-areas catch-all.
     async with ctx.factory() as db:
         ethics_chair = await db.get(Chair, ctx.name_to_id["Diversity & Ethics Chair"])
         ethics_chair.active = False
         await db.commit()
 
         result = await pipeline.process_email(
-            {"from": "x@u.edu", "subject": "Reporting an ethics violation",
-             "body": "I want to report a serious ethics concern about plagiarism and misconduct."},
+            {"from": "x@u.edu", "subject": "Possible double-blind anonymity violation",
+             "body": "I believe a submission breaks double-blind anonymity: it "
+                     "includes identifying information that de-anonymizes the authors."},
             db,
         )
         email = await email_repo.get_email_by_id(db, result.email_id)
@@ -252,10 +258,10 @@ async def _make_assigned_email(ctx, chair_id: int) -> int:
     async with ctx.factory() as db:
         email = Email(
             sender="author@u.edu",
-            subject="Ethics question",
-            body="Reporting a possible ethics violation.",
+            subject="Anonymity question",
+            body="Reporting a possible double-blind anonymity violation.",
             status="ROUTED",
-            classification={"intent": "ethics_concern", "confidence": 0.95},
+            classification={"intent": "anonymity_violation", "confidence": 0.95},
             routing={"lane": "human_review"},
             assigned_chair_id=chair_id,
         )
@@ -291,7 +297,7 @@ async def test_reassign_updates_chair_and_writes_audit(ctx):
         meta = entries[0].extra_metadata
         assert meta["original_chair_id"] == program
         assert meta["new_chair_id"] == ethics
-        assert meta["intent"] == "ethics_concern"
+        assert meta["intent"] == "anonymity_violation"
         assert meta["confidence"] == 0.95
         assert entries[0].timestamp is not None  # timestamp is recorded
 

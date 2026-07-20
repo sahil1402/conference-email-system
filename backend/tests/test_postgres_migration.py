@@ -114,7 +114,7 @@ def _email_data(lane: str, sender: str = "a@univ.edu") -> dict:
         "sender": sender,
         "subject": "s",
         "body": "b",
-        "classification": {"intent": "submission_deadline", "confidence": 0.9},
+        "classification": {"intent": "submission_requirements", "confidence": 0.9},
         "routing": {"lane": lane},
     }
 

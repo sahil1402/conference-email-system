@@ -53,35 +53,39 @@ EXCLUDED_TAGS = {"closed_by_merge", "system_email_notification_failure"}
 MIN_QUESTION_CHARS = 40
 MIN_REPLY_CHARS = 150
 
-# Target counts per keyword-classifier intent. Author-facing intents are
-# over-sampled; review_assignment (67.8% of traffic) is capped and also serves
-# as the fill pool if other strata come up short.
+# Target counts per keyword-classifier intent (14-intent taxonomy; old labels
+# remapped via the A6 table). Author-facing intents are over-sampled;
+# reviewer_assignment (the largest real stratum) is capped and also serves as
+# the fill pool if other strata come up short.
 QUOTAS = {
-    "general_inquiry": 30,
-    "submission_deadline": 25,
-    "formatting_requirements": 25,
-    "technical_issue": 20,
-    "ethics_concern": 15,
-    "submission_withdrawal": 15,
-    "authorship_dispute": 10,
-    "publicity": 3,
-    "sponsorship": 2,
-    "media_inquiry": 2,
-    "review_assignment": 55,
+    "cms_support": 30,
+    "submission_requirements": 25,
+    "submission_format_policy": 25,
+    "review_submission_help": 20,
+    "anonymity_violation": 15,
+    "submission_upload_help": 15,
+    "author_list_change": 10,
+    "committee_invitation": 3,
+    "reviewer_workload_role": 2,
+    "paper_bidding": 2,
+    "reviewer_assignment": 55,
 }
 
 INTENT_DEFS = """\
-- submission_deadline: deadlines, extensions, timezone, abstract/paper dates
-- formatting_requirements: page limits, templates, anonymization, supplementary format
-- general_inquiry: registration, attendance, proceedings, general conference questions
-- review_assignment: reviewer/PC/SPC/AC assignments, load, expertise, review process operations
-- authorship_dispute: author order/addition/removal disagreements
-- submission_withdrawal: withdrawing/retracting a submission
-- ethics_concern: plagiarism, misconduct, confidentiality breaches, IRB
-- technical_issue: system access, uploads, account/login/form failures
-- sponsorship: sponsoring or exhibiting at the conference
-- publicity: promotion, social media, cross-promotion requests
-- media_inquiry: journalists, press passes, interviews"""
+- submission_requirements: deadlines, eligibility, required steps, portal access, tracks, next steps for accepted papers
+- submission_format_policy: page limits, templates, anonymization, appendices/checklists, supplementary format
+- cms_support: CMT/OpenReview account, email-linking, site access, general workflow support; registration/attendance/proceedings questions
+- reviewer_assignment: add/remove/replace/validate/locate reviewer or emergency-reviewer assignments
+- review_submission_help: submitting reviews/meta-reviews, late/missing reviews, review-system access problems/outages
+- paper_bidding: access/reopen/extend/correct the paper-bidding / reviewer-preference process
+- author_profile_compliance: missing/invalid Scholar/DBLP profile ids, user-info/conflict/subject-area completion
+- author_list_change: add/remove/reorder/correct authors or submission metadata after submission
+- submission_upload_help: upload/replace/restore a paper, camera-ready, or supplementary file (incl. restoring a withdrawn submission)
+- review_decision_appeal: appeals about review quality, rebuttal handling, scores, or the final decision
+- desk_reject_appeal: explain/reconsider/reverse a desk rejection (formatting, page-limit, appendix, checklist grounds)
+- anonymity_violation: reports a submission may break double-blind anonymity via identifying information/disclosures
+- reviewer_workload_role: adjust review workload, volunteer as reviewer, or seek an elevated role (SPC / area chair)
+- committee_invitation: accept/decline reviewer/PC/session-chair invitations, availability, resend/reactivate a link"""
 
 _LABEL_SYSTEM = f"""\
 You label conference-helpdesk tickets to build an evaluation set for a
@@ -169,8 +173,8 @@ def build_sample() -> None:
         else:
             step = len(pool) // quota
             picked.extend(pool[::step][:quota])
-    if shortfall:  # top up from the review_assignment tail (largest pool)
-        pool = sorted(by_intent.get("review_assignment", []), key=lambda r: r["ticket_id"])
+    if shortfall:  # top up from the reviewer_assignment tail (largest pool)
+        pool = sorted(by_intent.get("reviewer_assignment", []), key=lambda r: r["ticket_id"])
         already = {r["ticket_id"] for r in picked}
         extras = [r for r in pool if r["ticket_id"] not in already]
         picked.extend(extras[:: max(1, len(extras) // max(shortfall, 1))][:shortfall])

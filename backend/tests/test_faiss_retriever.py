@@ -144,7 +144,7 @@ def test_embed_text_uses_leaf_and_content():
 # ---------------------------------------------------------------------------
 async def test_faiss_retriever_returns_results(faiss_retriever):
     results = await faiss_retriever.retrieve(
-        "paper submission deadline", "submission_deadline", top_k=3
+        "paper submission deadline", "submission_requirements", top_k=3
     )
     assert len(results) >= 1
     assert all(r.score > 0.0 for r in results)
@@ -156,12 +156,12 @@ async def test_faiss_retriever_returns_results(faiss_retriever):
 
 
 async def test_faiss_retriever_top_k_respected(faiss_retriever):
-    results = await faiss_retriever.retrieve("formatting", "formatting_requirements", top_k=2)
+    results = await faiss_retriever.retrieve("formatting", "submission_format_policy", top_k=2)
     assert len(results) <= 2
 
 
 async def test_faiss_retriever_result_type(faiss_retriever):
-    results = await faiss_retriever.retrieve("ethics plagiarism", "ethics_concern", top_k=3)
+    results = await faiss_retriever.retrieve("ethics plagiarism", "anonymity_violation", top_k=3)
     assert results, "expected at least one result"
     for r in results:
         assert isinstance(r, RetrievedChunk)
@@ -174,10 +174,10 @@ async def test_faiss_retriever_result_type(faiss_retriever):
 
 
 async def test_faiss_index_rebuild(faiss_retriever):
-    await faiss_retriever.retrieve("deadline", "submission_deadline", top_k=2)
+    await faiss_retriever.retrieve("deadline", "submission_requirements", top_k=2)
     await faiss_retriever.rebuild_index()  # must not raise
     results = await faiss_retriever.retrieve(
-        "registration fee to present", "general_inquiry", top_k=2
+        "registration fee to present", "cms_support", top_k=2
     )
     assert len(results) >= 1
 

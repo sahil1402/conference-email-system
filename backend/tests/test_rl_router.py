@@ -35,23 +35,23 @@ async def client():
 
 def test_route_returns_routing_decision_with_lane(isolated_state):
     router = RLRouter()
-    decision = router.route("submission_deadline", 0.8, 0.65)
+    decision = router.route("submission_requirements", 0.8, 0.65)
     assert isinstance(decision, RoutingDecision)
     assert decision.lane in {"faq", "human_review"}
 
 
 def test_approved_feedback_increments_wins(isolated_state):
     router = RLRouter()
-    router.record_feedback("submission_deadline", "auto_reply", "approved")
-    stats = router.state["submission_deadline"]["auto_reply"]
+    router.record_feedback("submission_requirements", "auto_reply", "approved")
+    stats = router.state["submission_requirements"]["auto_reply"]
     assert stats["wins"] == 1
     assert stats["trials"] == 1
 
 
 def test_rerouted_feedback_increments_trials_not_wins(isolated_state):
     router = RLRouter()
-    router.record_feedback("submission_deadline", "auto_reply", "rerouted")
-    stats = router.state["submission_deadline"]["auto_reply"]
+    router.record_feedback("submission_requirements", "auto_reply", "rerouted")
+    stats = router.state["submission_requirements"]["auto_reply"]
     assert stats["wins"] == 0
     assert stats["trials"] == 1
 
@@ -60,10 +60,10 @@ def test_exploits_auto_reply_after_repeated_approvals(isolated_state):
     random.seed(0)  # deterministic exploration
     router = RLRouter()
     for _ in range(10):
-        router.record_feedback("submission_deadline", "auto_reply", "approved")
+        router.record_feedback("submission_requirements", "auto_reply", "approved")
 
     # Over many routes, the high-win-rate arm (auto_reply → "faq") dominates.
-    lanes = [router.route("submission_deadline", 0.8, 0.65).lane for _ in range(100)]
+    lanes = [router.route("submission_requirements", 0.8, 0.65).lane for _ in range(100)]
     faq = lanes.count("faq")
     assert faq > lanes.count("human_review")
     assert faq >= 70  # ~85% exploit + half of 15% exploration
@@ -74,9 +74,9 @@ def test_confidence_below_floor_forces_human_review(isolated_state):
     router = RLRouter()
     # Even with auto_reply heavily rewarded, sub-0.4 confidence must escalate.
     for _ in range(20):
-        router.record_feedback("submission_deadline", "auto_reply", "approved")
+        router.record_feedback("submission_requirements", "auto_reply", "approved")
     for _ in range(20):
-        decision = router.route("submission_deadline", 0.3, 0.65)
+        decision = router.route("submission_requirements", 0.3, 0.65)
         assert decision.lane == "human_review"
 
 

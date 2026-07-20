@@ -133,7 +133,7 @@ async def _seed_email(factory, confidence: float, draft_text: str) -> int:
             body="When is the deadline?",
             status="DRAFT_GENERATED",
             routing={"lane": "human_review", "reason": "below threshold", "confidence_used": confidence},
-            classification={"intent": "submission_deadline", "confidence": confidence},
+            classification={"intent": "submission_requirements", "confidence": confidence},
             draft={"draft_text": draft_text, "citations": [], "model_used": "none"},
         )
         session.add(email)

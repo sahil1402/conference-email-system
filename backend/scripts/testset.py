@@ -48,21 +48,23 @@ CONCURRENCY = 5
 
 # (intent, policy_answerable) -> how many tickets. Mirrors real traffic shares
 # while guaranteeing every major subject appears; 9 answerable / 11 not.
+# Intent keys use the 14-intent taxonomy (old labels remapped via the A6 table);
+# re-labeling the gitignored labels.jsonl to the new vocabulary is a Part B item.
 QUOTA = {
-    ("review_assignment", True): 2,
-    ("review_assignment", False): 2,
-    ("technical_issue", False): 3,  # 0 answerable exist in the sample
-    ("formatting_requirements", True): 2,
-    ("formatting_requirements", False): 1,
-    ("ethics_concern", True): 1,
-    ("ethics_concern", False): 1,
-    ("general_inquiry", True): 1,
-    ("general_inquiry", False): 1,
+    ("reviewer_assignment", True): 2,
+    ("reviewer_assignment", False): 2,
+    ("review_submission_help", False): 3,  # 0 answerable exist in the sample
+    ("submission_format_policy", True): 2,
+    ("submission_format_policy", False): 1,
+    ("anonymity_violation", True): 1,
+    ("anonymity_violation", False): 1,
+    ("cms_support", True): 1,
+    ("cms_support", False): 1,
     ("other", True): 1,
     ("other", False): 1,
-    ("submission_withdrawal", False): 2,  # 0 answerable exist in the sample
-    ("authorship_dispute", True): 1,
-    ("submission_deadline", True): 1,
+    ("submission_upload_help", False): 2,  # 0 answerable exist in the sample
+    ("author_list_change", True): 1,
+    ("submission_requirements", True): 1,
 }
 
 

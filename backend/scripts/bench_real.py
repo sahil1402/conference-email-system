@@ -44,15 +44,22 @@ LABELS_PATH = REPO_ROOT / "data" / "eval_real" / "labels.jsonl"
 KS = (1, 3, 5)
 RRF_K = 60  # standard constant, matches fusion_retriever.py
 
-# Mirrors the Phase 6A seeded chair areas (migration 1f51f0224943).
+# Mirrors the Phase 6A seeded chair areas (migration 1f51f0224943), remapped to
+# the 14-intent taxonomy: each content chair owns one family.
 CHAIR_AREAS = {
-    "Program Chair": {
-        "submission_deadline", "formatting_requirements", "submission_withdrawal",
-        "review_assignment", "technical_issue",
+    "Program Chair": {  # submission_compliance
+        "author_profile_compliance", "submission_upload_help",
+        "submission_requirements", "submission_format_policy", "author_list_change",
     },
-    "Diversity & Ethics Chair": {"ethics_concern", "authorship_dispute"},
-    "Local Arrangements Chair": {"general_inquiry"},
-    "Publicity/Sponsorship Chair": {"sponsorship", "publicity", "media_inquiry"},
+    "Diversity & Ethics Chair": {  # appeals_integrity
+        "review_decision_appeal", "desk_reject_appeal", "anonymity_violation",
+    },
+    "Local Arrangements Chair": {  # review_workflow
+        "reviewer_assignment", "review_submission_help", "paper_bidding",
+    },
+    "Publicity/Sponsorship Chair": {  # committee
+        "reviewer_workload_role", "committee_invitation",
+    },
 }
 
 

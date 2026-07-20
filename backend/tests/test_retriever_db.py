@@ -44,7 +44,7 @@ async def factory():
 
 async def test_bm25_retrieves_active_public_and_internal_excludes_inactive(factory):
     r = PolicyRetriever(session_factory=factory)
-    hits = await r.retrieve("submission deadline extended", intent="submission_deadline", top_k=5)
+    hits = await r.retrieve("submission deadline extended", intent="submission_requirements", top_k=5)
     keys = {h.policy_id for h in hits}
     assert "int_ext" in keys           # internal is retrievable
     assert "policy_102" not in keys    # inactive is excluded

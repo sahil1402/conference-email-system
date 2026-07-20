@@ -13,12 +13,12 @@ import logging
 
 from pydantic import BaseModel, Field
 
+from app.pipeline.taxonomy import VALID_INTENTS, FALLBACK_INTENT  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 # Backends we've already warned about (missing calibrator) — warn only once each.
 _calibration_warned: set[str] = set()
-
-from app.pipeline.taxonomy import VALID_INTENTS, FALLBACK_INTENT  # noqa: F401
 
 # Keyword cues per intent, chosen for recall on the toy dataset's vocabulary.
 # Lowercase; substring-matched against subject and body independently.

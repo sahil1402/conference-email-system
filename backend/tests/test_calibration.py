@@ -210,21 +210,30 @@ async def test_enabled_with_artifact_sets_calibrated(monkeypatch, tmp_path):
 
 
 def test_router_prefers_calibrated_confidence():
-    """Router compares the calibrated value against the threshold when present."""
+    """Router acts on the calibrated value (not the raw score) when present.
+
+    The observable signal is ``confidence_used``: with a calibrated value the
+    router considers 0.90; without one it falls back to the raw 0.40. (TODO(B4):
+    FAQ_ELIGIBLE_INTENTS is interim-empty under the one-chair MVP, so both cases
+    currently land in human_review regardless of confidence — see router.py.
+    Once B4 populates the list, the calibrated case should flip to lane "faq".)
+    """
     router = EmailRouter(strategy="rule_based")
     chunks = [object()]  # router only reads len(retrieved_chunks)
 
-    # Raw 0.40 (below 0.65 gate) but calibrated 0.90 → FAQ lane.
+    # Raw 0.40 (below the 0.65 gate) but calibrated 0.90 → the router uses 0.90.
     calibrated = ClassificationResult(
-        intent="submission_deadline",
+        intent="submission_requirements",
         confidence=0.40,
         raw_confidence=0.40,
         calibrated_confidence=0.90,
     )
     decision = router.route(calibrated, chunks)
-    assert decision.lane == "faq"
-    assert decision.confidence_used == 0.90
+    assert decision.confidence_used == 0.90  # calibrated value drove the decision
+    assert decision.lane == "human_review"  # interim: FAQ lane unreachable (B4)
 
-    # Same raw score, no calibrated value → falls back to raw → human_review.
-    raw_only = ClassificationResult(intent="submission_deadline", confidence=0.40)
-    assert router.route(raw_only, chunks).lane == "human_review"
+    # Same raw score, no calibrated value → falls back to raw 0.40.
+    raw_only = ClassificationResult(intent="submission_requirements", confidence=0.40)
+    raw_decision = router.route(raw_only, chunks)
+    assert raw_decision.confidence_used == 0.40
+    assert raw_decision.lane == "human_review"

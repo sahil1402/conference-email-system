@@ -27,28 +27,28 @@ def _samples() -> list[dict]:
             {
                 "subject": "Deadline",
                 "body": "When is the paper submission deadline extension, AoE?",
-                "intent": "submission_deadline",
+                "intent": "submission_requirements",
             }
         )
         data.append(
             {
                 "subject": "Formatting",
                 "body": "page limit latex template formatting font two-column",
-                "intent": "formatting_requirements",
+                "intent": "submission_format_policy",
             }
         )
     data.append(
         {
             "subject": "Withdraw",
             "body": "I want to withdraw my submission and retract the paper.",
-            "intent": "submission_withdrawal",
+            "intent": "submission_upload_help",
         }
     )
     data.append(
         {
             "subject": "Withdrawal",
             "body": "Please process the withdrawal of our submission.",
-            "intent": "submission_withdrawal",
+            "intent": "submission_upload_help",
         }
     )
     return data  # 10 samples, 3 distinct intents
@@ -81,7 +81,7 @@ def test_classify_without_model_falls_back_to_keyword(tmp_models):
     # Delegates to the keyword classifier and never loads the embedder.
     assert result.method == "keyword"
     assert tc.embedder is None
-    assert result.intent in {"submission_deadline", "general_inquiry"}
+    assert result.intent in {"submission_requirements", "cms_support"}
 
 
 def test_train_returns_metrics(tmp_models):
@@ -102,9 +102,9 @@ def test_classify_uses_trained_model_after_train(tmp_models):
     result = tc.classify("Deadline", "what is the paper submission deadline extension")
     assert result.method == "trained_classifier"
     assert result.intent in {
-        "submission_deadline",
-        "formatting_requirements",
-        "submission_withdrawal",
+        "submission_requirements",
+        "submission_format_policy",
+        "submission_upload_help",
     }
 
 
@@ -114,7 +114,7 @@ def test_classify_uses_trained_model_after_train(tmp_models):
 async def test_train_endpoint_too_few_samples_422(client):
     payload = {
         "training_data": [
-            {"subject": "s", "body": "b", "intent": "general_inquiry"}
+            {"subject": "s", "body": "b", "intent": "cms_support"}
             for _ in range(4)  # below the 5-sample minimum
         ]
     }

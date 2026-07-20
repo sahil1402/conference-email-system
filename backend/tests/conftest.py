@@ -55,7 +55,7 @@ def sample_email_dict() -> dict:
 def sample_classification_result() -> ClassificationResult:
     """A high-confidence deadline classification."""
     return ClassificationResult(
-        intent="submission_deadline",
+        intent="submission_requirements",
         confidence=0.85,
         reasoning="Matched deadline keywords.",
         secondary_intents=[],

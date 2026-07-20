@@ -33,30 +33,30 @@ def _roster() -> list[ChairInfo]:
             name="Program Chair",
             role_title="Program Chair",
             areas=[
-                "submission_deadline",
-                "formatting_requirements",
-                "submission_withdrawal",
-                "review_assignment",
-                "technical_issue",
+                "author_profile_compliance",
+                "submission_upload_help",
+                "submission_requirements",
+                "submission_format_policy",
+                "author_list_change",
             ],
         ),
         ChairInfo(
             id=2,
             name="Diversity & Ethics Chair",
             role_title="Diversity & Ethics Chair",
-            areas=["ethics_concern", "authorship_dispute"],
+            areas=["review_decision_appeal", "desk_reject_appeal", "anonymity_violation"],
         ),
         ChairInfo(
             id=3,
             name="Local Arrangements Chair",
             role_title="Local Arrangements Chair",
-            areas=["general_inquiry"],
+            areas=["reviewer_assignment", "review_submission_help", "paper_bidding"],
         ),
         ChairInfo(
             id=4,
             name="Publicity/Sponsorship Chair",
             role_title="Publicity & Sponsorship Chair",
-            areas=["sponsorship", "publicity", "media_inquiry"],
+            areas=["reviewer_workload_role", "committee_invitation"],
         ),
         ChairInfo(id=5, name="General Chair", role_title="General Chair", areas=[]),
     ]
@@ -67,18 +67,18 @@ def _roster() -> list[ChairInfo]:
 # ---------------------------------------------------------------------------
 def test_matches_intent_to_owning_chair():
     strategy = IntentMappingStrategy()
-    result = strategy.assign(_clf("ethics_concern"), _roster())
+    result = strategy.assign(_clf("anonymity_violation"), _roster())
     assert result.chair_id == 2
     assert result.chair_name == "Diversity & Ethics Chair"
-    assert result.matched_area == "ethics_concern"
+    assert result.matched_area == "anonymity_violation"
     assert result.is_fallback is False
     assert result.strategy == "intent_mapping"
 
 
-def test_new_operations_intent_routes_to_publicity_chair():
-    """The Phase 6A intents now have a genuine auto-routing path."""
+def test_committee_intent_routes_to_publicity_chair():
+    """The committee-family intents have a genuine auto-routing path."""
     strategy = IntentMappingStrategy()
-    for intent in ("sponsorship", "publicity", "media_inquiry"):
+    for intent in ("reviewer_workload_role", "committee_invitation"):
         result = strategy.assign(_clf(intent), _roster())
         assert result.chair_id == 4, intent
         assert result.is_fallback is False, intent
@@ -102,10 +102,10 @@ def test_no_fallback_chair_yields_unassigned():
     """No owner AND no empty-areas fallback → chair_id None, not a guess."""
     strategy = IntentMappingStrategy()
     roster = [
-        ChairInfo(id=1, name="Program Chair", areas=["submission_deadline"]),
-        ChairInfo(id=2, name="Ethics Chair", areas=["ethics_concern"]),
+        ChairInfo(id=1, name="Program Chair", areas=["submission_requirements"]),
+        ChairInfo(id=2, name="Ethics Chair", areas=["anonymity_violation"]),
     ]
-    result = strategy.assign(_clf("media_inquiry"), roster)
+    result = strategy.assign(_clf("cms_support"), roster)
     assert result.chair_id is None
     assert result.is_fallback is False
     assert "no fallback" in result.reason.lower()
@@ -117,9 +117,9 @@ def test_no_fallback_chair_yields_unassigned():
 def test_inactive_owning_chair_is_skipped_to_fallback():
     strategy = IntentMappingStrategy()
     roster = _roster()
-    # Deactivate the Diversity & Ethics chair that owns ethics_concern.
+    # Deactivate the Diversity & Ethics chair that owns anonymity_violation.
     roster[1].active = False
-    result = strategy.assign(_clf("ethics_concern"), roster)
+    result = strategy.assign(_clf("anonymity_violation"), roster)
     # No other active chair owns it → the fallback General Chair takes it.
     assert result.chair_id == 5
     assert result.is_fallback is True
@@ -136,8 +136,8 @@ def test_inactive_fallback_chair_is_not_used():
 
 def test_no_active_chairs_yields_unassigned():
     strategy = IntentMappingStrategy()
-    roster = [ChairInfo(id=1, name="Program Chair", areas=["ethics_concern"], active=False)]
-    result = strategy.assign(_clf("ethics_concern"), roster)
+    roster = [ChairInfo(id=1, name="Program Chair", areas=["anonymity_violation"], active=False)]
+    result = strategy.assign(_clf("anonymity_violation"), roster)
     assert result.chair_id is None
     assert "no active chairs" in result.reason.lower()
 
@@ -148,11 +148,11 @@ def test_no_active_chairs_yields_unassigned():
 def test_multiple_owners_break_tie_by_lowest_id():
     strategy = IntentMappingStrategy()
     roster = [
-        ChairInfo(id=7, name="Chair Seven", areas=["ethics_concern"]),
-        ChairInfo(id=3, name="Chair Three", areas=["ethics_concern"]),
-        ChairInfo(id=5, name="Chair Five", areas=["ethics_concern"]),
+        ChairInfo(id=7, name="Chair Seven", areas=["anonymity_violation"]),
+        ChairInfo(id=3, name="Chair Three", areas=["anonymity_violation"]),
+        ChairInfo(id=5, name="Chair Five", areas=["anonymity_violation"]),
     ]
-    result = strategy.assign(_clf("ethics_concern"), roster)
+    result = strategy.assign(_clf("anonymity_violation"), roster)
     assert result.chair_id == 3
 
 
@@ -162,7 +162,7 @@ def test_multiple_empty_areas_fallbacks_break_tie_by_lowest_id():
         ChairInfo(id=9, name="Fallback Nine", areas=[]),
         ChairInfo(id=4, name="Fallback Four", areas=[]),
     ]
-    result = strategy.assign(_clf("media_inquiry"), roster)
+    result = strategy.assign(_clf("cms_support"), roster)
     assert result.chair_id == 4
     assert result.is_fallback is True
 

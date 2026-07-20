@@ -76,7 +76,7 @@ def retriever(factory) -> PolicyRetriever:
 
 async def test_deadline_query_returns_results(retriever: PolicyRetriever) -> None:
     results = await retriever.retrieve(
-        "paper submission deadline", "submission_deadline"
+        "paper submission deadline", "submission_requirements"
     )
     assert len(results) > 0
     assert any(r.policy_id == "policy_101" for r in results)
@@ -84,19 +84,19 @@ async def test_deadline_query_returns_results(retriever: PolicyRetriever) -> Non
 
 async def test_results_have_non_negative_scores(retriever: PolicyRetriever) -> None:
     results = await retriever.retrieve(
-        "paper submission deadline", "submission_deadline"
+        "paper submission deadline", "submission_requirements"
     )
     assert all(r.score >= 0 for r in results)
 
 
 async def test_top_k_respected(retriever: PolicyRetriever) -> None:
     results = await retriever.retrieve(
-        "formatting page limit", "formatting_requirements", top_k=2
+        "formatting page limit", "submission_format_policy", top_k=2
     )
     assert len(results) <= 2
 
 
 async def test_rebuild_index_does_not_crash(retriever: PolicyRetriever) -> None:
     retriever.rebuild_index()
-    results = await retriever.retrieve("deadline", "submission_deadline")
+    results = await retriever.retrieve("deadline", "submission_requirements")
     assert len(results) > 0
