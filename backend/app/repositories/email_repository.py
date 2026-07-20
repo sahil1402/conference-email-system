@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Email, EmailThreadMessage
-from app.models.enums import EmailStatus
+from app.models.enums import EmailSource, EmailStatus
 
 # Zendesk-origin columns the ingest adapter may set/patch on an Email row.
 # Kept as an allow-list so ``apply_zendesk_fields`` can never write an arbitrary
@@ -39,14 +39,17 @@ def _queue_conditions(
     status: str | None,
     search: str | None,
     unassigned: bool,
+    source: str | None = None,
+    zendesk_status: str | None = None,
 ) -> list:
     """Build the shared WHERE conditions for the queue list AND its count.
 
     Kept in one place so ``get_email_queue`` and ``count_email_queue`` filter
     identically — the page and the total can never disagree. All filters are
     server-side: the lane lives in the ``routing`` JSON column, ``chair_id`` /
-    ``unassigned`` on the ``assigned_chair_id`` FK, ``status`` on the column, and
-    ``search`` is a case-insensitive match on subject OR sender.
+    ``unassigned`` on the ``assigned_chair_id`` FK, ``status`` on the column,
+    ``source`` / ``zendesk_status`` on their columns, and ``search`` is a
+    case-insensitive match on subject OR sender.
     """
     conditions: list = []
     if lane is not None:
@@ -61,6 +64,10 @@ def _queue_conditions(
         conditions.append(Email.assigned_chair_id.is_(None))
     if status is not None:
         conditions.append(Email.status == status)
+    if source is not None:
+        conditions.append(Email.source == source)
+    if zendesk_status is not None:
+        conditions.append(Email.zendesk_status == zendesk_status)
     if search:
         pattern = f"%{search}%"
         conditions.append(
@@ -387,17 +394,21 @@ class EmailRepository:
         status: str | None = None,
         search: str | None = None,
         unassigned: bool = False,
+        source: str | None = None,
+        zendesk_status: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[Email]:
         """Return the email queue, filtered server-side by any combination of
-        lane / chair / unassigned / status / search.
+        lane / chair / unassigned / status / source / zendesk_status / search.
 
         Every filter is applied in SQL (via :func:`_queue_conditions`), so the
         returned page is a slice of the FULL matching set — callers never filter
         a truncated page client-side. Ordered newest first.
         """
-        conditions = _queue_conditions(lane, chair_id, status, search, unassigned)
+        conditions = _queue_conditions(
+            lane, chair_id, status, search, unassigned, source, zendesk_status
+        )
         stmt = (
             select(Email)
             .where(*conditions)
@@ -423,6 +434,8 @@ class EmailRepository:
         status: str | None = None,
         search: str | None = None,
         unassigned: bool = False,
+        source: str | None = None,
+        zendesk_status: str | None = None,
     ) -> int:
         """Return the total number of emails matching the queue filters.
 
@@ -431,10 +444,77 @@ class EmailRepository:
         with filters it is that slice's true total — page-size independent, so
         callers can show an accurate count regardless of ``limit``/``offset``.
         """
-        conditions = _queue_conditions(lane, chair_id, status, search, unassigned)
+        conditions = _queue_conditions(
+            lane, chair_id, status, search, unassigned, source, zendesk_status
+        )
         stmt = select(func.count()).select_from(Email).where(*conditions)
         result = await db.execute(stmt)
         return int(result.scalar_one())
+
+    async def count_queue_facets(
+        self,
+        db: AsyncSession,
+        lane: str | None = None,
+        chair_id: int | None = None,
+        status: str | None = None,
+        search: str | None = None,
+        unassigned: bool = False,
+    ) -> dict:
+        """Return grouped facet counts for the queue's status bar + source toggle.
+
+        A single dedicated aggregate (three grouped queries), NOT a tally over a
+        capped queue page — the Phase 6C rule that page-derived aggregates drop
+        out-of-window rows. The context filters (lane / chair / unassigned /
+        status / search) are honored so the facets COMPOSE with the queue's other
+        filters, but the facet dimensions themselves (source, zendesk_status) are
+        deliberately NOT applied — selecting one status must not zero out the
+        others in the bar.
+
+        Returns:
+          - ``by_zendesk_status``: {zendesk_status -> count} over the context,
+            scoped to ``source='zendesk'`` (only Zendesk rows carry a meaningful
+            zendesk_status). Rows with a NULL status are omitted.
+          - ``by_source``: {source -> count} over the same context.
+          - ``sources``: sorted distinct non-null sources across the WHOLE table
+            (unfiltered). This drives the self-hiding source toggle — it must
+            reflect what exists in the data, not the current filter view.
+        """
+        context = _queue_conditions(lane, chair_id, status, search, unassigned)
+
+        zs_stmt = (
+            select(Email.zendesk_status, func.count(Email.id))
+            .where(
+                *context,
+                Email.source == EmailSource.ZENDESK.value,
+                Email.zendesk_status.is_not(None),
+            )
+            .group_by(Email.zendesk_status)
+        )
+        by_zendesk_status = {
+            zs: int(count) for zs, count in (await db.execute(zs_stmt)).all() if zs
+        }
+
+        src_stmt = (
+            select(Email.source, func.count(Email.id))
+            .where(*context)
+            .group_by(Email.source)
+        )
+        by_source = {
+            src: int(count) for src, count in (await db.execute(src_stmt)).all() if src
+        }
+
+        dist_stmt = (
+            select(Email.source).where(Email.source.is_not(None)).distinct()
+        )
+        sources = sorted(
+            src for src in (await db.execute(dist_stmt)).scalars().all() if src
+        )
+
+        return {
+            "by_zendesk_status": by_zendesk_status,
+            "by_source": by_source,
+            "sources": sources,
+        }
 
     async def get_open_tickets(self, db: AsyncSession) -> list[Email]:
         """Return every open ticket (status draft_generated), oldest id first.
