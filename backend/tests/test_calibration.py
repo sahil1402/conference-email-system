@@ -213,10 +213,11 @@ def test_router_prefers_calibrated_confidence():
     """Router acts on the calibrated value (not the raw score) when present.
 
     The observable signal is ``confidence_used``: with a calibrated value the
-    router considers 0.90; without one it falls back to the raw 0.40. (TODO(B4):
-    FAQ_ELIGIBLE_INTENTS is interim-empty under the one-chair MVP, so both cases
-    currently land in human_review regardless of confidence — see router.py.
-    Once B4 populates the list, the calibrated case should flip to lane "faq".)
+    router considers 0.90; without one it falls back to the raw 0.40.
+    ``submission_requirements`` is in the KB-coverage-derived
+    FAQ_ELIGIBLE_INTENTS (Task B4), so the calibrated case (0.90 >= the 0.65
+    gate, with grounding chunks) now genuinely reaches the "faq" lane, while
+    the raw-only case (0.40, below the gate) still lands in human_review.
     """
     router = EmailRouter(strategy="rule_based")
     chunks = [object()]  # router only reads len(retrieved_chunks)
@@ -230,7 +231,7 @@ def test_router_prefers_calibrated_confidence():
     )
     decision = router.route(calibrated, chunks)
     assert decision.confidence_used == 0.90  # calibrated value drove the decision
-    assert decision.lane == "human_review"  # interim: FAQ lane unreachable (B4)
+    assert decision.lane == "faq"  # eligible + confident + grounded
 
     # Same raw score, no calibrated value → falls back to raw 0.40.
     raw_only = ClassificationResult(intent="submission_requirements", confidence=0.40)

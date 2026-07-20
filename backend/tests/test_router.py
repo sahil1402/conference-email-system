@@ -43,20 +43,17 @@ def test_anonymity_violation_always_human_review(sample_retrieved_chunk) -> None
     assert decision.lane == "human_review"
 
 
-# TODO(B4): FAQ_ELIGIBLE_INTENTS is interim-empty under the one-chair MVP (see
-# router.py) — Task B4 derives the real list from KB coverage. Until then every
-# intent, however confident/grounded, escalates to human_review. These tests
-# assert today's actual (interim) behavior; once B4 populates the list, restore
-# an assertion of `lane == "faq"` for a genuinely FAQ-eligible intent.
+# FAQ_ELIGIBLE_INTENTS (Task B4) is derived from KB coverage (see router.py);
+# `submission_requirements` has coverage and is not sensitive, so it is a
+# genuinely FAQ-eligible intent under the derived list.
 def test_faq_high_confidence_routes_faq(sample_retrieved_chunk) -> None:
     router = EmailRouter()
     decision = router.route(
         _classification("submission_requirements", 0.85), [sample_retrieved_chunk]
     )
-    assert decision.lane == "human_review"
+    assert decision.lane == "faq"
 
 
-# TODO(B4): see note above — FAQ_ELIGIBLE_INTENTS is empty until Task B4.
 def test_faq_low_confidence_routes_human_review(sample_retrieved_chunk) -> None:
     router = EmailRouter()
     decision = router.route(
@@ -65,7 +62,6 @@ def test_faq_low_confidence_routes_human_review(sample_retrieved_chunk) -> None:
     assert decision.lane == "human_review"
 
 
-# TODO(B4): see note above — FAQ_ELIGIBLE_INTENTS is empty until Task B4.
 def test_faq_no_chunks_routes_human_review() -> None:
     router = EmailRouter()
     decision = router.route(_classification("submission_requirements", 0.90), [])

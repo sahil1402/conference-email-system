@@ -16,12 +16,27 @@ from app.core.config import settings
 from app.pipeline.classifier import ClassificationResult
 
 # Intents that can be answered automatically when confidence + grounding allow.
-# INTERIM: empty under the one-chair MVP taxonomy adoption — every intent
-# currently escalates to human_review regardless of confidence/grounding, which
-# is the correct conservative behavior while there is one chair and no derived
-# coverage signal yet. Task B4 (Part B) derives the real FAQ-eligible list from
-# which of the 14 `taxonomy.VALID_INTENTS` actually have KB chunk coverage.
-FAQ_ELIGIBLE_INTENTS: list[str] = []
+# Derived (Task B4, 2026-07-20) from reports/kb_intent_coverage.json (Task B3's
+# LLM-labeled intent -> answering-chunk map): every `taxonomy.VALID_INTENTS`
+# entry with >=1 answering chunk in that map, MINUS the SENSITIVE_INTENTS
+# appeals_integrity trio below (review_decision_appeal, desk_reject_appeal,
+# anonymity_violation DO have coverage but are excluded as sensitive).
+# `committee_invitation` is excluded for the opposite reason: zero coverage in
+# the map (empty chunk list), not a sensitivity call.
+# Encoded as a literal list (not read from JSON at import) so the router stays
+# import-light and the eligibility set is auditable in a diff.
+FAQ_ELIGIBLE_INTENTS: list[str] = [
+    "reviewer_assignment",
+    "review_submission_help",
+    "paper_bidding",
+    "author_profile_compliance",
+    "submission_upload_help",
+    "submission_requirements",
+    "submission_format_policy",
+    "author_list_change",
+    "reviewer_workload_role",
+    "cms_support",
+]
 
 # Intents that ALWAYS require a human, regardless of confidence — these carry
 # fairness, integrity, or interpersonal stakes an auto-reply must not touch.
