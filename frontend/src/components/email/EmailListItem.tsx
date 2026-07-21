@@ -71,6 +71,13 @@ export function EmailListItem({
           className="truncate text-xs"
           style={{ color: "var(--text-secondary)" }}
         >
+          {/* Zendesk ticket number — muted, secondary to sender/time. Omitted
+              entirely for non-Zendesk rows (zendesk_ticket_id null). */}
+          {email.zendesk_ticket_id != null && (
+            <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>
+              #{email.zendesk_ticket_id} ·{" "}
+            </span>
+          )}
           {email.sender} · {timeAgo(email.received_at ?? email.created_at)}
         </span>
       </span>
