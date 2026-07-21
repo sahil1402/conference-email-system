@@ -175,14 +175,18 @@ class EmailThreadMessage(Base):
 
     email: Mapped["Email"] = relationship("Email", back_populates="thread_messages")
 
-    # Per-message pipeline result (Piece T1). A follow-up message gets its own
-    # classify -> retrieve -> route -> draft cycle stored in its own row here,
-    # separately from the parent Email's result. One result per message
-    # (uselist=False); starts absent until a later piece populates it.
-    processing_result: Mapped["EmailProcessingResult | None"] = relationship(
+    # Per-message pipeline results (Piece T1 / T1b). A follow-up message gets
+    # its own classify -> retrieve -> route -> draft cycle stored in its own row
+    # here, separately from the parent Email's result. A message may be
+    # reprocessed (mirroring the parent Email's manual redraft), so this is
+    # one-to-many: each reprocess appends a new row, keeping the full history.
+    # Ordered chronologically (oldest-first, latest last) to match the parent
+    # Email.thread_messages relationship and the audit trail. Starts empty until
+    # a later piece populates it.
+    processing_results: Mapped[list["EmailProcessingResult"]] = relationship(
         "EmailProcessingResult",
         back_populates="thread_message",
-        uselist=False,
+        order_by="EmailProcessingResult.created_at, EmailProcessingResult.id",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
@@ -197,7 +201,7 @@ class EmailThreadMessage(Base):
 
 
 class EmailProcessingResult(Base):
-    """A pipeline result for a single thread follow-up message (Piece T1).
+    """A pipeline result for a single thread follow-up message (Piece T1 / T1b).
 
     The parent :class:`Email` row stores the pipeline outputs for the *initial*
     inquiry. When a requester posts a follow-up — a later public end-user
@@ -205,23 +209,25 @@ class EmailProcessingResult(Base):
     classify -> retrieve -> route -> draft cycle, and its result is stored HERE,
     separately, so the original Email result is never overwritten.
 
-    One row per processed message (``thread_message_id`` is unique). This table
-    starts empty; only new processing (wired in a later piece) ever populates
-    it. The JSON columns deliberately mirror the shapes the parent Email stores
-    (``classification`` / ``routing`` / ``draft`` / ``retrieval_context``) so
-    the same Pydantic serialization can be reused; ``lane`` and ``confidence``
-    are denormalized scalars for cheap filtering/sorting.
+    Multiple rows may reference the same ``thread_message_id`` (T1b): a message
+    can be reprocessed (mirroring the parent Email's manual redraft), and each
+    reprocess appends a new row so the full history is retained — the latest is
+    the newest by ``created_at`` / ``id``. This table starts empty; only new
+    processing (wired in a later piece) ever populates it. The JSON columns
+    deliberately mirror the shapes the parent Email stores (``classification`` /
+    ``routing`` / ``draft`` / ``retrieval_context``) so the same Pydantic
+    serialization can be reused; ``lane`` and ``confidence`` are denormalized
+    scalars for cheap filtering/sorting.
     """
 
     __tablename__ = "email_processing_results"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    # One result per thread message; CASCADE so results die with their message
-    # (and, transitively, with the parent Email).
+    # Non-unique FK (T1b): a message may have several results over time. CASCADE
+    # so results die with their message (and, transitively, the parent Email).
     thread_message_id: Mapped[int] = mapped_column(
         ForeignKey("email_thread_messages.id", ondelete="CASCADE"),
         nullable=False,
-        unique=True,
         index=True,
     )
 
@@ -242,7 +248,7 @@ class EmailProcessingResult(Base):
     )
 
     thread_message: Mapped["EmailThreadMessage"] = relationship(
-        "EmailThreadMessage", back_populates="processing_result"
+        "EmailThreadMessage", back_populates="processing_results"
     )
 
 
