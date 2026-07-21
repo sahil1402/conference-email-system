@@ -9,3 +9,8 @@ export { LoadingSpinner } from "./LoadingSpinner";
 export { ErrorBanner } from "./ErrorBanner";
 export { LiveStatusDot } from "./LiveStatusDot";
 export { DiffView, DiffLegend } from "./DiffView";
+export {
+  SplitActionButton,
+  type SplitActionStatus,
+  type SplitActionButtonProps,
+} from "./split-action-button";
