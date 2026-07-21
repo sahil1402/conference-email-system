@@ -83,3 +83,98 @@ async def test_repo_revert_edit_restores_ancestor(client):
         assert restored.superseded_by is None
         tip_after = await repo.get_by_key(s, "policy_20__v2")
         assert tip_after.status == "inactive"
+
+
+async def test_edit_endpoint_versions_and_audits(client):
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_30", title="Old title", content="a b c",
+                             visibility="public", status="active"))
+        await s.commit()
+    resp = await c.patch("/api/v1/policies/policy_30/edit", json={
+        "title": "Old title", "content": "a b' c", "visibility": "public", "actor": "Chair1"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["policy_key"] == "policy_30__v2"
+    assert body["version"] == 2 and body["supersedes"] == "policy_30"
+    async with factory() as s:
+        base = (await s.execute(select(PolicyDocument).where(PolicyDocument.policy_key == "policy_30"))).scalar_one()
+        assert base.status == "inactive" and base.superseded_by == "policy_30__v2"
+        edited = [a for a in (await s.execute(select(PolicyAuditLog))).scalars().all() if a.action == "policy_edited"]
+        assert len(edited) == 1
+        assert edited[0].before["content"] == "a b c"
+        assert edited[0].after["content"] == "a b' c"
+
+
+async def test_edit_preserves_visibility_when_omitted(client):
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="int_x", title="t", content="c",
+                             visibility="internal", status="active"))
+        await s.commit()
+    resp = await c.patch("/api/v1/policies/int_x/edit", json={
+        "title": "t", "content": "c2", "actor": "Chair1"})
+    assert resp.status_code == 200
+    assert resp.json()["visibility"] == "internal"
+
+
+async def test_edit_rejects_stale_updated_at(client):
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_40", title="t", content="c",
+                             visibility="public", status="active"))
+        await s.commit()
+    resp = await c.patch("/api/v1/policies/policy_40/edit", json={
+        "title": "t", "content": "c2", "actor": "Chair1",
+        "expected_updated_at": "1999-01-01T00:00:00+00:00"})
+    assert resp.status_code == 409
+
+
+async def test_edit_non_active_tip_409(client):
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_50", title="t", content="c",
+                             visibility="public", status="inactive"))
+        await s.commit()
+    resp = await c.patch("/api/v1/policies/policy_50/edit", json={
+        "title": "t", "content": "c2", "actor": "Chair1"})
+    assert resp.status_code == 409
+
+
+async def test_edit_unknown_404(client):
+    c, _ = client
+    resp = await c.patch("/api/v1/policies/nope/edit", json={
+        "title": "t", "content": "c", "actor": "Chair1"})
+    assert resp.status_code == 404
+
+
+async def test_revert_edit_endpoint_restores_and_audits(client):
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_60", title="t", content="orig",
+                             visibility="public", status="active"))
+        await s.commit()
+    edited = await c.patch("/api/v1/policies/policy_60/edit", json={
+        "title": "t", "content": "changed", "actor": "Chair1"})
+    tip_key = edited.json()["policy_key"]
+    resp = await c.post(f"/api/v1/policies/{tip_key}/revert-edit", json={"actor": "Chair1"})
+    assert resp.status_code == 200
+    assert resp.json()["policy_key"] == "policy_60" and resp.json()["status"] == "active"
+    async with factory() as s:
+        base = (await s.execute(select(PolicyDocument).where(PolicyDocument.policy_key == "policy_60"))).scalar_one()
+        assert base.status == "active" and base.superseded_by is None
+        tip = (await s.execute(select(PolicyDocument).where(PolicyDocument.policy_key == tip_key))).scalar_one()
+        assert tip.status == "inactive"
+        reverted = [a for a in (await s.execute(select(PolicyAuditLog))).scalars().all() if a.action == "policy_edit_reverted"]
+        assert len(reverted) == 1 and reverted[0].policy_key == tip_key
+
+
+async def test_revert_edit_non_tip_409(client):
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_70", title="t", content="c",
+                             visibility="public", status="active"))
+        await s.commit()
+    # original with no supersedes → not revertable
+    resp = await c.post("/api/v1/policies/policy_70/revert-edit", json={"actor": "Chair1"})
+    assert resp.status_code == 409
