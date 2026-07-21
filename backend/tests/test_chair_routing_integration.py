@@ -363,8 +363,11 @@ def test_migration_reseed_matches_fixture_mapping(tmp_path):
 
     assert actual == expected
 
-    # downgrade -1 restores the original Phase 6A areas verbatim...
-    down = _run_alembic(["downgrade", "-1"], db_url)
+    # Downgrading to the reseed's parent (a1b2c3d4e5f6) runs b2c3d4e5f6a7's
+    # down() and restores the original Phase 6A areas verbatim. Target the
+    # revision explicitly rather than a relative "-1" so this stays correct as
+    # new migrations are appended above the reseed.
+    down = _run_alembic(["downgrade", "a1b2c3d4e5f6"], db_url)
     assert down.returncode == 0, f"downgrade failed:\n{down.stderr}"
 
     original = {
