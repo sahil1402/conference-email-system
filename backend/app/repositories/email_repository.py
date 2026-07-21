@@ -13,6 +13,7 @@ to "not found" rather than an error.
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.models import Email, EmailProcessingResult, EmailThreadMessage
 from app.models.enums import EmailSource, EmailStatus
@@ -417,6 +418,34 @@ class EmailRepository:
         if pk is None:
             return None
         result = await db.execute(select(Email).where(Email.id == pk))
+        return result.scalar_one_or_none()
+
+    async def get_email_with_thread(
+        self, db: AsyncSession, email_id: str
+    ) -> Email | None:
+        """Return an email with its thread messages + per-message results loaded.
+
+        Eager-loads ``thread_messages`` and each message's ``processing_results``
+        (Piece T2) in one round-trip, so the thread endpoint can serialize them
+        without triggering an async lazy-load. Kept SEPARATE from
+        ``get_email_by_id`` on purpose: that method is on the hot queue/detail/
+        action paths and must not pay the eager-load cost. Both relationships
+        keep their model-defined ordering (thread messages oldest-first by
+        ``created_at``; results oldest-first by ``created_at``/``id``). Returns
+        ``None`` if the id is missing/non-numeric.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+        result = await db.execute(
+            select(Email)
+            .where(Email.id == pk)
+            .options(
+                selectinload(Email.thread_messages).selectinload(
+                    EmailThreadMessage.processing_results
+                )
+            )
+        )
         return result.scalar_one_or_none()
 
     async def get_emails_by_status(

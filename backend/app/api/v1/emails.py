@@ -158,6 +158,54 @@ class ReassignChairRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Thread response models (Piece T3) — typed like PolicyDetail (from_attributes)
+# ---------------------------------------------------------------------------
+class ProcessingResultResponse(BaseModel):
+    """One per-follow-up pipeline result (an EmailProcessingResult row)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    thread_message_id: int
+    classification: dict | None = None
+    routing: dict | None = None
+    draft: dict | None = None
+    retrieval_context: dict | None = None
+    lane: str | None = None
+    confidence: float | None = None
+    created_at: str | None = None
+
+
+class ThreadMessageResponse(BaseModel):
+    """One thread message + all of its processing results (oldest-first)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    zendesk_comment_id: int | None = None
+    public: bool
+    author_role: str | None = None
+    author_id: int | None = None
+    plain_body: str | None = None
+    html_body: str | None = None
+    created_at: str | None = None
+    via_channel: str | None = None
+    processing_results: list[ProcessingResultResponse] = Field(default_factory=list)
+    # The id of the newest result for this message, or None when the message has
+    # no result yet ("not yet processed" or a failed follow-up run, per T2c).
+    latest_processing_result_id: int | None = None
+
+
+class EmailThreadResponse(BaseModel):
+    """The full thread for one email: its messages, each with its results."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    email_id: int
+    messages: list[ThreadMessageResponse] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
 def _email_to_dict(email: Email) -> dict:
@@ -383,6 +431,60 @@ async def get_email_trace(
         "count": len(entries),
         "trace": entries,
     }
+
+
+@router.get("/{email_id}/thread", response_model=EmailThreadResponse)
+async def get_email_thread(
+    email_id: str, db: AsyncSession = Depends(get_db)
+) -> EmailThreadResponse:
+    """Return a ticket's full thread: each message + all its follow-up results.
+
+    Messages are chronological (oldest-first) and each carries ALL of its
+    per-message pipeline results (Piece T2), also oldest-first, plus
+    ``latest_processing_result_id`` (the newest result, or None when the message
+    has no result yet — a not-yet-processed or failed follow-up per T2c). A
+    non-Zendesk/toy email simply has no thread → ``messages: []`` (not an error).
+    404s only if the email id itself is unknown.
+    """
+    email = await email_repo.get_email_with_thread(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+    messages = [
+        ThreadMessageResponse(
+            id=m.id,
+            zendesk_comment_id=m.zendesk_comment_id,
+            public=m.public,
+            author_role=m.author_role,
+            author_id=m.author_id,
+            plain_body=m.plain_body,
+            html_body=m.html_body,
+            created_at=m.created_at.isoformat() if m.created_at else None,
+            via_channel=m.via_channel,
+            processing_results=[
+                ProcessingResultResponse(
+                    id=r.id,
+                    thread_message_id=r.thread_message_id,
+                    classification=r.classification,
+                    routing=r.routing,
+                    draft=r.draft,
+                    retrieval_context=r.retrieval_context,
+                    lane=r.lane,
+                    confidence=r.confidence,
+                    created_at=r.created_at.isoformat() if r.created_at else None,
+                )
+                for r in m.processing_results
+            ],
+            # Relationship is oldest-first, so the last row is the newest.
+            latest_processing_result_id=(
+                m.processing_results[-1].id if m.processing_results else None
+            ),
+        )
+        for m in email.thread_messages
+    ]
+    return EmailThreadResponse(email_id=email.id, messages=messages)
 
 
 @router.patch("/{email_id}/approve")
