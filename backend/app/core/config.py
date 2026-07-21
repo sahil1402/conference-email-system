@@ -6,7 +6,7 @@ flags" below are the architectural seams that let us replace pipeline modules
 """
 
 from functools import lru_cache
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,6 +22,12 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+    )
+
+    # Canonical set of ingestable Zendesk ticket statuses ("deleted" is excluded
+    # — it's always skipped by the adapter). Used to validate ZENDESK_SYNC_STATUSES.
+    ZENDESK_VALID_STATUSES: ClassVar[frozenset[str]] = frozenset(
+        {"new", "open", "pending", "hold", "solved", "closed"}
     )
 
     # --- Swappable architecture flags -------------------------------------
@@ -186,6 +192,16 @@ class Settings(BaseSettings):
     # Safety bound on pages fetched per cycle so a cold start can't pull the
     # whole account (and hammer per-ticket comment fetches) in one pass.
     ZENDESK_MAX_PAGES_PER_CYCLE: int = 10
+    # Comma-separated allow-list of Zendesk ticket statuses to INGEST. The
+    # incremental export is time/cursor-based (no server-side status filter), so
+    # this is applied client-side by the adapter (a later piece) to skip tickets
+    # whose status is not listed. Default = every ingestable status, so unset
+    # behavior is unchanged. "deleted" is always skipped regardless (not a valid
+    # value here). Parsed via `zendesk_sync_statuses` (splits/trims/lowercases).
+    # Note: "solved" and "closed" are the SAME bucket operationally — a solved
+    # ticket auto-transitions to closed over time with no further chair action —
+    # so list both (or neither) to keep that bucket whole.
+    ZENDESK_SYNC_STATUSES: str = "new,open,pending,hold,solved,closed"
 
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
@@ -197,6 +213,24 @@ class Settings(BaseSettings):
     #   SQLite (tests): sqlite+aiosqlite:///./test.db
     # Defaults to local SQLite so dev/tests work with no .env present.
     DATABASE_URL: str = "sqlite:///./conference_email.db"
+
+    @property
+    def zendesk_sync_statuses(self) -> list[str]:
+        """Parse ZENDESK_SYNC_STATUSES into a clean, ordered status allow-list.
+
+        Splits on commas, trims whitespace, lowercases, drops empties, and
+        de-duplicates while preserving first-seen order. Only values in
+        ``ZENDESK_VALID_STATUSES`` are kept (unknown tokens are ignored, so a
+        stray typo can't silently widen the filter). If the parse yields nothing,
+        falls back to every valid status (the safe "ingest everything" default,
+        matching the unset behavior).
+        """
+        seen: list[str] = []
+        for raw in self.ZENDESK_SYNC_STATUSES.split(","):
+            token = raw.strip().lower()
+            if token and token in self.ZENDESK_VALID_STATUSES and token not in seen:
+                seen.append(token)
+        return seen or sorted(self.ZENDESK_VALID_STATUSES)
 
 
 @lru_cache
