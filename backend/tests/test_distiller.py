@@ -128,7 +128,7 @@ class _StubDistiller:
     def __init__(self, result):
         self.result = result
 
-    async def distill(self, subject, body):
+    async def distill(self, subject, body, *, transcript=None):
         return self.result
 
 

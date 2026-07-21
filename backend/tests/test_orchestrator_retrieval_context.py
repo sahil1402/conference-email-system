@@ -69,7 +69,7 @@ def _make_distill_pipeline(spy):
     pipeline = EmailPipeline()
 
     class _FakeDistiller:
-        async def distill(self, subject, body):
+        async def distill(self, subject, body, *, transcript=None):
             return DistillResult(
                 queries=["paper page limit", "appendix placement policy"],
                 intent="submission_format_policy",

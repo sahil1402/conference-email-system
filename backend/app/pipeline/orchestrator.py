@@ -20,6 +20,7 @@ Failure policy:
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +43,7 @@ from app.pipeline.router import (
     RoutingDecision,
     apply_self_sufficiency_floor,
 )
+from app.pipeline.thread_transcript import build_transcript
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.chair_repository import ChairRepository
 from app.repositories.email_repository import EmailRepository
@@ -92,6 +94,34 @@ class _Computed:
     record: dict
     tracer: PipelineTracer
     start: float
+
+
+def _append_draft_history(
+    record: dict, old_draft: dict | None, triggering_comment_ids: list | None
+) -> None:
+    """Push the outgoing draft into ``record['draft']['history']`` before it is
+    overwritten, carrying any prior history forward (D4). No-op when there was
+    no prior draft text. Prior history entries are copied without their own
+    nested history to avoid unbounded growth.
+    """
+    new_draft = record.get("draft") or {}
+    prior = (old_draft or {}).get("history") or []
+    history = list(prior)
+    if old_draft and old_draft.get("draft_text"):
+        history.append(
+            {
+                "draft_text": old_draft.get("draft_text"),
+                "notes_for_chair": old_draft.get("notes_for_chair"),
+                "citations": old_draft.get("citations", []),
+                "answer_confidence": old_draft.get("answer_confidence"),
+                "is_edited": bool(old_draft.get("is_edited")),
+                "superseded_at": datetime.now(timezone.utc).isoformat(),
+                "reason": "followup",
+                "triggering_comment_ids": triggering_comment_ids or [],
+            }
+        )
+    new_draft["history"] = history
+    record["draft"] = new_draft
 
 
 class EmailPipeline:
@@ -161,6 +191,7 @@ class EmailPipeline:
         start = time.perf_counter()
         subject = email_data.get("subject", "")
         body = email_data.get("body", "")
+        transcript_text = email_data.get("thread_transcript")
 
         # Per-email tracer: buffers a record per stage and flushes them once the
         # email is persisted (its id is known then). Additive only.
@@ -177,7 +208,9 @@ class EmailPipeline:
                 # trainable backend classifies as before.
                 distilled = None
                 if settings.QUERY_STRATEGY == "distill":
-                    distilled = await self.distiller.distill(subject, body)
+                    distilled = await self.distiller.distill(
+                        subject, body, transcript=transcript_text
+                    )
                 if distilled is not None and distilled.intent is not None:
                     classification = ClassificationResult(
                         intent=distilled.intent,
@@ -213,7 +246,10 @@ class EmailPipeline:
                 query = " ".join(distilled.queries)
                 retrieval_intent = ""
             elif settings.QUERY_STRATEGY == "distill":
-                query = f"{subject} {body[:_FALLBACK_QUERY_BODY_CHARS]}".strip()
+                # Anchor the fallback query to the latest requester turn when a
+                # thread is present, so retrieval follows the current ask.
+                anchor = email_data.get("latest_requester_message") or body
+                query = f"{subject} {anchor[:_FALLBACK_QUERY_BODY_CHARS]}".strip()
                 retrieval_intent = ""
             else:
                 query = body[:_RETRIEVAL_QUERY_CHARS]
@@ -404,5 +440,39 @@ class EmailPipeline:
             "body": email.body,
         }
         c = await self._compute(email_data, db)
+        await self.email_repo.update_email_outputs(db, str(email.id), c.record)
+        return await self._finalize(db, str(email.id), c)
+
+    async def reprocess_email_with_thread(
+        self,
+        db: AsyncSession,
+        email,
+        messages: list[dict],
+        *,
+        triggering_comment_ids: list | None = None,
+    ) -> PipelineResult:
+        """Re-run the full pipeline for an existing ticket over its thread.
+
+        Used when a requester follows up: builds a transcript from the stored
+        thread (internal notes excluded, latest requester turn anchored),
+        re-runs classify → retrieve → draft → route, preserves the outgoing
+        draft in ``draft["history"]`` (D4), and updates the row in place
+        (status → draft_generated). ``received_at`` / id / stored body are kept.
+        """
+        transcript = build_transcript(
+            messages, char_budget=settings.THREAD_TRANSCRIPT_MAX_CHARS
+        )
+        email_data = {
+            "from": email.sender,
+            "sender_name": email.sender_name,
+            "subject": email.subject,
+            # Persistence ignores body on update (update_email_outputs skips it);
+            # the current ask is the sensible in-pipeline value.
+            "body": transcript.latest_requester_message or email.body,
+            "thread_transcript": transcript.text,
+            "latest_requester_message": transcript.latest_requester_message,
+        }
+        c = await self._compute(email_data, db)
+        _append_draft_history(c.record, email.draft, triggering_comment_ids)
         await self.email_repo.update_email_outputs(db, str(email.id), c.record)
         return await self._finalize(db, str(email.id), c)
