@@ -359,6 +359,38 @@ class EmailRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_thread_messages(
+        self, db: AsyncSession, email_id: str
+    ) -> list[dict]:
+        """Return a ticket's thread messages oldest-first (ALL of them).
+
+        Includes internal notes (``public`` False) so the UI can show the full
+        conversation; callers that must hide internal notes (the transcript
+        builder) filter them out. ``created_at`` is returned as a datetime for
+        ordering/transcript use; the API layer serializes it.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return []
+        result = await db.execute(
+            select(EmailThreadMessage)
+            .where(EmailThreadMessage.email_id == pk)
+            .order_by(
+                EmailThreadMessage.created_at.asc(), EmailThreadMessage.id.asc()
+            )
+        )
+        return [
+            {
+                "comment_id": r.zendesk_comment_id,
+                "public": r.public,
+                "author_role": r.author_role,
+                "plain_body": r.plain_body,
+                "created_at": r.created_at,
+                "via_channel": r.via_channel,
+            }
+            for r in result.scalars().all()
+        ]
+
     async def get_email_by_id(
         self, db: AsyncSession, email_id: str
     ) -> Email | None:

@@ -362,6 +362,34 @@ async def get_email(
     }
 
 
+@router.get("/{email_id}/thread")
+async def get_email_thread(
+    email_id: str, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Return one ticket's full multi-turn conversation, oldest-first.
+
+    Includes internal notes (``public`` False) so the review UI can show them
+    distinctly. Non-Zendesk emails simply have no thread rows → ``[]``. 404s if
+    the email itself is unknown.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+    messages = await email_repo.get_thread_messages(db, email_id)
+    return {
+        "messages": [
+            {
+                **m,
+                "created_at": m["created_at"].isoformat() if m["created_at"] else None,
+            }
+            for m in messages
+        ]
+    }
+
+
 @router.get("/{email_id}/trace")
 async def get_email_trace(
     email_id: str, db: AsyncSession = Depends(get_db)
