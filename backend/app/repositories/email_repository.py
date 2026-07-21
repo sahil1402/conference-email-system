@@ -14,7 +14,7 @@ to "not found" rather than an error.
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Email, EmailThreadMessage
+from app.db.models import Email, EmailProcessingResult, EmailThreadMessage
 from app.models.enums import EmailSource, EmailStatus
 
 # Zendesk-origin columns the ingest adapter may set/patch on an Email row.
@@ -331,19 +331,51 @@ class EmailRepository:
 
     async def add_thread_messages(
         self, db: AsyncSession, email_id: str, messages: list[dict]
-    ) -> int:
-        """Bulk-insert thread messages for an email; returns the count added.
+    ) -> list[EmailThreadMessage]:
+        """Bulk-insert thread messages for an email; return the persisted rows.
 
         Each dict is an ``EmailThreadMessage`` field mapping (without
-        ``email_id``, which is set here). Commits once for the batch.
+        ``email_id``, which is set here). Commits once for the batch. The
+        returned rows carry their populated primary keys (the session factory
+        uses ``expire_on_commit=False``), so a caller can link follow-up
+        artifacts (e.g. an ``EmailProcessingResult``) to a specific message.
+        Returns ``[]`` when there is nothing to add.
         """
         pk = _coerce_id(email_id)
         if pk is None or not messages:
-            return 0
+            return []
         rows = [EmailThreadMessage(email_id=pk, **data) for data in messages]
         db.add_all(rows)
         await db.commit()
-        return len(rows)
+        return rows
+
+    async def add_processing_result(
+        self, db: AsyncSession, thread_message_id: int, record: dict
+    ) -> EmailProcessingResult:
+        """Persist a per-message pipeline result (Piece T2) and return it.
+
+        A follow-up requester message gets its own classify→retrieve→route→draft
+        cycle stored HERE — a NEW ``EmailProcessingResult`` row linked to the
+        message — leaving the parent ``Email``'s own classification/routing/draft
+        untouched. ``record`` is the ``_Computed.record`` dict the orchestrator
+        builds; the pipeline-output columns are lifted from it, with ``lane`` and
+        ``confidence`` denormalized from the routing/classification sub-dicts.
+        """
+        classification = record.get("classification") or {}
+        routing = record.get("routing") or {}
+        row = EmailProcessingResult(
+            thread_message_id=thread_message_id,
+            classification=classification or None,
+            routing=routing or None,
+            draft=record.get("draft"),
+            retrieval_context=record.get("retrieval_context"),
+            lane=routing.get("lane"),
+            confidence=classification.get("confidence"),
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row
 
     # --- reads ------------------------------------------------------------
     async def get_by_zendesk_ticket_id(
