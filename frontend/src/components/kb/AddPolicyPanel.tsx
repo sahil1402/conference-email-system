@@ -26,7 +26,7 @@ interface AddPolicyPanelProps {
  *
  * Governance flow: chair fills title + content (+ optional category/tags) →
  * "Check for related policies" surfaces existing SimilarPolicy hits, each with
- * a "supersede (retire this)" checkbox → checked keys ride along as
+ * a "supersede" checkbox → checked keys ride along as
  * `retire_keys` on create, so the new policy can retire what it supersedes in
  * one step.
  */
@@ -267,7 +267,7 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                         disabled={reconciledKeys.has(policy.policy_key)}
                         className="h-4 w-4"
                       />
-                      supersede (retire this)
+                      supersede
                     </label>
                   </div>
 
@@ -324,10 +324,10 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                     <button
                       type="button"
                       onClick={() => setEditingSimilarKey(policy.policy_key)}
-                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
+                      className="mt-4 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
                       style={{ color: "var(--accent)" }}
                     >
-                      Edit to reconcile
+                      Edit
                     </button>
                   )}
                 </div>

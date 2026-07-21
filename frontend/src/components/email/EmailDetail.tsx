@@ -307,7 +307,7 @@ export function EmailDetail({
         {/* PREVIOUS DRAFTS — superseded by a follow-up reprocess (draft.history).
             Omitted entirely when there is no history. */}
         {draft?.history && draft.history.length > 0 && (
-          <Collapsible title={`Previous drafts (${draft.history.length})`}>
+          <Collapsible title={`Previous drafts (${draft.history.length})`} defaultOpen={false}>
             <div className="space-y-3">
               {draft.history.map((h, i) => (
                 <div
