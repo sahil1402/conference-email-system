@@ -377,6 +377,13 @@ export interface IngestRequest {
 export interface ApproveRequest {
   approved_by: string;
   final_text?: string;
+  /**
+   * The Zendesk status the chair wants the ticket to land in after approval
+   * (Open / Pending / Solved), or null/omitted for a plain approve with no
+   * status change. NOT yet consumed by the backend — see the TODO at the
+   * approveEmail() send site (pending the per-chair OAuth send endpoint).
+   */
+  target_status?: "open" | "pending" | "solved" | null;
 }
 
 /** RerouteRequest */

@@ -51,6 +51,15 @@ export interface SplitActionButtonProps {
   disabled?: boolean;
   /** Optional extra classes on the outer wrapper. */
   className?: string;
+  /**
+   * Controlled selected status. When provided (paired with `onSelectedChange`),
+   * the parent owns the selection — useful when something outside the button
+   * (e.g. a keyboard shortcut) must fire the action with the chosen status.
+   * Omit both to let the component manage selection internally.
+   */
+  selected?: SplitActionStatus | null;
+  /** Called when a status is picked from the dropdown (controlled mode). */
+  onSelectedChange?: (status: SplitActionStatus | null) => void;
 }
 
 /**
@@ -70,8 +79,18 @@ export function SplitActionButton({
   defaultLabel = "Approve & Send",
   disabled = false,
   className,
+  selected: controlledSelected,
+  onSelectedChange,
 }: SplitActionButtonProps) {
-  const [selected, setSelected] = React.useState<SplitActionStatus | null>(null);
+  const [internalSelected, setInternalSelected] =
+    React.useState<SplitActionStatus | null>(null);
+  const isControlled = controlledSelected !== undefined;
+  const selected = isControlled ? controlledSelected : internalSelected;
+
+  function selectStatus(status: SplitActionStatus) {
+    if (!isControlled) setInternalSelected(status);
+    onSelectedChange?.(status);
+  }
 
   const label = selected ? `Submit as ${LABEL_BY_STATUS[selected]}` : defaultLabel;
 
@@ -105,7 +124,7 @@ export function SplitActionButton({
           {STATUS_OPTIONS.map((opt) => (
             <DropdownMenuItem
               key={opt.value}
-              onSelect={() => setSelected(opt.value)}
+              onSelect={() => selectStatus(opt.value)}
             >
               <span
                 aria-hidden

@@ -80,6 +80,8 @@ export async function approveEmail(
   id: number,
   data?: ApproveRequest
 ): Promise<Email> {
+  // TODO: backend does not yet consume target_status - pending per-chair
+  // OAuth send endpoint (Piece C)
   const { data: email } = await apiClient.patch<Email>(
     `/emails/${id}/approve`,
     data ?? {}

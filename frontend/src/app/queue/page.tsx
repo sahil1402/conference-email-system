@@ -216,10 +216,14 @@ export default function QueuePage() {
             isRerouting={isRerouting}
             isReassigning={isReassigning}
             chairs={chairs}
-            onApprove={(finalText) =>
+            onApprove={(finalText, targetStatus) =>
               approve({
                 id: selectedEmail.id,
-                data: { approved_by: "chair", final_text: finalText },
+                data: {
+                  approved_by: "chair",
+                  final_text: finalText,
+                  target_status: targetStatus,
+                },
               })
             }
             onReroute={(reason) =>

@@ -12,7 +12,6 @@ import {
   AlertOctagon,
   ChevronDown,
   FileText,
-  Send,
   CornerUpRight,
   Zap,
   GitCompare,
@@ -30,6 +29,8 @@ import {
   EmptyState,
   ErrorBanner,
   LoadingSpinner,
+  SplitActionButton,
+  type SplitActionStatus,
 } from "@/components/ui";
 import { PolicyDetailModal } from "./PolicyDetailModal";
 import { hasMeaningfulDiff } from "@/lib/diff";
@@ -57,7 +58,12 @@ function findPlaceholders(text: string): string[] {
 
 interface EmailDetailProps {
   email: Email;
-  onApprove: (finalText?: string) => void;
+  /**
+   * Approve this email. `finalText` is the (possibly edited) draft; `targetStatus`
+   * is the Zendesk status the chair chose from the split button (Open / Pending /
+   * Solved), or null for a plain approve with no status change.
+   */
+  onApprove: (finalText?: string, targetStatus?: SplitActionStatus | null) => void;
   onReroute: (reason: string) => void;
   /**
    * Reassign this email to a chair (Phase 6A). Returns a promise so the pane can
@@ -104,6 +110,12 @@ export function EmailDetail({
   const chairNotes = parseChairNotes(draft?.notes_for_chair);
 
   const [editedDraft, setEditedDraft] = useState(draft?.draft_text ?? "");
+  // Which Zendesk status the split "Approve & Send" button will submit as, or
+  // null for a plain approve. Owned here (not inside SplitActionButton) so the
+  // "A" keyboard shortcut fires with the same chosen status a click would.
+  const [approveStatus, setApproveStatus] = useState<SplitActionStatus | null>(
+    null
+  );
   const [rerouteOpen, setRerouteOpen] = useState(false);
   const [rerouteReason, setRerouteReason] = useState("");
   const [showDiff, setShowDiff] = useState(false);
@@ -170,7 +182,7 @@ export function EmailDetail({
       const key = e.key.toLowerCase();
       if (key === "a" && canApprove && !isApproving) {
         e.preventDefault();
-        onApprove(editedDraft);
+        onApprove(editedDraft, approveStatus);
       } else if (key === "e") {
         const el = textareaRef.current;
         if (el) {
@@ -190,7 +202,7 @@ export function EmailDetail({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canAct, canApprove, isApproving, editedDraft, onApprove]);
+  }, [canAct, canApprove, isApproving, editedDraft, approveStatus, onApprove]);
 
   return (
     <div className="flex h-full flex-col">
@@ -430,28 +442,16 @@ export function EmailDetail({
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
+              {/* Approve & Send — split button: primary approves (with the
+                  currently chosen Zendesk status, if any), the dropdown picks
+                  Open / Pending / Solved. Gating unchanged: disabled while
+                  approving or while unresolved [CHAIR: …] placeholders remain. */}
+              <SplitActionButton
                 disabled={isApproving || !canApprove}
-                onClick={() => onApprove(editedDraft)}
-                title={
-                  canApprove
-                    ? undefined
-                    : "Resolve the [CHAIR: …] placeholders in the draft first"
-                }
-                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                style={{
-                  backgroundColor: "var(--success)",
-                  color: "var(--text-primary)",
-                }}
-              >
-                {isApproving ? (
-                  <LoadingSpinner size="sm" className="!text-[var(--text-primary)]" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-                Approve &amp; Send
-              </button>
+                selected={approveStatus}
+                onSelectedChange={setApproveStatus}
+                onAction={(status) => onApprove(editedDraft, status)}
+              />
 
               <button
                 type="button"
