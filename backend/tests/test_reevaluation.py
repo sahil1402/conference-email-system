@@ -2,12 +2,14 @@
 
 from contextlib import asynccontextmanager
 
+import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.db.models import Base, Email
-from app.models.enums import EmailStatus
+from app.models.enums import EmailSource, EmailStatus
 from app.pipeline.drafter import DraftResponse
 from app.pipeline.reevaluation import reevaluate_open_tickets
 from app.pipeline.router import LANE_FAQ, LANE_HUMAN_REVIEW, RoutingDecision
@@ -401,3 +403,91 @@ async def test_pass2_safety_floor_overrides_faq_when_draft_has_placeholders(
     assert reloaded.routing["lane"] == LANE_HUMAN_REVIEW
     assert reloaded.routing.get("override_reason") is not None
     assert "placeholder" in reloaded.routing["override_reason"]
+
+
+# --- Resolved-Zendesk-status guard on get_open_tickets ----------------------
+# A ticket already solved/closed in Zendesk must not be re-drafted by a policy
+# sweep, even while its LOCAL status is still draft_generated (the two statuses
+# are orthogonal). Scoped to the sweep only: a NEW customer comment on a solved
+# ticket still reprocesses via the ingest adapter's follow-up path.
+
+
+def _zendesk_email(zendesk_status: str | None) -> Email:
+    """An open ticket carrying a Zendesk status (None = non-Zendesk row)."""
+    email = _open_email()
+    email.source = (
+        EmailSource.ZENDESK.value
+        if zendesk_status is not None
+        else EmailSource.TOY_DATASET.value
+    )
+    email.zendesk_status = zendesk_status
+    return email
+
+
+@pytest.mark.parametrize("resolved_status", ["solved", "closed"])
+async def test_resolved_zendesk_ticket_excluded_from_open_tickets(
+    session, resolved_status
+):
+    """solved/closed in Zendesk → never returned to the sweep."""
+    session.add(_zendesk_email(resolved_status))
+    await session.commit()
+
+    assert await EmailRepository().get_open_tickets(session) == []
+
+
+@pytest.mark.parametrize("active_status", ["new", "open", "pending", "hold"])
+async def test_active_zendesk_ticket_still_included(session, active_status):
+    """Every non-resolved Zendesk status is swept exactly as before."""
+    session.add(_zendesk_email(active_status))
+    await session.commit()
+
+    tickets = await EmailRepository().get_open_tickets(session)
+    assert [t.zendesk_status for t in tickets] == [active_status]
+
+
+async def test_null_zendesk_status_still_included(session):
+    """Regression guard for the NULL handling.
+
+    Non-Zendesk rows (toy_dataset) have zendesk_status NULL. SQL three-valued
+    logic makes ``NULL NOT IN ('solved','closed')`` evaluate to NULL rather than
+    TRUE, so a bare NOT IN would silently drop EVERY non-Zendesk ticket from the
+    sweep. This fails if the explicit IS NULL branch is ever removed.
+    """
+    session.add(_zendesk_email(None))
+    await session.commit()
+
+    tickets = await EmailRepository().get_open_tickets(session)
+    assert len(tickets) == 1
+    assert tickets[0].zendesk_status is None
+
+
+async def test_sweep_skips_resolved_but_sweeps_active(session, monkeypatch):
+    """End-to-end through the sweep, not just the query.
+
+    Three tickets differing ONLY in zendesk_status, with retrieval stubbed to
+    shift the grounding set so every swept ticket WOULD be re-drafted. Only the
+    active one is, proving the guard gates real model spend rather than merely
+    filtering a list.
+    """
+    for status_value in ("solved", "closed", "open"):
+        session.add(_zendesk_email(status_value))
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    assert stats["open"] == 1
+    assert stats["redrafted"] == 1
+
+    swept = await EmailRepository().get_open_tickets(session)
+    assert [t.zendesk_status for t in swept] == ["open"]
+    # The resolved pair kept their original draft — untouched by the sweep.
+    resolved = (
+        await session.execute(
+            select(Email).where(Email.zendesk_status.in_(("solved", "closed")))
+        )
+    ).scalars().all()
+    assert len(resolved) == 2
+    assert all(t.draft["draft_text"] == "old" for t in resolved)
