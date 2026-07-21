@@ -349,7 +349,9 @@ def test_migration_reseed_matches_fixture_mapping(tmp_path):
     db_file = tmp_path / "reseed_roundtrip.db"
     db_url = f"sqlite:///{db_file.as_posix()}"
 
-    up = _run_alembic(["upgrade", "head"], db_url)
+    # Pin to the reseed migration specifically (not `head`) so this test stays
+    # correct as later migrations are appended after b2c3d4e5f6a7.
+    up = _run_alembic(["upgrade", "b2c3d4e5f6a7"], db_url)
     assert up.returncode == 0, f"upgrade failed:\n{up.stderr}"
 
     expected = {name: areas for name, _role, areas in _SEED_CHAIRS}
@@ -363,8 +365,9 @@ def test_migration_reseed_matches_fixture_mapping(tmp_path):
 
     assert actual == expected
 
-    # downgrade -1 restores the original Phase 6A areas verbatim...
-    down = _run_alembic(["downgrade", "-1"], db_url)
+    # downgrading the reseed (to its down_revision) restores the original
+    # Phase 6A areas verbatim...
+    down = _run_alembic(["downgrade", "a1b2c3d4e5f6"], db_url)
     assert down.returncode == 0, f"downgrade failed:\n{down.stderr}"
 
     original = {
@@ -386,5 +389,5 @@ def test_migration_reseed_matches_fixture_mapping(tmp_path):
     assert actual == original
 
     # ...and re-upgrading is clean (proves the down/up cycle is repeatable).
-    up2 = _run_alembic(["upgrade", "head"], db_url)
+    up2 = _run_alembic(["upgrade", "b2c3d4e5f6a7"], db_url)
     assert up2.returncode == 0, f"re-upgrade failed:\n{up2.stderr}"
