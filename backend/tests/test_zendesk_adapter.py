@@ -49,6 +49,7 @@ class FakePipeline:
 
     def __init__(self):
         self.calls: list[dict] = []
+        self.reprocess_calls: list[dict] = []
         self._repo = EmailRepository()
 
     async def process_email(self, email_data, db):
@@ -65,6 +66,14 @@ class FakePipeline:
                 "routing": {"lane": "human_review"},
                 "draft": {"draft_text": "draft"},
             },
+        )
+        return SimpleNamespace(email_id=email.id)
+
+    async def reprocess_email_with_thread(
+        self, db, email, messages, *, triggering_comment_ids=None
+    ):
+        self.reprocess_calls.append(
+            {"email_id": email.id, "triggering": triggering_comment_ids}
         )
         return SimpleNamespace(email_id=email.id)
 
@@ -224,9 +233,9 @@ async def test_upsert_creates_then_updates_without_reclassifying(adb):
 
 
 @pytest.mark.asyncio
-async def test_new_customer_reply_surfaced_without_redraft(adb):
-    """Follow-up policy (a): a NEW public end-user comment on an already-processed
-    ticket is surfaced via an audit signal — never auto-reclassified/redrafted.
+async def test_followup_on_open_ticket_reprocesses(adb):
+    """A NEW public end-user comment on a non-closed ticket re-runs the pipeline
+    over the thread and writes a reprocessed_on_followup audit entry.
     """
     from app.db.models import AuditLog
 
@@ -234,12 +243,10 @@ async def test_new_customer_reply_surfaced_without_redraft(adb):
     pipeline = FakePipeline()
     adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
 
-    # First poll: initial inquiry -> create + classify once.
     page1 = _incremental_page([_ticket(100, status="open")], users=[requester])
     comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
     await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
 
-    # Second poll: same ticket, plus a NEW public end-user comment (9002).
     page2 = _incremental_page(
         [_ticket(100, status="open", updated="2026-07-15T11:00:00Z")], users=[requester]
     )
@@ -247,7 +254,7 @@ async def test_new_customer_reply_surfaced_without_redraft(adb):
         100: {
             "comments": [
                 _comment(9001, 500),
-                _comment(9002, 500, body="Any update on this?", created="2026-07-15T11:00:00Z"),
+                _comment(9002, 500, body="Any update?", created="2026-07-15T11:00:00Z"),
             ],
             "users": [requester],
         }
@@ -256,18 +263,91 @@ async def test_new_customer_reply_surfaced_without_redraft(adb):
         adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
     )
 
-    # Surfaced as a customer reply; NOT reclassified/redrafted.
-    assert res2.customer_replies == 1
-    assert res2.classified == 0
-    assert len(pipeline.calls) == 1  # no redraft
+    assert res2.reprocessed == 1
+    assert len(pipeline.reprocess_calls) == 1
+    assert pipeline.reprocess_calls[0]["triggering"] == [9002]
 
     audits = (
         await adb.execute(
-            select(AuditLog).where(AuditLog.action == "customer_reply_received")
+            select(AuditLog).where(AuditLog.action == "reprocessed_on_followup")
         )
     ).scalars().all()
     assert len(audits) == 1
     assert 9002 in audits[0].extra_metadata["comment_ids"]
+
+
+@pytest.mark.asyncio
+async def test_followup_on_closed_ticket_surfaced_only(adb):
+    """A closed ticket is immutable — surface the reply (customer_reply_received)
+    but never reprocess (Zendesk spawns a new ticket for a real reply).
+    """
+    from app.db.models import AuditLog
+
+    requester = _user(500, "end-user")
+    pipeline = FakePipeline()
+    adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
+
+    page1 = _incremental_page([_ticket(100, status="closed")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
+
+    page2 = _incremental_page(
+        [_ticket(100, status="closed", updated="2026-07-15T11:00:00Z")], users=[requester]
+    )
+    comments2 = {
+        100: {
+            "comments": [
+                _comment(9001, 500),
+                _comment(9002, 500, body="hello?", created="2026-07-15T11:00:00Z"),
+            ],
+            "users": [requester],
+        }
+    }
+    res2 = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
+    )
+
+    assert res2.reprocessed == 0
+    assert res2.customer_replies == 1
+    assert len(pipeline.reprocess_calls) == 0
+    surfaced = (
+        await adb.execute(
+            select(AuditLog).where(AuditLog.action == "customer_reply_received")
+        )
+    ).scalars().all()
+    assert len(surfaced) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_only_new_comment_does_not_reprocess(adb):
+    """A new AGENT public reply (not from the requester) must not trigger reprocess."""
+    requester = _user(500, "end-user")
+    agent = _user(600, "agent")
+    pipeline = FakePipeline()
+    adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
+
+    page1 = _incremental_page([_ticket(100, status="open")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
+
+    page2 = _incremental_page(
+        [_ticket(100, status="open", updated="2026-07-15T11:00:00Z")],
+        users=[requester, agent],
+    )
+    comments2 = {
+        100: {
+            "comments": [
+                _comment(9001, 500),
+                _comment(9100, 600, body="Agent note", created="2026-07-15T11:00:00Z"),
+            ],
+            "users": [requester, agent],
+        }
+    }
+    res2 = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
+    )
+    assert res2.reprocessed == 0
+    assert len(pipeline.reprocess_calls) == 0
 
 
 @pytest.mark.asyncio

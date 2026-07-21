@@ -75,6 +75,9 @@ class SyncResult(BaseModel):
     # New public end-user replies on already-processed tickets (surfaced for a
     # chair to review; never auto-redrafted — see the follow-up policy below).
     customer_replies: int = 0
+    # Follow-ups that re-ran the full pipeline (new public end-user comment on a
+    # non-closed ticket). Distinct from customer_replies (surface-only, closed).
+    reprocessed: int = 0
     failed: int = 0
     # True when this trigger was refused because another cycle already holds the
     # single-flight lock (overlap guard) — no work was done.
@@ -281,8 +284,20 @@ class ZendeskIngestAdapter:
                 and m.get("author_role") == MessageAuthorRole.END_USER.value
             ]
             if new_customer:
-                await self._record_customer_reply(db, email_id, ticket_id, new_customer)
-                result.customer_replies += 1
+                if ticket_status == "closed":
+                    # Immutable ticket: a genuine reply spawns a NEW ticket
+                    # (ingested via the new-ticket path). Surface only.
+                    await self._record_customer_reply(
+                        db, email_id, ticket_id, new_customer
+                    )
+                    result.customer_replies += 1
+                else:
+                    # solved reopens to open; open/pending/hold stay actionable.
+                    # Re-run the full pipeline over the whole thread.
+                    await self._reprocess_on_followup(
+                        db, email_id, ticket_id, new_customer
+                    )
+                    result.reprocessed += 1
             result.updated += 1
 
     async def _record_customer_reply(
@@ -319,6 +334,47 @@ class ZendeskIngestAdapter:
                 "Failed to record customer_reply_received for ticket %s.",
                 ticket_id,
                 exc_info=True,
+            )
+
+    async def _reprocess_on_followup(
+        self,
+        db: AsyncSession,
+        email_id: str,
+        ticket_id: int,
+        new_customer: list[dict],
+    ) -> None:
+        """Re-run the full pipeline over the thread for a new requester reply.
+
+        Re-classifies + re-drafts over the whole conversation (latest turn
+        anchored) and preserves the prior draft in ``draft.history[]`` via the
+        orchestrator. Writes a ``reprocessed_on_followup`` audit entry. Best-
+        effort: a failure here must never abort the sync cycle — the new comment
+        is already stored, so the chair still sees the reply.
+        """
+        comment_ids = [m.get("zendesk_comment_id") for m in new_customer]
+        try:
+            email = await self.email_repo.get_email_by_id(db, email_id)
+            if email is None:
+                return
+            messages = await self.email_repo.get_thread_messages(db, email_id)
+            await self._pipeline_obj().reprocess_email_with_thread(
+                db, email, messages, triggering_comment_ids=comment_ids
+            )
+            await self.audit_repo.log_action(
+                db,
+                email_id,
+                "reprocessed_on_followup",
+                "zendesk_sync",
+                {
+                    "zendesk_ticket_id": ticket_id,
+                    "comment_ids": comment_ids,
+                    "note": "New public end-user reply → full pipeline re-run "
+                    "over the conversation thread.",
+                },
+            )
+        except Exception:  # noqa: BLE001 - one ticket must not abort the cycle
+            logger.warning(
+                "Follow-up reprocess failed for ticket %s.", ticket_id, exc_info=True
             )
 
     async def _ingest_new_ticket(
