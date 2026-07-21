@@ -4,6 +4,7 @@ import type {
   ApproveRequest,
   Email,
   EmailQueueResponse,
+  EmailThreadResponse,
   IngestRequest,
   PipelineResult,
   QueueFacets,
@@ -121,4 +122,16 @@ export async function reassignChair(
     data
   );
   return email;
+}
+
+/** GET /emails/{id}/thread — the full multi-turn conversation for one ticket
+ * (all turns incl. internal notes, oldest-first). Non-Zendesk emails return an
+ * empty list. */
+export async function getEmailThread(
+  id: number
+): Promise<EmailThreadResponse> {
+  const { data } = await apiClient.get<EmailThreadResponse>(
+    `/emails/${id}/thread`
+  );
+  return data;
 }

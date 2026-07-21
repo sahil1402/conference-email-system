@@ -97,6 +97,44 @@ export interface DraftResult {
   original_draft_text?: string;
   is_edited?: boolean;
   edited_by?: string;
+  /**
+   * Superseded drafts, oldest→newest, preserved when a follow-up re-ran the
+   * pipeline (backend orchestrator `_append_draft_history`). Lets the review UI
+   * show "Previous drafts". Absent/empty on drafts that were never superseded.
+   */
+  history?: DraftHistoryEntry[];
+}
+
+/** One superseded draft kept in DraftResult.history (backend draft.history[]). */
+export interface DraftHistoryEntry {
+  draft_text: string | null;
+  notes_for_chair?: string | null;
+  citations?: string[];
+  answer_confidence?: number | null;
+  is_edited?: boolean;
+  /** ISO 8601 time the draft was superseded. */
+  superseded_at?: string | null;
+  /** Why it was superseded, e.g. "followup". */
+  reason?: string | null;
+  triggering_comment_ids?: (number | null)[];
+}
+
+/** One turn in a ticket's conversation — GET /emails/{id}/thread. */
+export interface EmailThreadMessage {
+  comment_id: number | null;
+  /** True = reply visible to the requester; False = internal note. */
+  public: boolean;
+  /** "end-user" | "agent" | "admin" (Zendesk role); null if unresolved. */
+  author_role: string | null;
+  plain_body: string | null;
+  /** ISO 8601 datetime, or null. */
+  created_at: string | null;
+  via_channel: string | null;
+}
+
+/** GET /emails/{id}/thread response envelope. */
+export interface EmailThreadResponse {
+  messages: EmailThreadMessage[];
 }
 
 /** retriever.py::RetrievedChunk (returned inside the ingest PipelineResult). */
