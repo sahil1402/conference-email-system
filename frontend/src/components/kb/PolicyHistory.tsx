@@ -8,6 +8,7 @@ import {
   usePolicyAudit,
   useReactivatePolicy,
   useRetirePolicy,
+  useRevertPolicyEdit,
 } from "@/hooks";
 import {
   Badge,
@@ -30,6 +31,10 @@ function actionBadgeVariant(action: string): BadgeVariant {
       return "danger";
     case "policy_reactivated":
       return "review";
+    case "policy_edited":
+      return "warning";
+    case "policy_edit_reverted":
+      return "neutral";
     default:
       return "neutral";
   }
@@ -60,6 +65,7 @@ export function PolicyHistory() {
   const { policies } = usePolicies();
   const retireMutation = useRetirePolicy();
   const reactivateMutation = useReactivatePolicy();
+  const revertEditMutation = useRevertPolicyEdit();
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
 
   // Current status per policy_key, from the live policy list (not the audit
@@ -88,7 +94,7 @@ export function PolicyHistory() {
     entries.forEach((entry) => {
       if (!seenKeys.has(entry.policy_key)) {
         seenKeys.add(entry.policy_key);
-        ids.add(entry.id);
+        if (entry.action !== "policy_edit_reverted") ids.add(entry.id);
       }
     });
     return ids;
@@ -101,9 +107,15 @@ export function PolicyHistory() {
     ? retireMutation.variables ?? null
     : reactivateMutation.isPending
       ? reactivateMutation.variables ?? null
-      : null;
+      : revertEditMutation.isPending
+        ? revertEditMutation.variables ?? null
+        : null;
 
   function handleConfirmRevert(entry: PolicyAuditEntry) {
+    if (entry.action === "policy_edited") {
+      revertEditMutation.mutate(entry.policy_key);
+      return;
+    }
     const currentStatus = statusByKey.get(entry.policy_key);
     if (currentStatus === "active") {
       retireMutation.mutate(entry.policy_key);
@@ -147,7 +159,10 @@ export function PolicyHistory() {
           entry={entry}
           policy={policyByKey.get(entry.policy_key) ?? null}
           isRevertable={
-            revertableIds.has(entry.id) && statusByKey.has(entry.policy_key)
+            revertableIds.has(entry.id) &&
+            statusByKey.has(entry.policy_key) &&
+            (entry.action !== "policy_edited" ||
+              statusByKey.get(entry.policy_key) === "active")
           }
           isPending={pendingKey === entry.policy_key}
           isConfirming={confirmingId === entry.id}
