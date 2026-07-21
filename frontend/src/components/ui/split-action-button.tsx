@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "./dropdown-menu";
 import { cn } from "@/lib/utils";
+import { zendeskStatusColor } from "@/lib/zendesk-status";
 
 /**
  * The status a split-action can resolve to. `null` = no status chosen yet
@@ -19,20 +20,17 @@ import { cn } from "@/lib/utils";
 export type SplitActionStatus = "open" | "pending" | "solved";
 
 /**
- * The three dropdown options, in Zendesk's native submit order, each with the
- * status color Zendesk itself uses (Open = red, Pending = blue, Solved = gray).
- * These are semantic status indicators, so the dot colors are intentional
- * literals (cf. ZendeskStatusBar, which hardcodes its own dot palette) rather
- * than app accent tokens.
+ * The three dropdown options, in Zendesk's native submit order. Dot colors come
+ * from the shared ZENDESK_STATUS_COLORS source of truth (app-harmonized palette,
+ * same as ZendeskStatusBar) — see zendeskStatusColor in the render below.
  */
 const STATUS_OPTIONS: {
   value: SplitActionStatus;
   label: string;
-  dot: string;
 }[] = [
-  { value: "open", label: "Open", dot: "#ef4444" }, // red
-  { value: "pending", label: "Pending", dot: "#3b82f6" }, // blue
-  { value: "solved", label: "Solved", dot: "#9ca3af" }, // gray
+  { value: "open", label: "Open" },
+  { value: "pending", label: "Pending" },
+  { value: "solved", label: "Solved" },
 ];
 
 const LABEL_BY_STATUS: Record<SplitActionStatus, string> = {
@@ -112,7 +110,7 @@ export function SplitActionButton({
               <span
                 aria-hidden
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: opt.dot }}
+                style={{ backgroundColor: zendeskStatusColor(opt.value) }}
               />
               <span className="flex-1">{opt.label}</span>
             </DropdownMenuItem>

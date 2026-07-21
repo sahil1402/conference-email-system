@@ -12,6 +12,8 @@
  * filters — it never replaces them.
  */
 
+import { zendeskStatusColor } from "@/lib/zendesk-status";
+
 interface ZendeskStatusBarProps {
   /** {zendesk_status -> count} from the facets aggregate. */
   counts: Record<string, number>;
@@ -21,14 +23,15 @@ interface ZendeskStatusBarProps {
   onSelect: (status: string | null) => void;
 }
 
-/** Canonical status order + accent color for the leading dot. */
-const STATUS_META: { key: string; label: string; color: string }[] = [
-  { key: "new", label: "New", color: "#6366f1" }, // indigo
-  { key: "open", label: "Open", color: "#f59e0b" }, // amber
-  { key: "pending", label: "Pending", color: "#22d3ee" }, // cyan
-  { key: "hold", label: "Hold", color: "#a78bfa" }, // violet
-  { key: "solved", label: "Solved", color: "#34d399" }, // emerald
-  { key: "closed", label: "Closed", color: "#8b91a8" }, // muted
+/** Canonical status order + label. Dot color comes from the shared
+ * ZENDESK_STATUS_COLORS source of truth (see colorFor). */
+const STATUS_META: { key: string; label: string }[] = [
+  { key: "new", label: "New" },
+  { key: "open", label: "Open" },
+  { key: "pending", label: "Pending" },
+  { key: "hold", label: "Hold" },
+  { key: "solved", label: "Solved" },
+  { key: "closed", label: "Closed" },
 ];
 
 function labelFor(key: string): string {
@@ -38,7 +41,7 @@ function labelFor(key: string): string {
 }
 
 function colorFor(key: string): string {
-  return STATUS_META.find((m) => m.key === key)?.color ?? "var(--text-muted)";
+  return zendeskStatusColor(key);
 }
 
 /** Order present statuses by the canonical list, unknowns appended. */
