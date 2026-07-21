@@ -34,6 +34,28 @@ describe("ZendeskStatusBar", () => {
     expect(labels[2]).toMatch(/^Solved/);
   });
 
+  it("labels the solved bucket 'Solved / Closed' and sends zendesk_status=solved on click", () => {
+    // Backend (A3) folds closed into the solved bucket, so the facet key is
+    // "solved" but the row must read "Solved / Closed" and still emit "solved".
+    const onSelect = vi.fn();
+    render(
+      <ZendeskStatusBar counts={COUNTS} selected={null} onSelect={onSelect} />
+    );
+    const bucketRow = screen.getByRole("button", { name: /solved \/ closed/i });
+    expect(bucketRow).toBeInTheDocument();
+    fireEvent.click(bucketRow);
+    expect(onSelect).toHaveBeenCalledWith("solved");
+  });
+
+  it("renders no standalone 'Closed' row (closed lives under the solved bucket)", () => {
+    render(
+      <ZendeskStatusBar counts={COUNTS} selected={null} onSelect={vi.fn()} />
+    );
+    const group = screen.getByRole("group", { name: /zendesk status/i });
+    // Exactly one row mentions "Closed" — the combined Solved / Closed bucket.
+    expect(within(group).getAllByRole("button", { name: /closed/i })).toHaveLength(1);
+  });
+
   it("renders nothing when there are no counts", () => {
     const { container } = render(
       <ZendeskStatusBar counts={{}} selected={null} onSelect={vi.fn()} />

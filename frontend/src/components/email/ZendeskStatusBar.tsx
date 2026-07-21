@@ -25,13 +25,16 @@ interface ZendeskStatusBarProps {
 
 /** Canonical status order + label. Dot color comes from the shared
  * ZENDESK_STATUS_COLORS source of truth (see colorFor). */
+// Note: no standalone "closed" entry — the backend folds closed into the
+// "solved" bucket (Piece A3), so a "closed" facet count never arrives and the
+// "Solved / Closed" row below represents both. Filtering by this row sends
+// zendesk_status="solved", which the backend matches against solved OR closed.
 const STATUS_META: { key: string; label: string }[] = [
   { key: "new", label: "New" },
   { key: "open", label: "Open" },
   { key: "pending", label: "Pending" },
   { key: "hold", label: "Hold" },
-  { key: "solved", label: "Solved" },
-  { key: "closed", label: "Closed" },
+  { key: "solved", label: "Solved / Closed" },
 ];
 
 function labelFor(key: string): string {
