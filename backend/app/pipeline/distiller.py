@@ -34,7 +34,10 @@ _INTENT_MENU = "\n".join(f"  - {i}: {INTENT_DEFS[i]}" for i in VALID_INTENTS)
 
 _SYSTEM_PROMPT = (
     "You classify one conference help-desk email and turn it into search "
-    "queries for the conference's policy documentation.\n\n"
+    "queries for the conference's policy documentation.\n"
+    "When given a multi-message conversation, classify the intent of the "
+    "LATEST message from the requester, using the earlier turns only to "
+    "resolve context.\n\n"
     "Output EXACTLY this structure:\n"
     "INTENT: <one of the intents below, by exact name>\n" + _INTENT_MENU + "\n"
     "CONFIDENCE: <your confidence in the intent, 0.0-1.0>\n"
@@ -103,19 +106,34 @@ class EmailDistiller:
     path is untouched wherever the distiller cannot run.
     """
 
-    async def distill(self, subject: str, body: str) -> DistillResult | None:
-        """One model call → DistillResult, or None on any failure."""
+    async def distill(
+        self, subject: str, body: str, *, transcript: str | None = None
+    ) -> DistillResult | None:
+        """One model call → DistillResult, or None on any failure.
+
+        ``transcript`` (when provided) is a rendered multi-turn conversation
+        (oldest→newest, internal notes already excluded, already char-bounded by
+        the caller). It replaces the single-body input so the model classifies
+        the LATEST requester turn in context. ``transcript=None`` is the
+        original single-message path, byte-for-byte unchanged.
+        """
         if settings.MODEL_PROVIDER != "local":
             return None
         base = settings.LOCAL_MODEL_BASE_URL.rstrip("/")
+        if transcript is not None:
+            user_content = (
+                f"Subject: {subject}\n"
+                "Conversation (oldest to newest — classify the LATEST requester "
+                "message, using earlier turns only as context):\n"
+                f"{transcript}"
+            )
+        else:
+            user_content = f"Subject: {subject}\nBody:\n{body[:_BODY_CAP_CHARS]}"
         payload = {
             "model": settings.LOCAL_MODEL_NAME,
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"Subject: {subject}\nBody:\n{body[:_BODY_CAP_CHARS]}",
-                },
+                {"role": "user", "content": user_content},
             ],
             # Reasoning models spend completion budget before visible text.
             "max_tokens": 2000,
