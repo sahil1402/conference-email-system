@@ -248,6 +248,73 @@ export interface QueueFacets {
 }
 
 // ---------------------------------------------------------------------------
+// Ticket thread — emails.py GET /emails/{id}/thread (Piece T3)
+// ---------------------------------------------------------------------------
+
+/**
+ * The retriever inputs + grounding set captured for a per-message pipeline run
+ * (orchestrator.py `_Computed.record["retrieval_context"]`). Mirrors what the
+ * email row stores; surfaced here for the follow-up's own result.
+ */
+export interface RetrievalContext {
+  query: string;
+  intent: string;
+  prior_intent?: string;
+  retrieved_ids: string[];
+  chunk_hash?: string;
+}
+
+/**
+ * One per-follow-up pipeline result (db/models.py EmailProcessingResult, served
+ * by emails.py::ProcessingResultResponse). A requester follow-up on a Zendesk
+ * thread gets its own classify→retrieve→route→draft run stored SEPARATELY from
+ * the parent Email's own outputs; a message may have several over time (reprocess
+ * history). `lane`/`confidence` are denormalized from `routing`/`classification`.
+ */
+export interface ProcessingResult {
+  id: number;
+  thread_message_id: number;
+  classification: ClassificationResult | null;
+  routing: RoutingResult | null;
+  draft: DraftResult | null;
+  retrieval_context: RetrievalContext | null;
+  lane: EmailLane | null;
+  confidence: number | null;
+  created_at: string | null;
+}
+
+/**
+ * One message in a Zendesk ticket thread (db/models.py EmailThreadMessage, served
+ * by emails.py::ThreadMessageResponse). `public` false = internal note;
+ * `author_role` ("end-user" | "agent" | "admin") tells a requester follow-up from
+ * a chair reply. `processing_results` is ALL results for this message, oldest-
+ * first; `latest_processing_result_id` points to the newest (null when the
+ * message has no result yet — not-yet-processed or a failed follow-up run).
+ */
+export interface ThreadMessage {
+  id: number;
+  zendesk_comment_id: number | null;
+  public: boolean;
+  author_role: string | null;
+  author_id: number | null;
+  plain_body: string | null;
+  html_body: string | null;
+  created_at: string | null;
+  via_channel: string | null;
+  processing_results: ProcessingResult[];
+  latest_processing_result_id: number | null;
+}
+
+/**
+ * GET /emails/{id}/thread response (emails.py::EmailThreadResponse). `messages`
+ * are oldest-first; a non-Zendesk/toy email simply has an empty `messages` list.
+ */
+export interface EmailThreadResponse {
+  email_id: number;
+  messages: ThreadMessage[];
+}
+
+// ---------------------------------------------------------------------------
 // Analytics — analytics.py::analytics_summary
 // ---------------------------------------------------------------------------
 

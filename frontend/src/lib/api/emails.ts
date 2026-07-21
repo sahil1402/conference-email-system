@@ -4,6 +4,7 @@ import type {
   ApproveRequest,
   Email,
   EmailQueueResponse,
+  EmailThreadResponse,
   IngestRequest,
   PipelineResult,
   QueueFacets,
@@ -63,6 +64,19 @@ export async function getQueueFacets(
   const { data } = await apiClient.get<QueueFacets>("/emails/queue/facets", {
     params,
   });
+  return data;
+}
+
+/** GET /emails/{id}/thread — the ticket's full thread (Piece T3).
+ * Messages are oldest-first; each carries all of its per-message pipeline
+ * results (oldest-first) plus `latest_processing_result_id`. A non-Zendesk/toy
+ * email returns an empty `messages` list (not an error). */
+export async function getEmailThread(
+  id: number
+): Promise<EmailThreadResponse> {
+  const { data } = await apiClient.get<EmailThreadResponse>(
+    `/emails/${id}/thread`
+  );
   return data;
 }
 

@@ -2,6 +2,7 @@ export * from "./useEmailQueue";
 export * from "./useEmailQueueStream";
 export * from "./useAnalytics";
 export * from "./useEmailActions";
+export * from "./useEmailThread";
 export * from "./useAudit";
 export * from "./useChairs";
 export * from "./usePolicies";
