@@ -216,21 +216,28 @@ class Settings(BaseSettings):
 
     @property
     def zendesk_sync_statuses(self) -> list[str]:
-        """Parse ZENDESK_SYNC_STATUSES into a clean, ordered status allow-list.
+        """The parsed ZENDESK_SYNC_STATUSES allow-list (see parse_zendesk_statuses)."""
+        return parse_zendesk_statuses(self.ZENDESK_SYNC_STATUSES)
 
-        Splits on commas, trims whitespace, lowercases, drops empties, and
-        de-duplicates while preserving first-seen order. Only values in
-        ``ZENDESK_VALID_STATUSES`` are kept (unknown tokens are ignored, so a
-        stray typo can't silently widen the filter). If the parse yields nothing,
-        falls back to every valid status (the safe "ingest everything" default,
-        matching the unset behavior).
-        """
-        seen: list[str] = []
-        for raw in self.ZENDESK_SYNC_STATUSES.split(","):
-            token = raw.strip().lower()
-            if token and token in self.ZENDESK_VALID_STATUSES and token not in seen:
-                seen.append(token)
-        return seen or sorted(self.ZENDESK_VALID_STATUSES)
+
+def parse_zendesk_statuses(raw: str | None) -> list[str]:
+    """Parse a comma-separated Zendesk status string into a clean allow-list.
+
+    Shared by both the ZENDESK_SYNC_STATUSES config default and the per-call
+    override on POST /api/v1/zendesk/sync, so the two apply IDENTICAL rules.
+    Splits on commas, trims whitespace, lowercases, drops empties, and
+    de-duplicates while preserving first-seen order. Only values in
+    ``Settings.ZENDESK_VALID_STATUSES`` are kept (unknown tokens are ignored, so
+    a stray typo can't silently widen the filter). If the parse yields nothing
+    (empty, all-blank, or all-invalid), falls back to every valid status — the
+    safe "ingest everything" default that matches unset behavior.
+    """
+    seen: list[str] = []
+    for token_raw in (raw or "").split(","):
+        token = token_raw.strip().lower()
+        if token and token in Settings.ZENDESK_VALID_STATUSES and token not in seen:
+            seen.append(token)
+    return seen or sorted(Settings.ZENDESK_VALID_STATUSES)
 
 
 @lru_cache

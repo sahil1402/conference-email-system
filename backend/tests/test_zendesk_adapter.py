@@ -45,10 +45,19 @@ class FakeProvider:
 
 
 class FakePipeline:
-    """Stands in for EmailPipeline: creates a classified row, no real modules."""
+    """Stands in for EmailPipeline: creates a classified row, no real modules.
+
+    ``process_email`` (initial inquiry) and ``_compute`` (per-message follow-up
+    core, Piece T2) both record their calls so tests can assert exactly which
+    path ran. ``_compute`` returns a ``_Computed``-shaped object exposing the
+    ``.record`` dict the orchestrator builds, with values distinct from the
+    initial-inquiry canned output so a follow-up result is distinguishable from
+    the parent Email's own.
+    """
 
     def __init__(self):
         self.calls: list[dict] = []
+        self.compute_calls: list[dict] = []
         self._repo = EmailRepository()
 
     async def process_email(self, email_data, db):
@@ -67,6 +76,20 @@ class FakePipeline:
             },
         )
         return SimpleNamespace(email_id=email.id)
+
+    async def _compute(self, email_data, db):
+        self.compute_calls.append(email_data)
+        record = {
+            "classification": {"intent": "author_list_change", "confidence": 0.77},
+            "routing": {"lane": "human_review"},
+            "draft": {"draft_text": f"followup draft: {email_data.get('body')}"},
+            "retrieval_context": {
+                "query": email_data.get("body"),
+                "intent": "",
+                "retrieved_ids": ["policy_101"],
+            },
+        }
+        return SimpleNamespace(record=record)
 
 
 class FakeResponse:
@@ -226,7 +249,10 @@ async def test_upsert_creates_then_updates_without_reclassifying(adb):
 @pytest.mark.asyncio
 async def test_new_customer_reply_surfaced_without_redraft(adb):
     """Follow-up policy (a): a NEW public end-user comment on an already-processed
-    ticket is surfaced via an audit signal — never auto-reclassified/redrafted.
+    ticket is surfaced via an audit signal — the parent Email is never
+    reclassified/redrafted (``process_email``/``reprocess_email`` untouched).
+    Piece T2 additionally stores a per-message result; that is asserted in
+    ``test_new_customer_followup_creates_processing_result``.
     """
     from app.db.models import AuditLog
 
@@ -256,10 +282,10 @@ async def test_new_customer_reply_surfaced_without_redraft(adb):
         adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
     )
 
-    # Surfaced as a customer reply; NOT reclassified/redrafted.
+    # Surfaced as a customer reply; parent NOT reclassified/redrafted.
     assert res2.customer_replies == 1
     assert res2.classified == 0
-    assert len(pipeline.calls) == 1  # no redraft
+    assert len(pipeline.calls) == 1  # process_email ran once (initial inquiry only)
 
     audits = (
         await adb.execute(
@@ -268,6 +294,149 @@ async def test_new_customer_reply_surfaced_without_redraft(adb):
     ).scalars().all()
     assert len(audits) == 1
     assert 9002 in audits[0].extra_metadata["comment_ids"]
+
+
+@pytest.mark.asyncio
+async def test_new_customer_followup_creates_processing_result(adb):
+    """Piece T2: a new requester follow-up gets its OWN EmailProcessingResult
+    with populated classification/routing/draft/retrieval_context, linked to the
+    real persisted thread-message id — and the parent Email is left untouched.
+    """
+    from app.db.models import EmailProcessingResult, EmailThreadMessage
+
+    requester = _user(500, "end-user")
+    pipeline = FakePipeline()
+    adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
+
+    # First poll: initial inquiry -> create + classify once (parent Email).
+    page1 = _incremental_page([_ticket(100, status="open")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
+
+    parent = (await adb.execute(select(Email))).scalar_one()
+    parent_id = parent.id
+    parent_subject = parent.subject
+    parent_classification_before = dict(parent.classification)
+
+    # Second poll: same ticket + a NEW public end-user comment (9002).
+    page2 = _incremental_page(
+        [_ticket(100, status="open", updated="2026-07-15T11:00:00Z")], users=[requester]
+    )
+    comments2 = {
+        100: {
+            "comments": [
+                _comment(9001, 500),
+                _comment(9002, 500, body="Any update on this?", created="2026-07-15T11:00:00Z"),
+            ],
+            "users": [requester],
+        }
+    }
+    await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
+    )
+
+    # _compute ran exactly once, for the follow-up body (not the initial inquiry).
+    assert len(pipeline.compute_calls) == 1
+    assert pipeline.compute_calls[0]["body"] == "Any update on this?"
+    # Subject came from the parent ticket.
+    assert pipeline.compute_calls[0]["subject"] == parent_subject
+
+    # Exactly one EmailProcessingResult, linked to the follow-up message (9002).
+    results = (await adb.execute(select(EmailProcessingResult))).scalars().all()
+    assert len(results) == 1
+    result = results[0]
+    followup_msg = (
+        await adb.execute(
+            select(EmailThreadMessage).where(
+                EmailThreadMessage.zendesk_comment_id == 9002
+            )
+        )
+    ).scalar_one()
+    assert result.thread_message_id == followup_msg.id
+
+    # Columns populated from the compute record (incl. denormalized lane/confidence).
+    assert result.classification == {"intent": "author_list_change", "confidence": 0.77}
+    assert result.routing == {"lane": "human_review"}
+    assert result.draft["draft_text"] == "followup draft: Any update on this?"
+    assert result.retrieval_context["retrieved_ids"] == ["policy_101"]
+    assert result.lane == "human_review"
+    assert result.confidence == 0.77
+
+    # Parent Email's OWN pipeline output is unchanged (re-fetch fresh from DB).
+    parent_after = (
+        await adb.execute(select(Email).where(Email.id == parent_id))
+    ).scalar_one()
+    assert parent_after.classification == parent_classification_before
+    assert parent_after.classification["confidence"] == 0.9  # initial-inquiry value
+
+
+@pytest.mark.asyncio
+async def test_chair_and_internal_followups_do_not_create_processing_result(adb):
+    """Only requester (public end-user) follow-ups trigger a result: a chair
+    (agent) public reply and a non-public end-user internal note do NOT.
+    """
+    from app.db.models import EmailProcessingResult
+
+    requester = _user(500, "end-user")
+    agent = _user(700, "agent")
+    pipeline = FakePipeline()
+    adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
+
+    # First poll: initial inquiry.
+    page1 = _incremental_page([_ticket(100, status="open")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
+
+    # Second poll: a chair (agent) public reply + a non-public end-user note —
+    # neither is a requester follow-up.
+    page2 = _incremental_page(
+        [_ticket(100, status="open", updated="2026-07-15T11:00:00Z")], users=[requester, agent]
+    )
+    comments2 = {
+        100: {
+            "comments": [
+                _comment(9001, 500),
+                _comment(9002, 700, body="Chair replying here", created="2026-07-15T11:00:00Z"),
+                _comment(9003, 500, public=False, body="private note", created="2026-07-15T11:30:00Z"),
+            ],
+            "users": [requester, agent],
+        }
+    }
+    res2 = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
+    )
+
+    # No requester follow-up → no customer-reply signal, no _compute, no result.
+    assert res2.customer_replies == 0
+    assert len(pipeline.compute_calls) == 0
+    results = (await adb.execute(select(EmailProcessingResult))).scalars().all()
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_add_thread_messages_returns_persisted_rows(adb):
+    """The changed add_thread_messages contract: returns the persisted rows with
+    populated ids (not a count), and [] when there is nothing to add.
+    """
+    repo = EmailRepository()
+    users = {500: {"role": "end-user", "name": "u", "email": "u@x"}}
+    project = ZendeskIngestAdapter(provider=FakeProvider())._to_message_dict
+    email = await repo.create_email(
+        adb,
+        {"sender": "a@b.c", "subject": "s", "body": "b",
+         "source": EmailSource.ZENDESK.value, "zendesk_ticket_id": 4242},
+    )
+    rows = await repo.add_thread_messages(
+        adb,
+        str(email.id),
+        [project(_comment(1, 500), users), project(_comment(2, 500), users)],
+    )
+    assert len(rows) == 2
+    assert all(isinstance(r, EmailThreadMessage) and r.id is not None for r in rows)
+    assert {r.zendesk_comment_id for r in rows} == {1, 2}
+
+    # Nothing to add → empty list (not an error, not a count).
+    assert await repo.add_thread_messages(adb, str(email.id), []) == []
 
 
 @pytest.mark.asyncio
@@ -284,6 +453,149 @@ async def test_deleted_tickets_filtered_out(adb):
     assert res.created == 1
     emails = (await adb.execute(select(Email))).scalars().all()
     assert [e.zendesk_ticket_id for e in emails] == [101]
+
+
+# === status allow-list filtering (config default + per-call override) ======
+
+
+@pytest.mark.asyncio
+async def test_sync_without_statuses_uses_config_default(adb, monkeypatch):
+    """No per-call override → the ZENDESK_SYNC_STATUSES config default applies."""
+    # Restrict the configured allow-list to a subset for this test.
+    monkeypatch.setattr(adapter_mod.settings, "ZENDESK_SYNC_STATUSES", "open,pending")
+
+    requester = _user(500, "end-user")
+    page = _incremental_page(
+        [_ticket(100, status="open"), _ticket(101, status="closed")],
+        users=[requester],
+    )
+    comments = {
+        100: {"comments": [_comment(9001, 500)], "users": [requester]},
+        101: {"comments": [_comment(9002, 500)], "users": [requester]},
+    }
+    # sync() called WITHOUT statuses → config default (open,pending) is used.
+    res = await _adapter().sync(
+        adb, client=FakeAsyncClient([page], comments), sleep=_nosleep
+    )
+
+    assert res.created == 1
+    assert res.skipped_status == 1
+    emails = (await adb.execute(select(Email))).scalars().all()
+    assert [e.zendesk_ticket_id for e in emails] == [100]
+
+
+@pytest.mark.asyncio
+async def test_statuses_param_overrides_config_for_that_call_only(adb):
+    """An explicit statuses list overrides config for THAT call; the next call
+    without it reverts to the (default = all) config, so the override is not
+    sticky."""
+    requester = _user(500, "end-user")
+    comments = {
+        100: {"comments": [_comment(9001, 500)], "users": [requester]},
+        101: {"comments": [_comment(9002, 500)], "users": [requester]},
+    }
+
+    # Cycle 1: override to open-only. The solved ticket (101) is filtered out.
+    page1 = _incremental_page(
+        [_ticket(100, status="open"), _ticket(101, status="solved")],
+        users=[requester],
+        cursor="CUR_A",
+    )
+    res1 = await _adapter().sync(
+        adb,
+        client=FakeAsyncClient([page1], comments),
+        statuses=["open"],
+        sleep=_nosleep,
+    )
+    assert res1.created == 1
+    assert res1.skipped_status == 1
+    assert [e.zendesk_ticket_id for e in (await adb.execute(select(Email))).scalars().all()] == [100]
+
+    # Cycle 2: SAME solved ticket, NO override → config default (all statuses)
+    # applies, so 101 is now ingested. Proves the override was per-call only.
+    page2 = _incremental_page(
+        [_ticket(101, status="solved", updated="2026-07-15T12:00:00Z")],
+        users=[requester],
+        cursor="CUR_B",
+    )
+    res2 = await _adapter().sync(
+        adb, client=FakeAsyncClient([page2], comments), sleep=_nosleep
+    )
+    assert res2.created == 1
+    assert res2.skipped_status == 0
+    assert sorted(
+        e.zendesk_ticket_id for e in (await adb.execute(select(Email))).scalars().all()
+    ) == [100, 101]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_parses_and_threads_statuses(monkeypatch):
+    """The endpoint parses the raw param with the shared helper (normalize +
+    validate) and threads the result to run_sync_cycle; omitting it passes None."""
+    captured = {}
+
+    async def spy(db, **kwargs):
+        captured.update(kwargs)
+        return SyncResult(created=1)
+
+    monkeypatch.setattr(zendesk_api, "run_sync_cycle", spy)
+
+    # Provided (messy input): normalized/validated, unknown token dropped, deduped.
+    await zendesk_api.sync_zendesk(db=object(), statuses="Open, pending ,open,bogus")
+    assert captured["statuses"] == ["open", "pending"]
+
+    # Omitted → None, so the adapter uses the config default.
+    captured.clear()
+    await zendesk_api.sync_zendesk(db=object(), statuses=None)
+    assert captured["statuses"] is None
+
+
+@pytest.mark.asyncio
+async def test_endpoint_invalid_statuses_falls_back_to_all(monkeypatch):
+    """An all-invalid/blank override falls back to every valid status — the same
+    safe behavior as the config property, not an empty (ingest-nothing) list."""
+    from app.core.config import Settings
+
+    captured = {}
+
+    async def spy(db, **kwargs):
+        captured.update(kwargs)
+        return SyncResult()
+
+    monkeypatch.setattr(zendesk_api, "run_sync_cycle", spy)
+    await zendesk_api.sync_zendesk(db=object(), statuses="bogus, , xxx")
+    assert captured["statuses"] == sorted(Settings.ZENDESK_VALID_STATUSES)
+
+
+@pytest.mark.asyncio
+async def test_poll_loop_uses_config_default_no_statuses(monkeypatch):
+    """The background loop never passes a statuses override — it always uses the
+    config default (unaffected by the per-call endpoint param)."""
+    import asyncio
+
+    stop = asyncio.Event()
+    captured = []
+
+    async def spy(db, **kwargs):
+        captured.append(kwargs)
+        stop.set()
+        return SyncResult()
+
+    class _Factory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr(adapter_mod, "run_sync_cycle", spy)
+    await zendesk_poll_loop(stop, interval=999, session_factory=_Factory(), sleep=_nosleep)
+    assert len(captured) == 1
+    # The loop passes no statuses kwarg at all → config default governs.
+    assert "statuses" not in captured[0]
 
 
 @pytest.mark.asyncio
@@ -379,7 +691,7 @@ async def test_comment_fetch_error_isolated_to_one_ticket(adb):
 async def test_run_sync_cycle_delegates_to_adapter(adb, monkeypatch):
     seen = {}
 
-    async def spy(self, db, *, client=None, max_pages=None, per_page=None):
+    async def spy(self, db, *, client=None, max_pages=None, per_page=None, statuses=None):
         seen["called"] = True
         return SyncResult(pages=1)
 

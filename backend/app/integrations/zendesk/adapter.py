@@ -71,6 +71,9 @@ class SyncResult(BaseModel):
     created: int = 0
     updated: int = 0
     skipped_deleted: int = 0
+    # Tickets skipped because their status is not in the active allow-list
+    # (ZENDESK_SYNC_STATUSES config default, or a per-call override).
+    skipped_status: int = 0
     classified: int = 0
     # New public end-user replies on already-processed tickets (surfaced for a
     # chair to review; never auto-redrafted — see the follow-up policy below).
@@ -200,12 +203,25 @@ class ZendeskIngestAdapter:
         users_map: dict[int, dict],
         result: SyncResult,
         sleep,
+        allowed_statuses: set[str],
     ) -> None:
-        """Upsert one ticket + its thread; classify only if new to us."""
+        """Upsert one ticket + its thread; classify only if new to us.
+
+        ``allowed_statuses`` is the active status allow-list for this cycle
+        (config default or per-call override). Tickets whose status is not in it
+        are skipped before any comment fetch, so filtered statuses cost no
+        request budget.
+        """
         ticket_id = int(ticket["id"])
         ticket_status = ticket.get("status")
         if ticket_status == "deleted":
             result.skipped_deleted += 1
+            return
+        # Status allow-list filter (applied client-side — the incremental export
+        # has no server-side status filter). "deleted" is handled above, so it is
+        # never a valid allow-list value.
+        if ticket_status not in allowed_statuses:
+            result.skipped_status += 1
             return
 
         existing = await self.email_repo.get_by_zendesk_ticket_id(db, ticket_id)
@@ -257,7 +273,9 @@ class ZendeskIngestAdapter:
                 for m in messages
                 if m.get("zendesk_comment_id") not in existing_ids
             ]
-            await self.email_repo.add_thread_messages(db, email_id, new_messages)
+            added_rows = await self.email_repo.add_thread_messages(
+                db, email_id, new_messages
+            )
             await self.email_repo.apply_zendesk_fields(
                 db,
                 email_id,
@@ -270,10 +288,12 @@ class ZendeskIngestAdapter:
                     ),
                 },
             )
-            # No reclassification: the initial inquiry is unchanged (§10).
-            # Redraft-on-follow-up policy = option (a): if a NEW public end-user
-            # comment arrived on an already-processed ticket, surface it for a
-            # chair (audit signal) — never auto-reclassify or auto-redraft.
+            # No reclassification of the INITIAL inquiry: the parent Email's own
+            # classification/routing/draft are never touched (§10). But a NEW
+            # public end-user follow-up now gets its OWN classify→retrieve→route→
+            # draft cycle stored as an EmailProcessingResult (Piece T2) — plus the
+            # existing customer_reply_received audit signal (option (a)), kept
+            # unchanged (additive).
             new_customer = [
                 m
                 for m in new_messages
@@ -282,8 +302,52 @@ class ZendeskIngestAdapter:
             ]
             if new_customer:
                 await self._record_customer_reply(db, email_id, ticket_id, new_customer)
+                await self._process_followup_messages(
+                    db, existing, new_customer, added_rows
+                )
                 result.customer_replies += 1
             result.updated += 1
+
+    async def _process_followup_messages(
+        self,
+        db: AsyncSession,
+        email,
+        new_customer: list[dict],
+        added_rows: list,
+    ) -> None:
+        """Run the pipeline for each new requester follow-up; store its result.
+
+        Each new public end-user message gets its own classify→retrieve→route→
+        draft cycle via the orchestrator's persistence-free ``_compute``,
+        persisted as a NEW ``EmailProcessingResult`` linked to that message. The
+        parent ``Email``'s own classification/routing/draft are left untouched;
+        only requester (end-user) messages reach here, never chair (agent/admin)
+        replies or internal notes. Happy-path only (T2b) — failure hardening is
+        T2c.
+        """
+        # Map the just-persisted rows by comment id so each result links to the
+        # message's REAL primary key.
+        by_comment_id = {
+            row.zendesk_comment_id: row
+            for row in added_rows
+            if row.zendesk_comment_id is not None
+        }
+        pipeline = self._pipeline_obj()
+        for m in new_customer:
+            message_row = by_comment_id.get(m.get("zendesk_comment_id"))
+            if message_row is None:
+                continue
+            email_data = {
+                "from": email.sender,
+                "sender_name": email.sender_name,
+                # Subject from the parent ticket; body is THIS follow-up's text.
+                "subject": email.subject,
+                "body": m.get("plain_body") or "",
+            }
+            computed = await pipeline._compute(email_data, db)
+            await self.email_repo.add_processing_result(
+                db, message_row.id, computed.record
+            )
 
     async def _record_customer_reply(
         self,
@@ -371,6 +435,7 @@ class ZendeskIngestAdapter:
         client: httpx.AsyncClient | None = None,
         max_pages: int | None = None,
         per_page: int | None = None,
+        statuses: list[str] | None = None,
         sleep=asyncio.sleep,
     ) -> SyncResult:
         """Run ONE polling cycle: page the incremental export, upsert tickets.
@@ -378,7 +443,19 @@ class ZendeskIngestAdapter:
         A single ticket's failure (bad data / transient error) is logged and
         counted, then skipped — it never aborts the cycle. Returns a
         :class:`SyncResult` with the per-cycle counts.
+
+        ``statuses`` optionally overrides the ZENDESK_SYNC_STATUSES config
+        allow-list for THIS call only (already parsed/validated by the caller);
+        when ``None`` the configured default is used, so polling and
+        unparameterized calls are unaffected.
         """
+        # Resolve the active status allow-list once per cycle: a per-call override
+        # if provided, else the config default. The config property always yields
+        # a non-empty validated list, and the endpoint passes an already-parsed
+        # list, so this set is always the effective, validated allow-list.
+        allowed_statuses = set(
+            statuses if statuses is not None else settings.zendesk_sync_statuses
+        )
         subdomain = settings.ZENDESK_SUBDOMAIN or ""
         state = await self.state_repo.get_or_create(
             db, subdomain, settings.ZENDESK_SYNC_START_TIME
@@ -431,7 +508,8 @@ class ZendeskIngestAdapter:
                     result.tickets_seen += 1
                     try:
                         await self._process_ticket(
-                            db, client, ticket, users_map, result, sleep
+                            db, client, ticket, users_map, result, sleep,
+                            allowed_statuses,
                         )
                     except Exception as exc:  # noqa: BLE001 - one ticket must not halt the batch
                         result.failed += 1
@@ -480,16 +558,19 @@ async def run_sync_cycle(
     client: httpx.AsyncClient | None = None,
     max_pages: int | None = None,
     per_page: int | None = None,
+    statuses: list[str] | None = None,
 ) -> SyncResult:
     """Run one Zendesk poll cycle. The SHARED entry point.
 
     Both the manual ``POST /api/v1/zendesk/sync`` endpoint and the background
     polling loop call this — so a future webhook trigger is just one more caller,
     not a redesign. ``max_pages``/``per_page`` allow a caller (e.g. a controlled
-    HTTP test run) to bound the cycle; both default to the configured values.
+    HTTP test run) to bound the cycle; ``statuses`` optionally overrides the
+    ZENDESK_SYNC_STATUSES allow-list for that call only. All default to the
+    configured values, so the poll loop (which passes none of them) is unaffected.
     """
     return await ZendeskIngestAdapter().sync(
-        db, client=client, max_pages=max_pages, per_page=per_page
+        db, client=client, max_pages=max_pages, per_page=per_page, statuses=statuses
     )
 
 
