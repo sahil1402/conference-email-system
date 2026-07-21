@@ -172,6 +172,7 @@ def _email_to_dict(email: Email) -> dict:
         "received_at": email.received_at.isoformat() if email.received_at else None,
         "assigned_chair_id": email.assigned_chair_id,
         "source": email.source,
+        "zendesk_ticket_id": email.zendesk_ticket_id,
         "zendesk_status": email.zendesk_status,
         "classification": email.classification,
         "routing": email.routing,

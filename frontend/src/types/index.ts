@@ -193,6 +193,12 @@ export interface Email {
    */
   source?: string | null;
   /**
+   * The Zendesk ticket number this row maps to (db/models.py Email.
+   * zendesk_ticket_id) — only meaningful when `source === "zendesk"`; null for
+   * other sources. Surfaced so the review UI can show the ticket number.
+   */
+  zendesk_ticket_id?: number | null;
+  /**
    * Zendesk ticket status (new/open/pending/hold/solved/closed) — only
    * meaningful when `source === "zendesk"`; null for other sources.
    */
