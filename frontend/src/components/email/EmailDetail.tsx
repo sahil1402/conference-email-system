@@ -447,7 +447,8 @@ export function EmailDetail({
                   Open / Pending / Solved. Gating unchanged: disabled while
                   approving or while unresolved [CHAIR: …] placeholders remain. */}
               <SplitActionButton
-                disabled={isApproving || !canApprove}
+                disabled={!canApprove}
+                loading={isApproving}
                 selected={approveStatus}
                 onSelectedChange={setApproveStatus}
                 onAction={(status) => onApprove(editedDraft, status)}

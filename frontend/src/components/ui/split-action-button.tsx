@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./dropdown-menu";
+import { LoadingSpinner } from "./LoadingSpinner";
 import { cn } from "@/lib/utils";
 import { zendeskStatusColor } from "@/lib/zendesk-status";
 
@@ -49,6 +50,12 @@ export interface SplitActionButtonProps {
   defaultLabel?: string;
   /** Disables both the primary button and the dropdown trigger. */
   disabled?: boolean;
+  /**
+   * Shows a spinner in the primary button's icon area and disables both the
+   * primary button and the dropdown trigger (combined with `disabled`). Use for
+   * an in-flight action (e.g. an approve request awaiting the server).
+   */
+  loading?: boolean;
   /** Optional extra classes on the outer wrapper. */
   className?: string;
   /**
@@ -78,6 +85,7 @@ export function SplitActionButton({
   onAction,
   defaultLabel = "Approve & Send",
   disabled = false,
+  loading = false,
   className,
   selected: controlledSelected,
   onSelectedChange,
@@ -93,16 +101,21 @@ export function SplitActionButton({
   }
 
   const label = selected ? `Submit as ${LABEL_BY_STATUS[selected]}` : defaultLabel;
+  // A loading action is also a disabled one (both controls inert while in flight).
+  const isDisabled = disabled || loading;
 
   return (
     <div className={cn("inline-flex items-stretch", className)}>
       {/* Primary action — indigo accent (Button default variant). */}
       <Button
         type="button"
-        disabled={disabled}
+        disabled={isDisabled}
         onClick={() => onAction(selected)}
         className="rounded-r-none"
       >
+        {loading && (
+          <LoadingSpinner size="sm" className="!text-[var(--text-primary)]" />
+        )}
         {label}
       </Button>
 
@@ -113,7 +126,7 @@ export function SplitActionButton({
           <Button
             type="button"
             size="icon"
-            disabled={disabled}
+            disabled={isDisabled}
             aria-label="Choose a resulting status"
             className="w-9 rounded-l-none border-l border-white/25 px-0"
           >
