@@ -45,11 +45,23 @@ class FakeProvider:
 
 
 class FakePipeline:
-    """Stands in for EmailPipeline: creates a classified row, no real modules."""
+    """Stands in for EmailPipeline: creates a classified row, no real modules.
 
-    def __init__(self):
+    ``process_email`` (initial inquiry) and ``_compute`` (per-message follow-up
+    core, Piece T2) both record their calls so tests can assert exactly which
+    path ran. ``_compute`` returns a ``_Computed``-shaped object exposing the
+    ``.record`` dict the orchestrator builds, with values distinct from the
+    initial-inquiry canned output so a follow-up result is distinguishable from
+    the parent Email's own.
+    """
+
+    def __init__(self, fail_bodies=None):
         self.calls: list[dict] = []
         self.reprocess_calls: list[dict] = []
+        self.compute_calls: list[dict] = []
+        # Follow-up bodies whose compute() should raise (failure-injection for
+        # per-message isolation tests).
+        self._fail_bodies = set(fail_bodies or ())
         self._repo = EmailRepository()
 
     async def process_email(self, email_data, db):
@@ -76,6 +88,21 @@ class FakePipeline:
             {"email_id": email.id, "triggering": triggering_comment_ids}
         )
         return SimpleNamespace(email_id=email.id)
+    async def compute(self, email_data, db):
+        self.compute_calls.append(email_data)
+        if email_data.get("body") in self._fail_bodies:
+            raise RuntimeError("simulated drafter/retriever failure")
+        record = {
+            "classification": {"intent": "author_list_change", "confidence": 0.77},
+            "routing": {"lane": "human_review"},
+            "draft": {"draft_text": f"followup draft: {email_data.get('body')}"},
+            "retrieval_context": {
+                "query": email_data.get("body"),
+                "intent": "",
+                "retrieved_ids": ["policy_101"],
+            },
+        }
+        return SimpleNamespace(record=record)
 
 
 class FakeResponse:
@@ -366,6 +393,149 @@ async def test_deleted_tickets_filtered_out(adb):
     assert [e.zendesk_ticket_id for e in emails] == [101]
 
 
+# === status allow-list filtering (config default + per-call override) ======
+
+
+@pytest.mark.asyncio
+async def test_sync_without_statuses_uses_config_default(adb, monkeypatch):
+    """No per-call override → the ZENDESK_SYNC_STATUSES config default applies."""
+    # Restrict the configured allow-list to a subset for this test.
+    monkeypatch.setattr(adapter_mod.settings, "ZENDESK_SYNC_STATUSES", "open,pending")
+
+    requester = _user(500, "end-user")
+    page = _incremental_page(
+        [_ticket(100, status="open"), _ticket(101, status="closed")],
+        users=[requester],
+    )
+    comments = {
+        100: {"comments": [_comment(9001, 500)], "users": [requester]},
+        101: {"comments": [_comment(9002, 500)], "users": [requester]},
+    }
+    # sync() called WITHOUT statuses → config default (open,pending) is used.
+    res = await _adapter().sync(
+        adb, client=FakeAsyncClient([page], comments), sleep=_nosleep
+    )
+
+    assert res.created == 1
+    assert res.skipped_status == 1
+    emails = (await adb.execute(select(Email))).scalars().all()
+    assert [e.zendesk_ticket_id for e in emails] == [100]
+
+
+@pytest.mark.asyncio
+async def test_statuses_param_overrides_config_for_that_call_only(adb):
+    """An explicit statuses list overrides config for THAT call; the next call
+    without it reverts to the (default = all) config, so the override is not
+    sticky."""
+    requester = _user(500, "end-user")
+    comments = {
+        100: {"comments": [_comment(9001, 500)], "users": [requester]},
+        101: {"comments": [_comment(9002, 500)], "users": [requester]},
+    }
+
+    # Cycle 1: override to open-only. The solved ticket (101) is filtered out.
+    page1 = _incremental_page(
+        [_ticket(100, status="open"), _ticket(101, status="solved")],
+        users=[requester],
+        cursor="CUR_A",
+    )
+    res1 = await _adapter().sync(
+        adb,
+        client=FakeAsyncClient([page1], comments),
+        statuses=["open"],
+        sleep=_nosleep,
+    )
+    assert res1.created == 1
+    assert res1.skipped_status == 1
+    assert [e.zendesk_ticket_id for e in (await adb.execute(select(Email))).scalars().all()] == [100]
+
+    # Cycle 2: SAME solved ticket, NO override → config default (all statuses)
+    # applies, so 101 is now ingested. Proves the override was per-call only.
+    page2 = _incremental_page(
+        [_ticket(101, status="solved", updated="2026-07-15T12:00:00Z")],
+        users=[requester],
+        cursor="CUR_B",
+    )
+    res2 = await _adapter().sync(
+        adb, client=FakeAsyncClient([page2], comments), sleep=_nosleep
+    )
+    assert res2.created == 1
+    assert res2.skipped_status == 0
+    assert sorted(
+        e.zendesk_ticket_id for e in (await adb.execute(select(Email))).scalars().all()
+    ) == [100, 101]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_parses_and_threads_statuses(monkeypatch):
+    """The endpoint parses the raw param with the shared helper (normalize +
+    validate) and threads the result to run_sync_cycle; omitting it passes None."""
+    captured = {}
+
+    async def spy(db, **kwargs):
+        captured.update(kwargs)
+        return SyncResult(created=1)
+
+    monkeypatch.setattr(zendesk_api, "run_sync_cycle", spy)
+
+    # Provided (messy input): normalized/validated, unknown token dropped, deduped.
+    await zendesk_api.sync_zendesk(db=object(), statuses="Open, pending ,open,bogus")
+    assert captured["statuses"] == ["open", "pending"]
+
+    # Omitted → None, so the adapter uses the config default.
+    captured.clear()
+    await zendesk_api.sync_zendesk(db=object(), statuses=None)
+    assert captured["statuses"] is None
+
+
+@pytest.mark.asyncio
+async def test_endpoint_invalid_statuses_falls_back_to_all(monkeypatch):
+    """An all-invalid/blank override falls back to every valid status — the same
+    safe behavior as the config property, not an empty (ingest-nothing) list."""
+    from app.core.config import Settings
+
+    captured = {}
+
+    async def spy(db, **kwargs):
+        captured.update(kwargs)
+        return SyncResult()
+
+    monkeypatch.setattr(zendesk_api, "run_sync_cycle", spy)
+    await zendesk_api.sync_zendesk(db=object(), statuses="bogus, , xxx")
+    assert captured["statuses"] == sorted(Settings.ZENDESK_VALID_STATUSES)
+
+
+@pytest.mark.asyncio
+async def test_poll_loop_uses_config_default_no_statuses(monkeypatch):
+    """The background loop never passes a statuses override — it always uses the
+    config default (unaffected by the per-call endpoint param)."""
+    import asyncio
+
+    stop = asyncio.Event()
+    captured = []
+
+    async def spy(db, **kwargs):
+        captured.append(kwargs)
+        stop.set()
+        return SyncResult()
+
+    class _Factory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr(adapter_mod, "run_sync_cycle", spy)
+    await zendesk_poll_loop(stop, interval=999, session_factory=_Factory(), sleep=_nosleep)
+    assert len(captured) == 1
+    # The loop passes no statuses kwarg at all → config default governs.
+    assert "statuses" not in captured[0]
+
+
 @pytest.mark.asyncio
 async def test_comments_become_thread_messages(adb):
     requester = _user(500, "end-user")
@@ -459,7 +629,7 @@ async def test_comment_fetch_error_isolated_to_one_ticket(adb):
 async def test_run_sync_cycle_delegates_to_adapter(adb, monkeypatch):
     seen = {}
 
-    async def spy(self, db, *, client=None, max_pages=None, per_page=None):
+    async def spy(self, db, *, client=None, max_pages=None, per_page=None, statuses=None):
         seen["called"] = True
         return SyncResult(pages=1)
 

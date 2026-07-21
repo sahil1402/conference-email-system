@@ -176,12 +176,80 @@ class EmailThreadMessage(Base):
 
     email: Mapped["Email"] = relationship("Email", back_populates="thread_messages")
 
+    # Per-message pipeline results (Piece T1 / T1b). A follow-up message gets
+    # its own classify -> retrieve -> route -> draft cycle stored in its own row
+    # here, separately from the parent Email's result. A message may be
+    # reprocessed (mirroring the parent Email's manual redraft), so this is
+    # one-to-many: each reprocess appends a new row, keeping the full history.
+    # Ordered chronologically (oldest-first, latest last) to match the parent
+    # Email.thread_messages relationship and the audit trail. Starts empty until
+    # a later piece populates it.
+    processing_results: Mapped[list["EmailProcessingResult"]] = relationship(
+        "EmailProcessingResult",
+        back_populates="thread_message",
+        order_by="EmailProcessingResult.created_at, EmailProcessingResult.id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     __table_args__ = (
         # Serves both parent-lookup and the oldest-first ordering scan used to
         # find the initial inquiry, in one index.
         Index(
             "ix_email_thread_messages_email_id_created_at", "email_id", "created_at"
         ),
+    )
+
+
+class EmailProcessingResult(Base):
+    """A pipeline result for a single thread follow-up message (Piece T1 / T1b).
+
+    The parent :class:`Email` row stores the pipeline outputs for the *initial*
+    inquiry. When a requester posts a follow-up — a later public end-user
+    :class:`EmailThreadMessage` — that message gets its own
+    classify -> retrieve -> route -> draft cycle, and its result is stored HERE,
+    separately, so the original Email result is never overwritten.
+
+    Multiple rows may reference the same ``thread_message_id`` (T1b): a message
+    can be reprocessed (mirroring the parent Email's manual redraft), and each
+    reprocess appends a new row so the full history is retained — the latest is
+    the newest by ``created_at`` / ``id``. This table starts empty; only new
+    processing (wired in a later piece) ever populates it. The JSON columns
+    deliberately mirror the shapes the parent Email stores (``classification`` /
+    ``routing`` / ``draft`` / ``retrieval_context``) so the same Pydantic
+    serialization can be reused; ``lane`` and ``confidence`` are denormalized
+    scalars for cheap filtering/sorting.
+    """
+
+    __tablename__ = "email_processing_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # Non-unique FK (T1b): a message may have several results over time. CASCADE
+    # so results die with their message (and, transitively, the parent Email).
+    thread_message_id: Mapped[int] = mapped_column(
+        ForeignKey("email_thread_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Pipeline outputs — same JSON shapes the parent Email row stores.
+    classification: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    routing: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # {"query": str, "intent": str, "retrieved_ids": [...]} — matches Email.
+    retrieval_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Denormalized scalars (also derivable from the JSON above): the routing lane
+    # ("AUTO_REPLY" / "HUMAN_REVIEW") and the classifier confidence.
+    lane: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    thread_message: Mapped["EmailThreadMessage"] = relationship(
+        "EmailThreadMessage", back_populates="processing_results"
     )
 
 

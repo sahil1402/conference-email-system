@@ -225,3 +225,105 @@ async def test_email_dict_exposes_source_and_zendesk_status(ctx):
             assert e["zendesk_status"] is None
         else:
             assert e["zendesk_status"] in {"new", "open", "solved"}
+
+
+# --- Solved/closed bucketing (Piece A3) ------------------------------------
+# "solved" is the combined solved+closed bucket alias (see
+# EmailRepository._SOLVED_BUCKET_*). These use their own seed so the exact-count
+# assertions above stay intact.
+#   open: 1 (human_review) · solved: 2 (1 faq, 1 human_review)
+#   closed: 3 (1 faq, 2 human_review)
+_BUCKET_ROWS = [
+    ("open", "human_review"),
+    ("solved", "faq"),
+    ("solved", "human_review"),
+    ("closed", "faq"),
+    ("closed", "human_review"),
+    ("closed", "human_review"),
+]
+
+
+async def _seed_bucket(session):
+    for i, (zstatus, lane) in enumerate(_BUCKET_ROWS):
+        session.add(_zendesk_email(i, zstatus, lane, _BASE_TIME + timedelta(minutes=i)))
+
+
+@pytest_asyncio.fixture
+async def ctx_bucket():
+    """Zendesk rows spanning open / solved / closed for bucket-filter tests."""
+    c = await _make_ctx(seed=_seed_bucket)
+    yield c
+    await c.client.aclose()
+    main.app.dependency_overrides.clear()
+    await c.engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def ctx_closed_only():
+    """Only closed rows — verifies closed folds into the solved bucket even with
+    no strictly-solved row present."""
+
+    async def _seed(session):
+        for i in range(2):
+            session.add(
+                _zendesk_email(i, "closed", "human_review", _BASE_TIME + timedelta(minutes=i))
+            )
+
+    c = await _make_ctx(seed=_seed)
+    yield c
+    await c.client.aclose()
+    main.app.dependency_overrides.clear()
+    await c.engine.dispose()
+
+
+async def test_queue_solved_bucket_returns_solved_and_closed(ctx_bucket):
+    """Filtering by the "solved" bucket returns BOTH solved and closed rows."""
+    resp = await ctx_bucket.client.get(
+        "/api/v1/emails/queue", params={"zendesk_status": "solved", "limit": 200}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 5  # 2 solved + 3 closed
+    assert len(body["emails"]) == 5
+    assert {e["zendesk_status"] for e in body["emails"]} == {"solved", "closed"}
+
+
+async def test_queue_open_still_exact_match(ctx_bucket):
+    """A non-merged status (open) is unchanged — exact-match, excludes solved/closed."""
+    resp = await ctx_bucket.client.get(
+        "/api/v1/emails/queue", params={"zendesk_status": "open", "limit": 200}
+    )
+    body = resp.json()
+    assert body["total"] == 1
+    assert all(e["zendesk_status"] == "open" for e in body["emails"])
+
+
+async def test_queue_solved_bucket_composes_with_lane(ctx_bucket):
+    """The bucket filter still composes with lane: human_review keeps 1 solved +
+    2 closed (the faq solved + faq closed are dropped)."""
+    resp = await ctx_bucket.client.get(
+        "/api/v1/emails/queue",
+        params={"zendesk_status": "solved", "lane": "human_review", "limit": 200},
+    )
+    body = resp.json()
+    assert body["total"] == 3
+    assert all(
+        e["zendesk_status"] in {"solved", "closed"}
+        and e["routing"]["lane"] == "human_review"
+        for e in body["emails"]
+    )
+
+
+async def test_facets_merge_solved_and_closed(ctx_bucket):
+    """Facets show ONE combined solved entry (2 solved + 3 closed = 5); "closed"
+    is never its own row."""
+    body = await _facets(ctx_bucket.client)
+    assert "closed" not in body["by_zendesk_status"]
+    assert body["by_zendesk_status"] == {"open": 1, "solved": 5}
+
+
+async def test_facets_closed_only_folds_into_solved(ctx_closed_only):
+    """With only closed rows and no strictly-solved row, closed still surfaces
+    under the "solved" bucket key."""
+    body = await _facets(ctx_closed_only.client)
+    assert body["by_zendesk_status"] == {"solved": 2}

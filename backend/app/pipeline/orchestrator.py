@@ -416,6 +416,19 @@ class EmailPipeline:
             status=c.status,
         )
 
+    async def compute(self, email_data: dict, db: AsyncSession) -> "_Computed":
+        """Run classify → retrieve → draft → route WITHOUT persisting anything.
+
+        The stable public seam over ``_compute``: callers that persist the
+        result somewhere other than the ``emails`` table (e.g. a per-follow-up
+        ``EmailProcessingResult``) use this instead of creating/updating an
+        Email row. The returned ``_Computed.record`` mirrors the Email JSON
+        column shapes (classification/routing/draft/retrieval_context). Reads
+        the chair roster (best-effort) but performs no writes; the caller owns
+        persistence.
+        """
+        return await self._compute(email_data, db)
+
     async def process_email(
         self, email_data: dict, db: AsyncSession
     ) -> PipelineResult:

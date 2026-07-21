@@ -14,8 +14,19 @@ to "not found" rather than an error.
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Email, EmailThreadMessage
+from app.db.models import Email, EmailProcessingResult, EmailThreadMessage
 from app.models.enums import EmailSource, EmailStatus
+
+# Solved/closed are ONE bucket for queue filtering: a Zendesk ticket
+# auto-transitions solved -> closed over time with no further chair action, so
+# the two are operationally identical. "solved" is REUSED as the combined bucket
+# alias (chosen over a new "solved_or_closed" value so the frontend's existing
+# "Solved" status row needs no new value plumbing): filtering the queue by
+# zendesk_status="solved" matches BOTH solved and closed rows, and the facets
+# report a single "solved" entry. There is deliberately no separate "closed"
+# filter value. Every other status (new/open/pending/hold) stays exact-match.
+_SOLVED_BUCKET_ALIAS = "solved"
+_SOLVED_BUCKET_STATUSES = ("solved", "closed")
 
 # Zendesk-origin columns the ingest adapter may set/patch on an Email row.
 # Kept as an allow-list so ``apply_zendesk_fields`` can never write an arbitrary
@@ -49,7 +60,9 @@ def _queue_conditions(
     server-side: the lane lives in the ``routing`` JSON column, ``chair_id`` /
     ``unassigned`` on the ``assigned_chair_id`` FK, ``status`` on the column,
     ``source`` / ``zendesk_status`` on their columns, and ``search`` is a
-    case-insensitive match on subject OR sender.
+    case-insensitive match on subject OR sender. ``zendesk_status="solved"`` is
+    the combined solved+closed bucket (see _SOLVED_BUCKET_*); other statuses are
+    exact-match.
     """
     conditions: list = []
     if lane is not None:
@@ -67,7 +80,12 @@ def _queue_conditions(
     if source is not None:
         conditions.append(Email.source == source)
     if zendesk_status is not None:
-        conditions.append(Email.zendesk_status == zendesk_status)
+        # "solved" is the combined solved+closed bucket (see _SOLVED_BUCKET_*);
+        # any other value is a plain exact-match.
+        if zendesk_status == _SOLVED_BUCKET_ALIAS:
+            conditions.append(Email.zendesk_status.in_(_SOLVED_BUCKET_STATUSES))
+        else:
+            conditions.append(Email.zendesk_status == zendesk_status)
     if search:
         pattern = f"%{search}%"
         conditions.append(
@@ -331,19 +349,51 @@ class EmailRepository:
 
     async def add_thread_messages(
         self, db: AsyncSession, email_id: str, messages: list[dict]
-    ) -> int:
-        """Bulk-insert thread messages for an email; returns the count added.
+    ) -> list[EmailThreadMessage]:
+        """Bulk-insert thread messages for an email; return the persisted rows.
 
         Each dict is an ``EmailThreadMessage`` field mapping (without
-        ``email_id``, which is set here). Commits once for the batch.
+        ``email_id``, which is set here). Commits once for the batch. The
+        returned rows carry their populated primary keys (the session factory
+        uses ``expire_on_commit=False``), so a caller can link follow-up
+        artifacts (e.g. an ``EmailProcessingResult``) to a specific message.
+        Returns ``[]`` when there is nothing to add.
         """
         pk = _coerce_id(email_id)
         if pk is None or not messages:
-            return 0
+            return []
         rows = [EmailThreadMessage(email_id=pk, **data) for data in messages]
         db.add_all(rows)
         await db.commit()
-        return len(rows)
+        return rows
+
+    async def add_processing_result(
+        self, db: AsyncSession, thread_message_id: int, record: dict
+    ) -> EmailProcessingResult:
+        """Persist a per-message pipeline result (Piece T2) and return it.
+
+        A follow-up requester message gets its own classify→retrieve→route→draft
+        cycle stored HERE — a NEW ``EmailProcessingResult`` row linked to the
+        message — leaving the parent ``Email``'s own classification/routing/draft
+        untouched. ``record`` is the ``_Computed.record`` dict the orchestrator
+        builds; the pipeline-output columns are lifted from it, with ``lane`` and
+        ``confidence`` denormalized from the routing/classification sub-dicts.
+        """
+        classification = record.get("classification") or {}
+        routing = record.get("routing") or {}
+        row = EmailProcessingResult(
+            thread_message_id=thread_message_id,
+            classification=classification or None,
+            routing=routing or None,
+            draft=record.get("draft"),
+            retrieval_context=record.get("retrieval_context"),
+            lane=routing.get("lane"),
+            confidence=classification.get("confidence"),
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row
 
     # --- reads ------------------------------------------------------------
     async def get_by_zendesk_ticket_id(
@@ -505,7 +555,9 @@ class EmailRepository:
         Returns:
           - ``by_zendesk_status``: {zendesk_status -> count} over the context,
             scoped to ``source='zendesk'`` (only Zendesk rows carry a meaningful
-            zendesk_status). Rows with a NULL status are omitted.
+            zendesk_status). Rows with a NULL status are omitted. "closed" is
+            folded into the "solved" bucket, so it never appears as its own entry
+            (they are one filter value — see _SOLVED_BUCKET_*).
           - ``by_source``: {source -> count} over the same context.
           - ``sources``: sorted distinct non-null sources across the WHOLE table
             (unfiltered). This drives the self-hiding source toggle — it must
@@ -525,6 +577,14 @@ class EmailRepository:
         by_zendesk_status = {
             zs: int(count) for zs, count in (await db.execute(zs_stmt)).all() if zs
         }
+        # Fold "closed" into the "solved" bucket so the bar shows ONE combined
+        # entry (they are a single filter value — see _SOLVED_BUCKET_*). Done
+        # here rather than in SQL to keep the grouped query dialect-simple.
+        closed_count = by_zendesk_status.pop("closed", 0)
+        if closed_count:
+            by_zendesk_status[_SOLVED_BUCKET_ALIAS] = (
+                by_zendesk_status.get(_SOLVED_BUCKET_ALIAS, 0) + closed_count
+            )
 
         src_stmt = (
             select(Email.source, func.count(Email.id))
