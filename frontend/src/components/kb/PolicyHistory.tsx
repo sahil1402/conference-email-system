@@ -56,9 +56,14 @@ function snapshotStatus(snapshot: Record<string, unknown> | null): string | null
 
 /**
  * Policy audit log, newest-first, with a Revert action on each policy's
- * latest entry. Revert is the inverse of that entry's change: if the policy
- * is currently active, revert retires it (undoing an add/reactivate); if
- * currently inactive, revert reactivates it (undoing a retirement).
+ * latest entry. For status-toggle entries (create/retire/reactivate), revert
+ * is the inverse of that change: if the policy is currently active, revert
+ * retires it (undoing an add/reactivate); if currently inactive, revert
+ * reactivates it (undoing a retirement). ``policy_edited`` entries are
+ * content-aware instead: revert restores the prior version (POST
+ * .../revert-edit — reactivates the superseded ancestor, retires this tip)
+ * rather than merely toggling status. ``policy_edit_reverted`` entries are
+ * themselves not independently revertable (see ``revertableIds`` below).
  */
 export function PolicyHistory() {
   const { entries, isLoading, isError, refetch } = usePolicyAudit();

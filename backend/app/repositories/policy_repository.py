@@ -180,6 +180,38 @@ class PolicyRepository:
         await db.refresh(row)
         return row
 
+    async def active_lineage_members(
+        self, db: AsyncSession, root_key: str, *, exclude_key: str
+    ) -> list[PolicyDocument]:
+        """Active policies in the lineage rooted at ``root_key``, excluding ``exclude_key``.
+
+        Membership: a row is in lineage ``L`` (``root_key``) if ``_root_of(row) ==
+        L``, i.e. ``row.root_key == L`` OR (``row.root_key IS NULL`` AND
+        ``row.policy_key == L``). Backs the reactivate guard: at most one member
+        of a lineage should ever be active at a time.
+
+        NOTE: placed here (above ``list``, the plain browse method) rather than
+        near ``_root_of``/``edit_policy`` -- this class defines a method named
+        ``list``, which shadows the builtin ``list`` name for any bare
+        ``list[...]`` return-type annotation written below it in the class body
+        (annotations are evaluated at class-definition time against the
+        in-progress class namespace). Keep any new ``-> list[...]``-annotated
+        method above ``async def list(...)``.
+        """
+        result = await db.execute(
+            select(PolicyDocument)
+            .where(PolicyDocument.status == "active")
+            .where(
+                (PolicyDocument.root_key == root_key)
+                | (
+                    PolicyDocument.root_key.is_(None)
+                    & (PolicyDocument.policy_key == root_key)
+                )
+            )
+            .where(PolicyDocument.policy_key != exclude_key)
+        )
+        return list(result.scalars().all())
+
     async def list(
         self,
         db: AsyncSession,

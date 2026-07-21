@@ -178,3 +178,44 @@ async def test_revert_edit_non_tip_409(client):
     # original with no supersedes → not revertable
     resp = await c.post("/api/v1/policies/policy_70/revert-edit", json={"actor": "Chair1"})
     assert resp.status_code == 409
+
+
+async def test_edit_after_revert_collision_suffix(client):
+    """edit -> revert -> edit again reuses the freed version number, colliding
+    with the (still-present, inactive) prior tip's key — the collision-suffix
+    branch in edit_policy must disambiguate it."""
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_80", title="t", content="v1",
+                             visibility="public", status="active"))
+        await s.commit()
+    first_edit = await c.patch("/api/v1/policies/policy_80/edit", json={
+        "title": "t", "content": "v2", "actor": "Chair1"})
+    assert first_edit.status_code == 200
+    tip_key = first_edit.json()["policy_key"]
+    assert tip_key == "policy_80__v2"
+
+    revert_resp = await c.post(f"/api/v1/policies/{tip_key}/revert-edit", json={"actor": "Chair1"})
+    assert revert_resp.status_code == 200
+
+    second_edit = await c.patch("/api/v1/policies/policy_80/edit", json={
+        "title": "t", "content": "v2-again", "actor": "Chair1"})
+    assert second_edit.status_code == 200
+    assert second_edit.json()["policy_key"] == "policy_80__v2-2"
+
+
+async def test_reactivate_ancestor_blocked_while_tip_active(client):
+    """A retired ancestor cannot be reactivated while its edited tip is still
+    active — reactivating would produce two active rows in one lineage."""
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_ln", title="t", content="c",
+                             visibility="public", status="active"))
+        await s.commit()
+    edit_resp = await c.patch("/api/v1/policies/policy_ln/edit", json={
+        "title": "t", "content": "c2", "actor": "Chair1"})
+    assert edit_resp.status_code == 200
+    assert edit_resp.json()["policy_key"] == "policy_ln__v2"
+
+    resp = await c.patch("/api/v1/policies/policy_ln/reactivate", json={"actor": "Chair1"})
+    assert resp.status_code == 409

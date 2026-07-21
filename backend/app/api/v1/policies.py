@@ -230,6 +230,17 @@ async def reactivate_policy(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"policy {policy_key} not found")
     if existing.status == "active":  # no-op, don't audit/rebuild
         return {"policy_key": policy_key, "status": "active"}
+    root = _policies._root_of(existing)
+    active_siblings = await _policies.active_lineage_members(db, root, exclude_key=policy_key)
+    if active_siblings:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Another version of this policy is already active; "
+                           "retire it before reactivating this one.",
+                "active_key": active_siblings[0].policy_key,
+            },
+        )
     row = await _policies.reactivate(db, policy_key)
     await _audit.log(db, policy_key=policy_key, action="policy_reactivated",
                      actor=f"chair:{payload.actor}", before={"status": "inactive"},

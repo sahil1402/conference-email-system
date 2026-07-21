@@ -437,7 +437,7 @@ export interface PolicyDocument {
 export interface PolicyAuditEntry {
   id: number;
   policy_key: string;
-  action: string; // policy_created | policy_retired | policy_reactivated
+  action: string; // policy_created | policy_retired | policy_reactivated | policy_edited | policy_edit_reverted
   actor: string;
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
