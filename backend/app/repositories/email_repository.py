@@ -29,6 +29,15 @@ from app.models.enums import EmailSource, EmailStatus
 _SOLVED_BUCKET_ALIAS = "solved"
 _SOLVED_BUCKET_STATUSES = ("solved", "closed")
 
+# Zendesk statuses that mean "resolved — do not re-draft on a policy change".
+# Deliberately a SEPARATE constant from _SOLVED_BUCKET_STATUSES above even though
+# the values coincide today: that one is a display decision (which statuses the
+# queue's "Solved / Closed" row folds together), this one is a pipeline gate
+# (which tickets a KB-change sweep may re-draft). Splitting "closed" back out as
+# its own queue filter must not silently change what the sweep re-drafts, so the
+# two concerns stay independently changeable.
+_RESOLVED_ZENDESK_STATUSES = ("solved", "closed")
+
 # Zendesk-origin columns the ingest adapter may set/patch on an Email row.
 # Kept as an allow-list so ``apply_zendesk_fields`` can never write an arbitrary
 # attribute, mirroring the guarded key set in ``update_email_status``.
@@ -642,10 +651,28 @@ class EmailRepository:
 
         "Open" = has an auto-draft awaiting chair action and not yet approved or
         sent. These are the only tickets a KB-change sweep re-evaluates.
+
+        A ticket already solved/closed in Zendesk is excluded even when its LOCAL
+        status is still draft_generated: the two statuses are orthogonal, and
+        re-drafting a resolved ticket on every policy edit is wasted model spend
+        on a conversation nobody will read. This gate is scoped to the sweep only
+        — a NEW customer comment on a solved ticket still reprocesses via the
+        ingest adapter's follow-up path, which is intentionally unaffected here.
+
+        NULL ``zendesk_status`` (non-Zendesk rows, e.g. toy_dataset) is allowed
+        through. The NULL check is explicit because SQL three-valued logic makes
+        ``NULL NOT IN (...)`` evaluate to NULL, which would silently drop every
+        non-Zendesk ticket from the sweep.
         """
         result = await db.execute(
             select(Email)
-            .where(Email.status == EmailStatus.DRAFT_GENERATED.value)
+            .where(
+                Email.status == EmailStatus.DRAFT_GENERATED.value,
+                or_(
+                    Email.zendesk_status.is_(None),
+                    Email.zendesk_status.not_in(_RESOLVED_ZENDESK_STATUSES),
+                ),
+            )
             .order_by(Email.id)
         )
         return list(result.scalars().all())
