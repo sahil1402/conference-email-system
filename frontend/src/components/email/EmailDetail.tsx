@@ -33,6 +33,7 @@ import {
   type SplitActionStatus,
 } from "@/components/ui";
 import { PolicyDetailModal } from "./PolicyDetailModal";
+import { ConversationThread } from "./ConversationThread";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
@@ -290,21 +291,10 @@ export function EmailDetail({
           )}
         </header>
 
-        {/* EMAIL BODY */}
-        <div
-          className="max-h-64 overflow-y-auto rounded-lg border p-4 text-sm leading-relaxed"
-          style={{
-            backgroundColor: "var(--surface-raised)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-primary)",
-            fontFamily:
-              'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace',
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-          }}
-        >
-          {email.body}
-        </div>
+        {/* CONVERSATION (multi-turn). Replaces the old single-body box: no
+            fixed height cap, no monospace, readable base size, and the outer
+            pane is the single scroll region. */}
+        <ConversationThread email={email} />
 
         {/* POLICY CITATIONS */}
         <Collapsible title="Policy Citations" defaultOpen>
@@ -313,6 +303,45 @@ export function EmailDetail({
             citationIds={draft?.citations ?? []}
           />
         </Collapsible>
+
+        {/* PREVIOUS DRAFTS — superseded by a follow-up reprocess (draft.history).
+            Omitted entirely when there is no history. */}
+        {draft?.history && draft.history.length > 0 && (
+          <Collapsible title={`Previous drafts (${draft.history.length})`}>
+            <div className="space-y-3">
+              {draft.history.map((h, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border p-3"
+                  style={{
+                    borderColor: "var(--border-subtle)",
+                    backgroundColor: "var(--surface-raised)",
+                  }}
+                >
+                  <div
+                    className="mb-1 flex items-center gap-2 text-xs"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <span>#{i + 1}</span>
+                    {h.superseded_at && <span>· {formatDateTime(h.superseded_at)}</span>}
+                    {h.reason && <span>· {h.reason}</span>}
+                    {h.is_edited && <span>· edited</span>}
+                  </div>
+                  <div
+                    className="text-sm leading-relaxed"
+                    style={{
+                      color: "var(--text-secondary)",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {h.draft_text ?? ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Collapsible>
+        )}
 
         {/* CHAIR SUGGESTIONS — drafter notes + gaps, never part of the reply.
             Empty → the whole section is omitted (no empty box). */}
