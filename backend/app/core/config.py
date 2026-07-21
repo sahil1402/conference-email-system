@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     # subject+body[:600] query. Default is "distill" (E003-validated; pairs with
     # RETRIEVAL_BACKEND=fusion).
     QUERY_STRATEGY: Literal["prefix", "distill"] = "distill"
+    # Max characters of a multi-turn conversation transcript fed to the
+    # distiller/drafter when re-processing a follow-up. Bounded recent-turns-
+    # first (newest kept whole; older dropped with a marker; the latest
+    # requester turn is never dropped). Set high — threads are usually short.
+    THREAD_TRANSCRIPT_MAX_CHARS: int = 16000
 
     # --- Outbound send policy (transport gate) -----------------------------
     # Load-bearing precondition for ANY outbound transport (none exists yet;
