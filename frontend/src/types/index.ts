@@ -427,13 +427,17 @@ export interface PolicyDocument {
   status: PolicyStatus;
   source: string | null;
   updated_at: string | null;
+  supersedes: string | null;
+  superseded_by: string | null;
+  root_key: string | null;
+  version: number;
 }
 
 /** One policy_audit_logs row (backend PolicyAuditLog). */
 export interface PolicyAuditEntry {
   id: number;
   policy_key: string;
-  action: string; // policy_created | policy_retired | policy_reactivated
+  action: string; // policy_created | policy_retired | policy_reactivated | policy_edited | policy_edit_reverted
   actor: string;
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
@@ -462,6 +466,16 @@ export interface CreatePolicyRequest {
   // [tags-dropped E007] tags?: string[];
   actor: string;
   retire_keys?: string[];
+}
+
+/** PATCH /api/v1/policies/{key}/edit request body. */
+export interface EditPolicyRequest {
+  title: string;
+  content: string;
+  category?: string | null;
+  visibility?: PolicyVisibility;
+  actor: string;
+  expected_updated_at?: string | null;
 }
 
 export interface PoliciesResponse { policies: PolicyDocument[]; }

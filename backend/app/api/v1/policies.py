@@ -71,6 +71,22 @@ class ReactivateRequest(BaseModel):
     actor: str
 
 
+class EditPolicyRequest(BaseModel):
+    title: str
+    content: str
+    category: str | None = None
+    # None ⇒ preserve the base policy's current visibility.
+    visibility: str | None = None
+    actor: str
+    # ISO string the client last saw; None ⇒ skip the optimistic-concurrency
+    # check (used by the injection similar-list, which edits a freshly-read hit).
+    expected_updated_at: str | None = None
+
+
+class RevertEditRequest(BaseModel):
+    actor: str
+
+
 async def _rebuild_index() -> None:
     """Clear the active retriever's cache so the next retrieve() reloads the KB.
 
@@ -91,6 +107,8 @@ def _policy_dict(p) -> dict:
         "category": p.category, "visibility": p.visibility,
         "status": p.status, "source": p.source,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        "supersedes": p.supersedes, "superseded_by": p.superseded_by,
+        "root_key": p.root_key, "version": p.version,
     }
 
 
@@ -212,12 +230,107 @@ async def reactivate_policy(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"policy {policy_key} not found")
     if existing.status == "active":  # no-op, don't audit/rebuild
         return {"policy_key": policy_key, "status": "active"}
+    root = _policies._root_of(existing)
+    active_siblings = await _policies.active_lineage_members(db, root, exclude_key=policy_key)
+    if active_siblings:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Another version of this policy is already active; "
+                           "retire it before reactivating this one.",
+                "active_key": active_siblings[0].policy_key,
+            },
+        )
     row = await _policies.reactivate(db, policy_key)
     await _audit.log(db, policy_key=policy_key, action="policy_reactivated",
                      actor=f"chair:{payload.actor}", before={"status": "inactive"},
                      after={"status": "active"})
     await _rebuild_index()
     return {"policy_key": policy_key, "status": row.status}
+
+
+@router.patch("/{policy_key}/edit")
+async def edit_policy(
+    policy_key: str, payload: EditPolicyRequest, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Edit an active policy → a new active version; retire the base.
+
+    Only the active tip of a lineage is editable. Optimistic concurrency: if the
+    client passes ``expected_updated_at`` and it no longer matches, the edit is
+    rejected (409) so a stale form cannot clobber a newer version.
+    """
+    base = await _policies.get_by_key(db, policy_key)
+    if base is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"policy {policy_key} not found")
+    if base.status != "active" or base.superseded_by is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Only an active, current policy can be edited."},
+        )
+    if payload.expected_updated_at is not None:
+        current = base.updated_at.isoformat() if base.updated_at else None
+        if current != payload.expected_updated_at:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"message": "Policy changed since you loaded it; reload and retry.",
+                        "current_updated_at": current},
+            )
+    visibility = payload.visibility or base.visibility
+    before = {"policy_key": base.policy_key, "title": base.title,
+              "content": base.content, "visibility": base.visibility, "status": base.status}
+    new_row = await _policies.edit_policy(
+        db, base=base, title=payload.title, content=payload.content,
+        category=payload.category, visibility=visibility, actor=payload.actor,
+    )
+    await _audit.log(
+        db, policy_key=new_row.policy_key, action="policy_edited",
+        actor=f"chair:{payload.actor}", before=before,
+        after={"policy_key": new_row.policy_key, "title": new_row.title,
+               "content": new_row.content, "visibility": new_row.visibility,
+               "status": new_row.status, "supersedes": new_row.supersedes,
+               "version": new_row.version},
+    )
+    await _rebuild_index()
+    return _policy_dict(new_row)
+
+
+@router.post("/{policy_key}/revert-edit")
+async def revert_edit(
+    policy_key: str, payload: RevertEditRequest, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Undo one edit: reactivate the immediately-prior version, retire this tip.
+
+    Repeatable — after a revert the ancestor is the tip again. Only a current
+    (active, not-yet-superseded) edited tip with a ``supersedes`` ancestor can be
+    reverted.
+    """
+    tip = await _policies.get_by_key(db, policy_key)
+    if tip is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"policy {policy_key} not found")
+    if tip.status != "active" or tip.superseded_by is not None or not tip.supersedes:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Only a current edited policy with a prior version can be reverted."},
+        )
+    ancestor = await _policies.get_by_key(db, tip.supersedes)
+    if ancestor is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Prior version no longer exists; cannot revert."},
+        )
+    before = {"policy_key": tip.policy_key, "title": tip.title,
+              "content": tip.content, "status": tip.status}
+    restored = await _policies.revert_edit(db, tip=tip)
+    await _audit.log(
+        db, policy_key=tip.policy_key, action="policy_edit_reverted",
+        actor=f"chair:{payload.actor}", before=before,
+        after={"policy_key": restored.policy_key, "title": restored.title,
+               "content": restored.content, "status": restored.status},
+    )
+    await _rebuild_index()
+    return _policy_dict(restored)
 
 
 @router.post("/similar")

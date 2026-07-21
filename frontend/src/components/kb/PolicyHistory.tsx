@@ -8,6 +8,7 @@ import {
   usePolicyAudit,
   useReactivatePolicy,
   useRetirePolicy,
+  useRevertPolicyEdit,
 } from "@/hooks";
 import {
   Badge,
@@ -30,6 +31,10 @@ function actionBadgeVariant(action: string): BadgeVariant {
       return "danger";
     case "policy_reactivated":
       return "review";
+    case "policy_edited":
+      return "warning";
+    case "policy_edit_reverted":
+      return "neutral";
     default:
       return "neutral";
   }
@@ -51,15 +56,21 @@ function snapshotStatus(snapshot: Record<string, unknown> | null): string | null
 
 /**
  * Policy audit log, newest-first, with a Revert action on each policy's
- * latest entry. Revert is the inverse of that entry's change: if the policy
- * is currently active, revert retires it (undoing an add/reactivate); if
- * currently inactive, revert reactivates it (undoing a retirement).
+ * latest entry. For status-toggle entries (create/retire/reactivate), revert
+ * is the inverse of that change: if the policy is currently active, revert
+ * retires it (undoing an add/reactivate); if currently inactive, revert
+ * reactivates it (undoing a retirement). ``policy_edited`` entries are
+ * content-aware instead: revert restores the prior version (POST
+ * .../revert-edit — reactivates the superseded ancestor, retires this tip)
+ * rather than merely toggling status. ``policy_edit_reverted`` entries are
+ * themselves not independently revertable (see ``revertableIds`` below).
  */
 export function PolicyHistory() {
   const { entries, isLoading, isError, refetch } = usePolicyAudit();
   const { policies } = usePolicies();
   const retireMutation = useRetirePolicy();
   const reactivateMutation = useReactivatePolicy();
+  const revertEditMutation = useRevertPolicyEdit();
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
 
   // Current status per policy_key, from the live policy list (not the audit
@@ -88,7 +99,7 @@ export function PolicyHistory() {
     entries.forEach((entry) => {
       if (!seenKeys.has(entry.policy_key)) {
         seenKeys.add(entry.policy_key);
-        ids.add(entry.id);
+        if (entry.action !== "policy_edit_reverted") ids.add(entry.id);
       }
     });
     return ids;
@@ -101,9 +112,15 @@ export function PolicyHistory() {
     ? retireMutation.variables ?? null
     : reactivateMutation.isPending
       ? reactivateMutation.variables ?? null
-      : null;
+      : revertEditMutation.isPending
+        ? revertEditMutation.variables ?? null
+        : null;
 
   function handleConfirmRevert(entry: PolicyAuditEntry) {
+    if (entry.action === "policy_edited") {
+      revertEditMutation.mutate(entry.policy_key);
+      return;
+    }
     const currentStatus = statusByKey.get(entry.policy_key);
     if (currentStatus === "active") {
       retireMutation.mutate(entry.policy_key);
@@ -147,7 +164,10 @@ export function PolicyHistory() {
           entry={entry}
           policy={policyByKey.get(entry.policy_key) ?? null}
           isRevertable={
-            revertableIds.has(entry.id) && statusByKey.has(entry.policy_key)
+            revertableIds.has(entry.id) &&
+            statusByKey.has(entry.policy_key) &&
+            (entry.action !== "policy_edited" ||
+              statusByKey.get(entry.policy_key) === "active")
           }
           isPending={pendingKey === entry.policy_key}
           isConfirming={confirmingId === entry.id}

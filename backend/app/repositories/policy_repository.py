@@ -19,6 +19,7 @@ _POLICY_COLUMNS = {
     # [tags-dropped E007] "tags" removed — column dropped, no retrieval signal.
     "policy_key", "title", "content", "category", "score", "source",
     "visibility", "status", "intents",
+    "supersedes", "superseded_by", "root_key", "version",
 }
 
 
@@ -179,6 +180,38 @@ class PolicyRepository:
         await db.refresh(row)
         return row
 
+    async def active_lineage_members(
+        self, db: AsyncSession, root_key: str, *, exclude_key: str
+    ) -> list[PolicyDocument]:
+        """Active policies in the lineage rooted at ``root_key``, excluding ``exclude_key``.
+
+        Membership: a row is in lineage ``L`` (``root_key``) if ``_root_of(row) ==
+        L``, i.e. ``row.root_key == L`` OR (``row.root_key IS NULL`` AND
+        ``row.policy_key == L``). Backs the reactivate guard: at most one member
+        of a lineage should ever be active at a time.
+
+        NOTE: placed here (above ``list``, the plain browse method) rather than
+        near ``_root_of``/``edit_policy`` -- this class defines a method named
+        ``list``, which shadows the builtin ``list`` name for any bare
+        ``list[...]`` return-type annotation written below it in the class body
+        (annotations are evaluated at class-definition time against the
+        in-progress class namespace). Keep any new ``-> list[...]``-annotated
+        method above ``async def list(...)``.
+        """
+        result = await db.execute(
+            select(PolicyDocument)
+            .where(PolicyDocument.status == "active")
+            .where(
+                (PolicyDocument.root_key == root_key)
+                | (
+                    PolicyDocument.root_key.is_(None)
+                    & (PolicyDocument.policy_key == root_key)
+                )
+            )
+            .where(PolicyDocument.policy_key != exclude_key)
+        )
+        return list(result.scalars().all())
+
     async def list(
         self,
         db: AsyncSession,
@@ -213,3 +246,63 @@ class PolicyRepository:
         await db.commit()
         await db.refresh(row)
         return row
+
+    @staticmethod
+    def _root_of(policy: PolicyDocument) -> str:
+        """Lineage root key: a versioned row carries ``root_key``; an original is
+        its own root (``root_key`` is NULL)."""
+        return policy.root_key or policy.policy_key
+
+    async def edit_policy(
+        self,
+        db: AsyncSession,
+        *,
+        base: PolicyDocument,
+        title: str,
+        content: str,
+        category: str | None,
+        visibility: str,
+        actor: str,
+    ) -> PolicyDocument:
+        """Create a new active version from ``base`` and retire ``base`` in place.
+
+        The new row supersedes ``base``; ``base.superseded_by`` points forward to
+        it. ``intents`` carry over unchanged. The caller validates that ``base``
+        is the active tip and writes the audit entry. Commits once.
+        """
+        root = self._root_of(base)
+        new_version = base.version + 1
+        key = f"{root}__v{new_version}"
+        n = 1
+        while await self.get_by_key(db, key) is not None:
+            n += 1
+            key = f"{root}__v{new_version}-{n}"
+        new_row = PolicyDocument(
+            policy_key=key, title=title, content=content, category=category,
+            source=f"chair:{actor}", visibility=visibility, status="active",
+            intents=list(base.intents) if base.intents else None,
+            supersedes=base.policy_key, superseded_by=None,
+            root_key=root, version=new_version,
+        )
+        base.status = "inactive"
+        base.superseded_by = key
+        db.add(new_row)
+        await db.commit()
+        await db.refresh(new_row)
+        return new_row
+
+    async def revert_edit(
+        self, db: AsyncSession, *, tip: PolicyDocument
+    ) -> PolicyDocument:
+        """Undo one edit: reactivate ``tip``'s ancestor and retire ``tip``.
+
+        Returns the reactivated ancestor. The caller validates that ``tip`` is an
+        active tip with a ``supersedes`` ancestor and writes the audit entry.
+        """
+        ancestor = await self.get_by_key(db, tip.supersedes)
+        ancestor.status = "active"
+        ancestor.superseded_by = None
+        tip.status = "inactive"
+        await db.commit()
+        await db.refresh(ancestor)
+        return ancestor

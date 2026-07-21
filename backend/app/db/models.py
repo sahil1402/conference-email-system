@@ -14,6 +14,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     String,
     Text,
@@ -396,6 +397,19 @@ class PolicyDocument(Base):
     )
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="active", server_default="active", index=True
+    )
+
+    # Versioning / lineage (chair edit-a-copy). An edit inserts a new active row
+    # that ``supersedes`` the retired base; ``superseded_by`` is the reverse
+    # pointer (NULL ⇒ this row is the live tip). ``root_key`` groups a lineage
+    # (NULL ⇒ the row is its own root — true for every original/imported policy;
+    # it cannot be a column default because it derives from ``policy_key``).
+    # ``version`` is the 1-based depth for display.
+    supersedes: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    superseded_by: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    root_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
 
     created_at: Mapped[datetime] = mapped_column(
