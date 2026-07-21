@@ -2,9 +2,11 @@ import apiClient from "./client";
 
 import type {
   CreatePolicyRequest,
+  EditPolicyRequest,
   PoliciesResponse,
   PolicyAuditResponse,
   PolicyDetail,
+  PolicyDocument,
   PolicyListParams,
   SimilarResponse,
 } from "@/types";
@@ -62,6 +64,30 @@ export async function retirePolicy(key: string, actor: string): Promise<{ policy
 /** PATCH /policies/{key}/reactivate. */
 export async function reactivatePolicy(key: string, actor: string): Promise<{ policy_key: string; status: string }> {
   const { data } = await apiClient.patch(`/policies/${encodeURIComponent(key)}/reactivate`, { actor });
+  return data;
+}
+
+/** PATCH /policies/{key}/edit — edit an active policy into a new version. */
+export async function editPolicy(
+  key: string,
+  body: EditPolicyRequest,
+): Promise<PolicyDocument> {
+  const { data } = await apiClient.patch<PolicyDocument>(
+    `/policies/${encodeURIComponent(key)}/edit`,
+    body,
+  );
+  return data;
+}
+
+/** POST /policies/{key}/revert-edit — undo one edit (restore prior version). */
+export async function revertPolicyEdit(
+  key: string,
+  actor: string,
+): Promise<PolicyDocument> {
+  const { data } = await apiClient.post<PolicyDocument>(
+    `/policies/${encodeURIComponent(key)}/revert-edit`,
+    { actor },
+  );
   return data;
 }
 

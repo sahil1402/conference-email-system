@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   createPolicy,
+  editPolicy,
   findSimilarPolicies,
   getPolicy,
   listPolicies,
@@ -9,8 +10,9 @@ import {
   reactivatePolicy,
   reevaluatePolicies,
   retirePolicy,
+  revertPolicyEdit,
 } from "@/lib/api";
-import type { CreatePolicyRequest, PolicyListParams } from "@/types";
+import type { CreatePolicyRequest, EditPolicyRequest, PolicyListParams } from "@/types";
 
 /** Placeholder chair identity until the account system lands. */
 export const ACTOR = "Chair1";
@@ -89,6 +91,23 @@ export function useReactivatePolicy() {
   const invalidate = useInvalidateKb();
   return useMutation({
     mutationFn: (key: string) => reactivatePolicy(key, ACTOR),
+    onSuccess: invalidate,
+  });
+}
+
+export function useEditPolicy() {
+  const invalidate = useInvalidateKb();
+  return useMutation({
+    mutationFn: ({ key, body }: { key: string; body: Omit<EditPolicyRequest, "actor"> }) =>
+      editPolicy(key, { ...body, actor: ACTOR }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRevertPolicyEdit() {
+  const invalidate = useInvalidateKb();
+  return useMutation({
+    mutationFn: (key: string) => revertPolicyEdit(key, ACTOR),
     onSuccess: invalidate,
   });
 }
