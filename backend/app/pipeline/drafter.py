@@ -313,17 +313,32 @@ def _build_user_prompt(
         sender = f"{sender_name} <{sender}>"
     subject = email.get("subject", "")
     body = email.get("body", "")
+    transcript = email.get("thread_transcript")
 
     context_blocks = []
     for chunk in retrieved_chunks:
         context_blocks.append(f"[{chunk.policy_id}] {chunk.title}\n{chunk.content}")
     context = "\n\n".join(context_blocks) if context_blocks else "(no policy context retrieved)"
 
+    if transcript:
+        email_block = (
+            "--- CONVERSATION (oldest to newest) ---\n"
+            f"From: {sender}\n"
+            f"Subject: {subject}\n"
+            f"{transcript}\n\n"
+            "Reply to the LATEST message from the requester. Do not repeat "
+            "information already provided earlier in the conversation.\n\n"
+        )
+    else:
+        email_block = (
+            "--- ORIGINAL EMAIL ---\n"
+            f"From: {sender}\n"
+            f"Subject: {subject}\n"
+            f"Body: {body}\n\n"
+        )
+
     return (
-        "--- ORIGINAL EMAIL ---\n"
-        f"From: {sender}\n"
-        f"Subject: {subject}\n"
-        f"Body: {body}\n\n"
+        f"{email_block}"
         "--- CLASSIFICATION ---\n"
         f"Intent: {classification.intent} (confidence: {classification.confidence:.2f})\n\n"
         "--- RETRIEVED POLICY CONTEXT ---\n"
