@@ -219,6 +219,19 @@ export function EmailDetail({
             className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
             style={{ color: "var(--text-secondary)" }}
           >
+            {/* Zendesk ticket number — muted, secondary (matches the list-view
+                treatment). Omitted entirely for non-Zendesk rows (null). */}
+            {email.zendesk_ticket_id != null && (
+              <>
+                <span
+                  className="tabular-nums"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  #{email.zendesk_ticket_id}
+                </span>
+                <span style={{ color: "var(--text-muted)" }}>·</span>
+              </>
+            )}
             <span style={{ color: "var(--text-primary)" }}>{email.sender}</span>
             <span style={{ color: "var(--text-muted)" }}>·</span>
             <span>{formatDateTime(email.received_at ?? email.created_at)}</span>
