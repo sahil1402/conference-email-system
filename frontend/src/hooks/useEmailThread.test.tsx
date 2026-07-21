@@ -86,9 +86,11 @@ function wrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return ({ children }: { children: ReactNode }) => (
+  const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
+  Wrapper.displayName = "Wrapper";
+  return Wrapper;
 }
 
 beforeEach(() => {
