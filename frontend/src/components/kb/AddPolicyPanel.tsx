@@ -5,6 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 
 import { ACTOR, useCreatePolicy, useFindSimilar } from "@/hooks";
 import { Button, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { PolicyEditor } from "@/components/kb/PolicyEditor";
 import { cn } from "@/lib/utils";
 import type { ApiError } from "@/types";
 
@@ -36,6 +37,8 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
   // [tags-dropped E007] const [tagsText, setTagsText] = useState("");
   const [retireKeys, setRetireKeys] = useState<Set<string>>(new Set());
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [editingSimilarKey, setEditingSimilarKey] = useState<string | null>(null);
+  const [reconciledKeys, setReconciledKeys] = useState<Set<string>>(new Set());
 
   const findSimilar = useFindSimilar();
   const createPolicy = useCreatePolicy();
@@ -252,12 +255,16 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                     </div>
                     <label
                       className="flex shrink-0 items-center gap-2 text-xs"
-                      style={{ color: "var(--text-secondary)" }}
+                      style={{
+                        color: "var(--text-secondary)",
+                        opacity: reconciledKeys.has(policy.policy_key) ? 0.5 : 1,
+                      }}
                     >
                       <input
                         type="checkbox"
                         checked={retireKeys.has(policy.policy_key)}
                         onChange={() => toggleRetireKey(policy.policy_key)}
+                        disabled={reconciledKeys.has(policy.policy_key)}
                         className="h-4 w-4"
                       />
                       supersede (retire this)
@@ -289,6 +296,40 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                     />
                     {isExpanded ? "Show less" : "Show more"}
                   </button>
+
+                  {reconciledKeys.has(policy.policy_key) ? (
+                    <p className="mt-2 text-xs" style={{ color: "var(--success, var(--accent))" }}>
+                      Reconciled — a new version was created and this policy retired.
+                    </p>
+                  ) : editingSimilarKey === policy.policy_key ? (
+                    <div className="mt-2">
+                      <PolicyEditor
+                        policyKey={policy.policy_key}
+                        initialTitle={policy.title}
+                        initialContent={policy.content}
+                        onDone={() => {
+                          setReconciledKeys((prev) => new Set(prev).add(policy.policy_key));
+                          setRetireKeys((prev) => {
+                            const next = new Set(prev);
+                            next.delete(policy.policy_key);
+                            return next;
+                          });
+                          setEditingSimilarKey(null);
+                          onCreated();
+                        }}
+                        onCancel={() => setEditingSimilarKey(null)}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setEditingSimilarKey(policy.policy_key)}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
+                      style={{ color: "var(--accent)" }}
+                    >
+                      Edit to reconcile
+                    </button>
+                  )}
                 </div>
               );
             })}
