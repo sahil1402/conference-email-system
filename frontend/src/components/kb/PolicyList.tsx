@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { Badge, Button } from "@/components/ui";
+import { PolicyEditor } from "@/components/kb/PolicyEditor";
 import { cn } from "@/lib/utils";
 import type { PolicyDocument } from "@/types";
 
@@ -23,6 +24,7 @@ export function PolicyList({
   pendingKey,
 }: PolicyListProps) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [editingKey, setEditingKey] = useState<string | null>(null);
 
   function toggleExpanded(key: string) {
     setExpandedKeys((prev) => {
@@ -44,6 +46,9 @@ export function PolicyList({
           isPending={pendingKey === policy.policy_key}
           isExpanded={expandedKeys.has(policy.policy_key)}
           onToggleExpanded={() => toggleExpanded(policy.policy_key)}
+          isEditing={editingKey === policy.policy_key}
+          onEdit={() => setEditingKey(policy.policy_key)}
+          onEditDone={() => setEditingKey(null)}
         />
       ))}
     </ul>
@@ -57,6 +62,9 @@ function PolicyRow({
   isPending,
   isExpanded,
   onToggleExpanded,
+  isEditing,
+  onEdit,
+  onEditDone,
 }: {
   policy: PolicyDocument;
   onRetire: (key: string) => void;
@@ -64,6 +72,9 @@ function PolicyRow({
   isPending: boolean;
   isExpanded: boolean;
   onToggleExpanded: () => void;
+  isEditing: boolean;
+  onEdit: () => void;
+  onEditDone: () => void;
 }) {
   const isActive = policy.status === "active";
 
@@ -102,17 +113,28 @@ function PolicyRow({
             {policy.status}
           </Badge>
         </div>
-        <div className="shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           {isActive ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => onRetire(policy.policy_key)}
-              disabled={isPending}
-            >
-              Retire
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={onEdit}
+                disabled={isPending || isEditing}
+              >
+                Edit
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => onRetire(policy.policy_key)}
+                disabled={isPending}
+              >
+                Retire
+              </Button>
+            </>
           ) : (
             <Button
               type="button"
@@ -126,37 +148,52 @@ function PolicyRow({
         </div>
       </div>
 
-      {/* Line 2: title */}
-      <p
-        className="mt-2 text-sm font-semibold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        {policy.title}
-      </p>
-
-      {/* Line 3: content — truncated unless expanded */}
-      <p
-        className={cn("mt-1 text-sm", !isExpanded && "line-clamp-2")}
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {policy.content}
-      </p>
-
-      <button
-        type="button"
-        onClick={onToggleExpanded}
-        aria-expanded={isExpanded}
-        className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
-        style={{ color: "var(--accent)" }}
-      >
-        <ChevronDown
-          className={cn(
-            "h-3.5 w-3.5 transition-transform duration-200",
-            isExpanded && "rotate-180"
-          )}
-        />
-        {isExpanded ? "Show less" : "Show more"}
-      </button>
+      {isEditing ? (
+        <div className="mt-3">
+          <PolicyEditor
+            policyKey={policy.policy_key}
+            initialTitle={policy.title}
+            initialContent={policy.content}
+            initialCategory={policy.category}
+            initialVisibility={policy.visibility}
+            expectedUpdatedAt={policy.updated_at}
+            onDone={onEditDone}
+            onCancel={onEditDone}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Line 2: title */}
+          <p
+            className="mt-2 text-sm font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {policy.title}
+          </p>
+          {/* Line 3: content — truncated unless expanded */}
+          <p
+            className={cn("mt-1 text-sm", !isExpanded && "line-clamp-2")}
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {policy.content}
+          </p>
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            aria-expanded={isExpanded}
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
+            style={{ color: "var(--accent)" }}
+          >
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 transition-transform duration-200",
+                isExpanded && "rotate-180"
+              )}
+            />
+            {isExpanded ? "Show less" : "Show more"}
+          </button>
+        </>
+      )}
     </li>
   );
 }
