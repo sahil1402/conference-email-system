@@ -55,9 +55,12 @@ class FakePipeline:
     the parent Email's own.
     """
 
-    def __init__(self):
+    def __init__(self, fail_bodies=None):
         self.calls: list[dict] = []
         self.compute_calls: list[dict] = []
+        # Follow-up bodies whose compute() should raise (failure-injection for
+        # per-message isolation tests).
+        self._fail_bodies = set(fail_bodies or ())
         self._repo = EmailRepository()
 
     async def process_email(self, email_data, db):
@@ -77,8 +80,10 @@ class FakePipeline:
         )
         return SimpleNamespace(email_id=email.id)
 
-    async def _compute(self, email_data, db):
+    async def compute(self, email_data, db):
         self.compute_calls.append(email_data)
+        if email_data.get("body") in self._fail_bodies:
+            raise RuntimeError("simulated drafter/retriever failure")
         record = {
             "classification": {"intent": "author_list_change", "confidence": 0.77},
             "routing": {"lane": "human_review"},
@@ -368,6 +373,71 @@ async def test_new_customer_followup_creates_processing_result(adb):
     ).scalar_one()
     assert parent_after.classification == parent_classification_before
     assert parent_after.classification["confidence"] == 0.9  # initial-inquiry value
+
+
+@pytest.mark.asyncio
+async def test_followup_failure_isolated_within_sync_batch(adb):
+    """T2c: one follow-up whose pipeline run fails does NOT abort the batch —
+    a follow-up on another ticket still processes, and the failure is counted on
+    ``failed_processing`` + recorded in ``errors`` (observable to a chair later).
+    """
+    from app.db.models import EmailProcessingResult
+
+    requester = _user(500, "end-user")
+    # compute() raises for the ticket-100 follow-up body; succeeds otherwise.
+    pipeline = FakePipeline(fail_bodies={"boom please fail"})
+
+    # Poll 1: create two tickets (100, 200), each with an initial inquiry.
+    page1 = _incremental_page(
+        [_ticket(100, status="open"), _ticket(200, status="open")], users=[requester]
+    )
+    comments1 = {
+        100: {"comments": [_comment(9001, 500)], "users": [requester]},
+        200: {"comments": [_comment(8001, 500)], "users": [requester]},
+    }
+    await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep
+    )
+
+    # Poll 2: ticket 100 gets a BAD follow-up; ticket 200 gets a GOOD follow-up.
+    page2 = _incremental_page(
+        [
+            _ticket(100, status="open", updated="2026-07-15T11:00:00Z"),
+            _ticket(200, status="open", updated="2026-07-15T11:00:00Z"),
+        ],
+        users=[requester],
+    )
+    comments2 = {
+        100: {
+            "comments": [
+                _comment(9001, 500),
+                _comment(9002, 500, body="boom please fail", created="2026-07-15T11:00:00Z"),
+            ],
+            "users": [requester],
+        },
+        200: {
+            "comments": [
+                _comment(8001, 500),
+                _comment(8002, 500, body="a normal question", created="2026-07-15T11:00:00Z"),
+            ],
+            "users": [requester],
+        },
+    }
+    res2 = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep
+    )
+
+    # Batch completed; both replies surfaced; exactly one follow-up failed.
+    assert res2.customer_replies == 2
+    assert res2.failed_processing == 1
+    assert len(res2.errors) == 1
+    assert "ticket 100" in res2.errors[0] and "9002" in res2.errors[0]
+    assert res2.failed == 0  # ticket-level failure is a different counter
+
+    # Only the GOOD follow-up (ticket 200) produced a result row.
+    results = (await adb.execute(select(EmailProcessingResult))).scalars().all()
+    assert len(results) == 1
+    assert results[0].draft["draft_text"] == "followup draft: a normal question"
 
 
 @pytest.mark.asyncio

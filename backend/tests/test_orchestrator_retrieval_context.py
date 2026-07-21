@@ -50,6 +50,28 @@ async def test_process_email_persists_retrieval_context(session):
     assert ctx["retrieved_ids"] == [c.policy_id for c in result.retrieved_chunks]
 
 
+async def test_public_compute_delegates_to_private_compute(session, monkeypatch):
+    """The public ``compute`` seam (T2c) is a thin pass-through to ``_compute``:
+    it forwards its args verbatim and returns the private method's result
+    unchanged — identical to the old direct ``_compute`` call, just public.
+    """
+    pipeline = EmailPipeline()
+    sentinel = object()
+    seen: list[tuple] = []
+
+    async def spy_compute(email_data, db):
+        seen.append((email_data, db))
+        return sentinel
+
+    monkeypatch.setattr(pipeline, "_compute", spy_compute)
+
+    email_data = {"from": "a@b.com", "subject": "s", "body": "b"}
+    out = await pipeline.compute(email_data, session)
+
+    assert out is sentinel  # returns _compute's result unchanged
+    assert seen == [(email_data, session)]  # forwards args verbatim, no mutation
+
+
 class _PriorSpyRetriever:
     """Captures the retriever call so tests can assert on query/intent/prior_intent."""
 

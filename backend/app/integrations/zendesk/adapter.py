@@ -78,6 +78,13 @@ class SyncResult(BaseModel):
     # New public end-user replies on already-processed tickets (surfaced for a
     # chair to review; never auto-redrafted — see the follow-up policy below).
     customer_replies: int = 0
+    # Follow-up messages whose per-message pipeline run (compute + persist a
+    # EmailProcessingResult, Piece T2) raised and was skipped. Distinct from
+    # ``failed`` (a whole ticket failing): the ticket still ingests, the reply is
+    # still surfaced, only that message's result row is absent. Detail lands in
+    # ``errors``. Success = a result row exists; not-yet-processed = no row and no
+    # increment here.
+    failed_processing: int = 0
     failed: int = 0
     # True when this trigger was refused because another cycle already holds the
     # single-flight lock (overlap guard) — no work was done.
@@ -303,7 +310,7 @@ class ZendeskIngestAdapter:
             if new_customer:
                 await self._record_customer_reply(db, email_id, ticket_id, new_customer)
                 await self._process_followup_messages(
-                    db, existing, new_customer, added_rows
+                    db, existing, ticket_id, new_customer, added_rows, result
                 )
                 result.customer_replies += 1
             result.updated += 1
@@ -312,18 +319,29 @@ class ZendeskIngestAdapter:
         self,
         db: AsyncSession,
         email,
+        ticket_id: int,
         new_customer: list[dict],
         added_rows: list,
+        result: SyncResult,
     ) -> None:
         """Run the pipeline for each new requester follow-up; store its result.
 
         Each new public end-user message gets its own classify→retrieve→route→
-        draft cycle via the orchestrator's persistence-free ``_compute``,
-        persisted as a NEW ``EmailProcessingResult`` linked to that message. The
-        parent ``Email``'s own classification/routing/draft are left untouched;
-        only requester (end-user) messages reach here, never chair (agent/admin)
-        replies or internal notes. Happy-path only (T2b) — failure hardening is
-        T2c.
+        draft cycle via the orchestrator's public ``compute`` seam, persisted as
+        a NEW ``EmailProcessingResult`` linked to that message. The parent
+        ``Email``'s own classification/routing/draft are left untouched; only
+        requester (end-user) messages reach here, never chair (agent/admin)
+        replies or internal notes.
+
+        Per-message failure isolation (T2c): a compute/persist error (drafter
+        API error, retriever timeout, …) is logged, counted on
+        ``result.failed_processing`` with detail in ``result.errors``, and
+        SKIPPED — it never aborts the remaining follow-ups, this ticket, or the
+        rest of the sync batch. A failed message simply has no result row (same
+        surface as "not yet processed", disambiguated by the counter/log). The
+        session is rolled back first so a mid-commit failure can't poison
+        subsequent work (the customer_reply_received audit already committed, so
+        rollback cannot lose it).
         """
         # Map the just-persisted rows by comment id so each result links to the
         # message's REAL primary key.
@@ -334,7 +352,8 @@ class ZendeskIngestAdapter:
         }
         pipeline = self._pipeline_obj()
         for m in new_customer:
-            message_row = by_comment_id.get(m.get("zendesk_comment_id"))
+            comment_id = m.get("zendesk_comment_id")
+            message_row = by_comment_id.get(comment_id)
             if message_row is None:
                 continue
             email_data = {
@@ -344,10 +363,22 @@ class ZendeskIngestAdapter:
                 "subject": email.subject,
                 "body": m.get("plain_body") or "",
             }
-            computed = await pipeline._compute(email_data, db)
-            await self.email_repo.add_processing_result(
-                db, message_row.id, computed.record
-            )
+            try:
+                computed = await pipeline.compute(email_data, db)
+                await self.email_repo.add_processing_result(
+                    db, message_row.id, computed.record
+                )
+            except Exception as exc:  # noqa: BLE001 - one follow-up must not halt the batch
+                await db.rollback()
+                result.failed_processing += 1
+                result.errors.append(
+                    f"ticket {ticket_id} follow-up comment {comment_id}: {exc}"
+                )
+                logger.exception(
+                    "Follow-up processing failed for ticket %s comment %s; skipping.",
+                    ticket_id,
+                    comment_id,
+                )
 
     async def _record_customer_reply(
         self,
