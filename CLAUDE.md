@@ -18,20 +18,8 @@ AI-powered conference email management for AAAI/NeurIPS/ICML/ICLR. Two-lane work
 ## Project Path
 `D:\USC\The Melady Labs\conference-email-system`
 
-## Branch / State Note (updated 2026-07-19)
-`main` includes Jiacheng's Phase 7 work (fast-forward merge, HEAD `c4ed3f5`)
-**and** the SQLite→PostgreSQL work formerly staged on
-`feature/production-hosting-v2` — it is now on `main` (verified in the current
-tree): the Docker Postgres `db` service (root `docker-compose.yml`), single-source
-`DATABASE_URL`, full `SYNC_DATABASE_URL` removal (grep-confirmed gone — only
-`ASYNC_DATABASE_URL` remains), the dialect-agnostic `json_extract` fix (both
-`email_repository` and `audit_repository`), and the PG test suite
-(`tests/test_postgres_migration.py`). Two nuances still hold: `config.py`'s
-`DATABASE_URL` **default** is deliberately SQLite (safe local/test/CI fallback;
-Docker Compose injects the Postgres URL for the container), and the
-`external_api` drafter remains **deliberately excluded** from the
-`MODEL_PROVIDER` Literal (the `local` OpenAI-compatible provider covers that use
-case with zero new code).
+## State Note
+main includes Jiacheng's Phase 7 work (HEAD c4ed3f5) and the SQLite→PostgreSQL work (Docker Postgres db service, single-source DATABASE_URL, SYNC_DATABASE_URL removed, dialect-agnostic JSON accessors). Two deliberate nuances: config.py's DATABASE_URL default is SQLite (safe local/test/CI fallback; Compose injects Postgres for the container), and external_api is excluded from the MODEL_PROVIDER Literal (local covers it). Detail in the PG-migration entry + Current-Status "PG migration" row.
 
 ## Tech Stack
 | Layer | Technology |
