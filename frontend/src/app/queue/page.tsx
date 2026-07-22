@@ -36,7 +36,8 @@ type LaneFilter = "all" | "faq" | "human_review";
 export default function QueuePage() {
   const { status: streamStatus } = useEmailQueueStream();
   const { mutate: approve, isPending: isApproving } = useApproveEmail();
-  const { mutate: send } = useSendEmail();
+  const sendMutation = useSendEmail();
+  const { mutate: send } = sendMutation;
   const { mutate: reroute, isPending: isRerouting } = useRerouteEmail();
   const { mutateAsync: reassignChairAsync, isPending: isReassigning } =
     useReassignChair();
@@ -103,6 +104,20 @@ export default function QueuePage() {
     selectedEmailId == null
       ? null
       : emails.find((e) => e.id === selectedEmailId) ?? null;
+
+  // Approve-then-send partial failure, scoped to the selected email: the approve
+  // succeeded (its own state/error is out of scope here) but the follow-up send
+  // to Zendesk failed. `sendMutation.variables.id` identifies which email the
+  // last send attempt was for, so the banner only shows on that one.
+  const sendFailedForSelected =
+    sendMutation.isError &&
+    selectedEmail != null &&
+    sendMutation.variables?.id === selectedEmail.id;
+  const sendErrorMessage = sendFailedForSelected
+    ? `This email is approved locally, but sending it to Zendesk failed${
+        sendMutation.error?.detail ? `: ${sendMutation.error.detail}` : "."
+      } It was NOT sent — the approval stands; retry the send.`
+    : null;
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -258,6 +273,12 @@ export default function QueuePage() {
             }
             onRetry={() => retry(selectedEmail.id)}
             allowAutoSend={allowAutoSend}
+            sendError={sendErrorMessage}
+            onRetrySend={() => {
+              // Retry ONLY the send with the same visibility + status — never
+              // re-approve. `variables` holds the failed attempt's payload.
+              if (sendMutation.variables) send(sendMutation.variables);
+            }}
           />
         ) : (
           <div className="flex h-full items-center justify-center">

@@ -89,6 +89,15 @@ interface EmailDetailProps {
   isApproving: boolean;
   isRerouting: boolean;
   isReassigning: boolean;
+  /**
+   * Set when the Zendesk send FAILED after this email was already approved
+   * locally (approve-then-send partial failure). Null when there's no such
+   * failure for this email. The approved state is intact — only the send needs
+   * retrying.
+   */
+  sendError?: string | null;
+  /** Retry ONLY the send (not the approve) with the same visibility + status. */
+  onRetrySend?: () => void;
   /** The chair roster for the reassignment picker + name resolution. */
   chairs: Chair[];
 }
@@ -108,6 +117,8 @@ export function EmailDetail({
   isApproving,
   isRerouting,
   isReassigning,
+  sendError,
+  onRetrySend,
   chairs,
 }: EmailDetailProps) {
   const lane = email.routing?.lane ?? null;
@@ -545,6 +556,17 @@ export function EmailDetail({
                 <Kbd>R</Kbd> reroute
               </div>
             </div>
+
+            {/* Approve-then-send partial failure: the draft is approved locally
+                but the Zendesk write failed. The approve is NOT rolled back —
+                only the send needs retrying (the banner's Retry re-sends, it
+                does not re-approve). */}
+            {sendError && (
+              <ErrorBanner
+                message={sendError}
+                onRetry={onRetrySend}
+              />
+            )}
 
             {/* Success confirmation after a reassignment (inline, no toast infra). */}
             {reassignedTo != null && !reassignOpen && (
