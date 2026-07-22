@@ -445,6 +445,7 @@ class EmailRepository:
                 "public": r.public,
                 "author_role": r.author_role,
                 "plain_body": r.plain_body,
+                "html_body": r.html_body,
                 "created_at": r.created_at,
                 "via_channel": r.via_channel,
             }

@@ -51,16 +51,26 @@ function MessageBubble({ message }: { message: EmailThreadMessage }) {
           {formatDateTime(message.created_at)}
         </span>
       </div>
-      <div
-        className="text-base leading-relaxed"
-        style={{
-          color: "var(--text-primary)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
-      >
-        {message.plain_body ?? ""}
-      </div>
+      {message.html_body ? (
+        // Rich HTML rendering. Content is sanitized server-side (backend bleach
+        // allowlist) before it reaches the client, so injecting it is safe.
+        <div
+          className="conf-html text-base leading-relaxed"
+          style={{ color: "var(--text-primary)", overflowWrap: "anywhere" }}
+          dangerouslySetInnerHTML={{ __html: message.html_body }}
+        />
+      ) : (
+        <div
+          className="text-base leading-relaxed"
+          style={{
+            color: "var(--text-primary)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {message.plain_body ?? ""}
+        </div>
+      )}
     </div>
   );
 }

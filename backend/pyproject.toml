@@ -13,6 +13,7 @@ dependencies = [
     "alembic>=1.13",
     "anthropic>=0.34",
     "rank-bm25>=0.2.2",
+    "bleach>=6.0",
     "python-dotenv>=1.0",
     "python-dateutil>=2.9",
     "aiosqlite>=0.20",

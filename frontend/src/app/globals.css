@@ -93,3 +93,37 @@ body {
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Rendered Zendesk comment HTML (ConversationThread MessageBubble). Content is
+   sanitized server-side (backend bleach allowlist); these rules just keep it
+   contained and readable inside the bubble. */
+.conf-html {
+  overflow-x: auto;
+}
+.conf-html img {
+  max-width: 100%;
+  height: auto;
+}
+.conf-html a {
+  color: var(--accent);
+  text-decoration: underline;
+  word-break: break-all;
+}
+.conf-html table {
+  border-collapse: collapse;
+  max-width: 100%;
+}
+.conf-html td,
+.conf-html th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.conf-html blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.75em;
+  border-left: 3px solid var(--border);
+  color: var(--text-secondary);
+}
+.conf-html p {
+  margin: 0.4em 0;
+}

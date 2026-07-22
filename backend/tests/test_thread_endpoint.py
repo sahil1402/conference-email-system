@@ -82,6 +82,7 @@ async def test_get_thread_returns_all_messages_oldest_first(client):
     assert msgs[0]["public"] is True and msgs[1]["public"] is False  # incl. internal
     assert msgs[0]["author_role"] == "end-user"
     assert isinstance(msgs[0]["created_at"], str)  # ISO serialized
+    assert msgs[0]["html_body"] == "<p>First</p>"  # sanitized HTML exposed
 
 
 async def test_get_thread_404_for_unknown_email(client):
@@ -103,3 +104,41 @@ async def test_get_thread_empty_for_non_zendesk_email(client):
 
     assert resp.status_code == 200
     assert resp.json()["messages"] == []
+
+
+async def test_get_thread_sanitizes_malicious_html(client):
+    c, factory = client
+    async with factory() as s:
+        email = Email(
+            sender="a@x", subject="s", body="b", status="DRAFT_GENERATED",
+            source="zendesk", zendesk_ticket_id=888,
+        )
+        s.add(email)
+        await s.commit()
+        await s.refresh(email)
+        s.add(EmailThreadMessage(
+            email_id=email.id, zendesk_comment_id=1, public=True,
+            author_role="end-user", plain_body="hi",
+            html_body='<p>hi</p><script>steal()</script>'
+                      '<a href="javascript:x()" onclick="y()">l</a>',
+            created_at=datetime(2026, 7, 21, 10, 0, tzinfo=timezone.utc),
+        ))
+        await s.commit()
+        email_id = email.id
+
+    resp = await c.get(f"/api/v1/emails/{email_id}/thread")
+    html = resp.json()["messages"][0]["html_body"]
+    assert "<script" not in html and "steal()" not in html  # block + content gone
+    assert "onclick" not in html and "javascript:" not in html  # handler + proto gone
+    assert "<p>hi</p>" in html  # formatting preserved
+
+
+def test_sanitize_html_helper():
+    from app.api.v1.emails import _sanitize_html
+
+    assert _sanitize_html(None) is None
+    assert _sanitize_html("") is None
+    # script/style blocks dropped with their contents; formatting kept.
+    assert _sanitize_html("<b>x</b><style>b{}</style>") == "<b>x</b>"
+    assert _sanitize_html("<p onclick='e()'>t</p>") == "<p>t</p>"
+    assert "javascript:" not in _sanitize_html('<a href="javascript:e()">t</a>')

@@ -127,6 +127,9 @@ export interface EmailThreadMessage {
   /** "end-user" | "agent" | "admin" (Zendesk role); null if unresolved. */
   author_role: string | null;
   plain_body: string | null;
+  /** Server-sanitized (backend bleach allowlist) comment HTML for rich
+   * rendering; null → render plain_body instead. Safe to inject. */
+  html_body: string | null;
   /** ISO 8601 datetime, or null. */
   created_at: string | null;
   via_channel: string | null;

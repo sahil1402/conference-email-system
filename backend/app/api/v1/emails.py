@@ -11,6 +11,9 @@ import asyncio
 import html as _html
 import json
 import logging
+import re
+
+import bleach
 from datetime import timezone
 from typing import Literal
 
@@ -80,6 +83,45 @@ def _text_to_html(text: str) -> str:
         return "<p></p>"
     paragraphs = [p.replace("\n", "<br>") for p in escaped.split("\n\n")]
     return "".join(f"<p>{p}</p>" for p in paragraphs)
+
+
+# Allowlist for sanitizing Zendesk-authored comment HTML before it reaches the
+# chair's browser. Comment bodies are requester/agent-authored → an XSS surface,
+# so only formatting tags survive; bleach strips scripts, <style>, inline event
+# handlers, style attributes, and any tag/attr/protocol not listed here.
+_HTML_ALLOWED_TAGS = [
+    "p", "br", "div", "span", "a", "ul", "ol", "li", "b", "strong", "i", "em",
+    "u", "s", "blockquote", "pre", "code", "h1", "h2", "h3", "h4", "h5", "h6",
+    "hr", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "img",
+]
+_HTML_ALLOWED_ATTRS = {
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "title", "width", "height"],
+    "td": ["colspan", "rowspan"],
+    "th": ["colspan", "rowspan"],
+}
+_HTML_ALLOWED_PROTOCOLS = ["http", "https", "mailto", "tel", "cid"]
+# Drop <script>/<style> blocks WITH their contents first: bleach removes the
+# tags but would otherwise leave their inner JS/CSS as visible literal text.
+_SCRIPT_STYLE_RE = re.compile(r"(?is)<(script|style)\b[^>]*>.*?</\1>")
+
+
+def _sanitize_html(raw: str | None) -> str | None:
+    """Sanitize Zendesk comment HTML for safe in-browser rendering.
+
+    Returns cleaned HTML (formatting allowlist only), or ``None`` when there is
+    no HTML so the caller can fall back to the plain-text body.
+    """
+    if not raw:
+        return None
+    stripped = _SCRIPT_STYLE_RE.sub("", raw)
+    return bleach.clean(
+        stripped,
+        tags=_HTML_ALLOWED_TAGS,
+        attributes=_HTML_ALLOWED_ATTRS,
+        protocols=_HTML_ALLOWED_PROTOCOLS,
+        strip=True,
+    )
 
 
 def _iso_z(dt) -> str | None:
@@ -392,6 +434,9 @@ async def get_email_thread(
             {
                 **m,
                 "created_at": m["created_at"].isoformat() if m["created_at"] else None,
+                # Server-sanitized HTML for rich rendering; None → UI falls back
+                # to plain_body. Requester-authored, so sanitize before exposing.
+                "html_body": _sanitize_html(m.get("html_body")),
             }
             for m in messages
         ]
