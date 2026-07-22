@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 type NavItem = {
   label: string;
@@ -122,15 +123,18 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
 
       {/* Footer */}
       <div
-        className="flex shrink-0 flex-col gap-0.5 px-5 py-4"
+        className="flex shrink-0 items-center justify-between px-5 py-4"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Melady Lab · USC
-        </span>
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          v0.1.0-mvp
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Melady Lab · USC
+          </span>
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            v0.1.0-mvp
+          </span>
+        </div>
+        <ThemeToggle />
       </div>
     </aside>
   );
