@@ -44,6 +44,48 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Light theme — same token names, overridden when [data-theme="light"] */
+/* is set on <html>. Brand accent is theme-invariant; success/warning/   */
+/* danger are darkened for contrast against light surfaces. Dead until   */
+/* a toggle sets data-theme (T3).                                        */
+/* ------------------------------------------------------------------ */
+:root[data-theme="light"] {
+  /* Surfaces */
+  --background: #f7f8fb;
+  --surface: #ffffff;
+  --surface-raised: #eef0f6;
+
+  /* Borders */
+  --border: #e2e5ee;
+  --border-subtle: #edeff5;
+
+  /* Text */
+  --text-primary: #14161f;
+  --text-secondary: #5b6178;
+  --text-muted: #9aa0b4;
+
+  /* Accent (primary action) — identical to dark (brand color) */
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-subtle: #eef0fe;
+
+  /* Semantic — darkened vs dark theme for contrast on light surfaces */
+  --success: #059669;
+  --success-subtle: #e6f7f1;
+  --warning: #d97706;
+  --warning-subtle: #fdf3e0;
+  --danger: #dc2626;
+  --danger-subtle: #fdeaea;
+
+  /* Lane identities */
+  --faq-color: #6366f1;
+  --review-color: #d97706;
+
+  /* Radius scale */
+  --radius: 0.75rem;
+}
+
+/* ------------------------------------------------------------------ */
 /* Base                                                                */
 /* ------------------------------------------------------------------ */
 html {
