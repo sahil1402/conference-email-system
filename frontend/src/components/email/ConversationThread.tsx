@@ -31,6 +31,33 @@ const KIND_STYLE: Record<TurnKind, { bg: string; border: string; accent: string 
   },
 };
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Render plain text as safe HTML so single/plain emails display like the
+ * html_body messages: escape FIRST (so the result is injection-safe — no raw
+ * markup can survive), then linkify URLs/emails and split blank lines into
+ * paragraphs. Used for messages without html_body and the single-body fallback. */
+function plainTextToHtml(text: string | null | undefined): string {
+  const escaped = escapeHtml(text ?? "");
+  const linked = escaped.replace(
+    /(https?:\/\/[^\s<]+)|([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g,
+    (_m, url, email) =>
+      url
+        ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`
+        : `<a href="mailto:${email}">${email}</a>`
+  );
+  return linked
+    .split(/\n\s*\n/)
+    .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
 function MessageBubble({ message }: { message: EmailThreadMessage }) {
   const { label, kind } = turnMeta(message);
   const style = KIND_STYLE[kind];
@@ -60,16 +87,13 @@ function MessageBubble({ message }: { message: EmailThreadMessage }) {
           dangerouslySetInnerHTML={{ __html: message.html_body }}
         />
       ) : (
+        // No html_body → render the plain text as safe (escaped) HTML so it
+        // displays consistently with html_body turns.
         <div
-          className="text-base leading-relaxed"
-          style={{
-            color: "var(--text-primary)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-          }}
-        >
-          {message.plain_body ?? ""}
-        </div>
+          className="conf-html text-base leading-relaxed"
+          style={{ color: "var(--text-primary)", overflowWrap: "anywhere" }}
+          dangerouslySetInnerHTML={{ __html: plainTextToHtml(message.plain_body) }}
+        />
       )}
     </div>
   );
@@ -96,20 +120,21 @@ export function ConversationThread({ email }: { email: Email }) {
   }
 
   if (messages.length === 0) {
-    // Non-Zendesk / no-thread row: show the stored body as a single turn.
+    // Single email / no-thread row: render the stored body as HTML too (the
+    // body is plain text, so escape + format it — same treatment as a message
+    // turn without html_body). Real single Zendesk tickets don't reach here:
+    // they arrive as one thread message with html_body.
     return (
       <div
-        className="rounded-lg border p-4 text-base leading-relaxed"
+        className="conf-html rounded-lg border p-4 text-base leading-relaxed"
         style={{
           backgroundColor: "var(--surface-raised)",
           borderColor: "var(--border-subtle)",
           color: "var(--text-primary)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
+          overflowWrap: "anywhere",
         }}
-      >
-        {email.body}
-      </div>
+        dangerouslySetInnerHTML={{ __html: plainTextToHtml(email.body) }}
+      />
     );
   }
 
