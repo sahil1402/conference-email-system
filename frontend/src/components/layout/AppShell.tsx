@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Menu, Mail } from "lucide-react";
 
 import { Sidebar } from "./Sidebar";
+import { SidebarSlotProvider } from "./SidebarSlot";
 
 /**
  * App chrome: fixed sidebar (desktop) / slide-in drawer (mobile) + a mobile top
@@ -13,7 +14,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <>
+    <SidebarSlotProvider>
       {/* Mobile top bar (hidden ≥md) */}
       <header
         className="fixed inset-x-0 top-0 z-30 flex h-14 items-center gap-3 px-4 md:hidden"
@@ -61,6 +62,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Main content — offset past the sidebar on desktop, past the top bar on mobile */}
       <main className="min-h-screen pt-14 md:ml-60 md:pt-0">{children}</main>
-    </>
+    </SidebarSlotProvider>
   );
 }

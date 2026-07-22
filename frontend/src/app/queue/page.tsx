@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Inbox, SearchX } from "lucide-react";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
+import { useResizableWidth } from "@/hooks/useResizableWidth";
+import { useSidebarSlot } from "@/components/layout/SidebarSlot";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
 import { useQueueFacets } from "@/hooks/useQueueFacets";
 import type { EmailQueueParams, QueueFacetsParams } from "@/lib/api";
@@ -19,9 +22,7 @@ import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   EmailListItem,
   EmailDetail,
-  EmailFilters,
-  SourceToggle,
-  ZendeskStatusBar,
+  QueueFilterPanel,
 } from "@/components/email";
 import {
   Badge,
@@ -30,6 +31,7 @@ import {
   LiveStatusDot,
   LoadingSpinner,
 } from "@/components/ui";
+import { cn } from "@/lib/utils";
 
 type LaneFilter = "all" | "faq" | "human_review";
 
@@ -44,6 +46,16 @@ export default function QueuePage() {
   const { mutate: retry } = useRetryEmail();
   const { allowAutoSend } = useAppConfig();
   const { chairs, byId: chairsById } = useChairs();
+
+  // Queue-list column: draggable + persisted width, and the sidebar slot the
+  // filters portal into (below the nav, above the "Melady Lab · USC" footer).
+  const { slotEl } = useSidebarSlot();
+  const { width: listWidth, isDragging, handleProps } = useResizableWidth(
+    "confmail.queueListWidth",
+    320,
+    240,
+    640
+  );
 
   const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -123,10 +135,10 @@ export default function QueuePage() {
     <div className="flex h-screen overflow-hidden">
       {/* LEFT PANE */}
       <aside
-        className="flex w-80 shrink-0 flex-col"
-        style={{ borderRight: "1px solid var(--border)" }}
+        className="flex shrink-0 flex-col"
+        style={{ width: listWidth, borderRight: "1px solid var(--border)" }}
       >
-        <div className="space-y-4 p-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="p-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
           <div className="flex items-center gap-2">
             <h1
               className="text-lg font-semibold tracking-tight"
@@ -141,36 +153,6 @@ export default function QueuePage() {
               <LiveStatusDot status={streamStatus} />
             </span>
           </div>
-          <EmailFilters
-            search={search}
-            onSearchChange={setSearch}
-            laneFilter={laneFilter}
-            onLaneChange={setLaneFilter}
-            statusFilter={statusFilter as "all" | "PENDING" | "DRAFT_GENERATED" | "APPROVED"}
-            onStatusChange={setStatusFilter}
-            chairs={chairs}
-            chairFilter={chairFilter}
-            onChairChange={setChairFilter}
-          />
-          {/* Source toggle — self-hides unless ≥2 distinct sources exist. */}
-          <SourceToggle
-            sources={sources}
-            value={sourceFilter}
-            onChange={(v) => {
-              setSourceFilter(v);
-              // A zendesk_status filter is meaningless once we scope to
-              // toy_dataset — clear it so the queue isn't silently emptied.
-              if (v === "toy_dataset") setZendeskStatusFilter(null);
-            }}
-          />
-          {/* Zendesk status bar — composes with lane / chair / search above. */}
-          {showStatusBar && (
-            <ZendeskStatusBar
-              counts={byZendeskStatus}
-              selected={zendeskStatusFilter}
-              onSelect={setZendeskStatusFilter}
-            />
-          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -222,6 +204,22 @@ export default function QueuePage() {
           )}
         </div>
       </aside>
+
+      {/* Drag handle — resize the queue-list column (width persisted). */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the email list"
+        className="group relative flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center"
+        {...handleProps}
+      >
+        <div
+          className={cn(
+            "w-px transition-colors group-hover:bg-[var(--accent)]",
+            isDragging ? "bg-[var(--accent)]" : "bg-[var(--border)]"
+          )}
+        />
+      </div>
 
       {/* RIGHT PANE */}
       <section className="min-w-0 flex-1 overflow-hidden">
@@ -290,6 +288,43 @@ export default function QueuePage() {
           </div>
         )}
       </section>
+
+      {/* The queue filters live in the sidebar (below the nav, above the
+          "Melady Lab · USC" footer). They render here — keeping the queue's
+          filter state — and portal into the sidebar slot when it exists. */}
+      {slotEl &&
+        createPortal(
+          <QueueFilterPanel
+            search={search}
+            onSearchChange={setSearch}
+            laneFilter={laneFilter}
+            onLaneChange={setLaneFilter}
+            statusFilter={
+              statusFilter as
+                | "all"
+                | "PENDING"
+                | "DRAFT_GENERATED"
+                | "APPROVED"
+            }
+            onStatusChange={setStatusFilter}
+            chairs={chairs}
+            chairFilter={chairFilter}
+            onChairChange={setChairFilter}
+            sources={sources}
+            sourceFilter={sourceFilter}
+            onSourceChange={(v) => {
+              setSourceFilter(v);
+              // A zendesk_status filter is meaningless once we scope to
+              // toy_dataset — clear it so the queue isn't silently emptied.
+              if (v === "toy_dataset") setZendeskStatusFilter(null);
+            }}
+            showStatusBar={showStatusBar}
+            byZendeskStatus={byZendeskStatus}
+            zendeskStatusFilter={zendeskStatusFilter}
+            onZendeskStatusSelect={setZendeskStatusFilter}
+          />,
+          slotEl
+        )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useSidebarSlot } from "./SidebarSlot";
 
 type NavItem = {
   label: string;
@@ -43,6 +44,7 @@ interface SidebarProps {
  */
 export function Sidebar({ open = false, onNavigate }: SidebarProps) {
   const pathname = usePathname();
+  const { setSlotEl } = useSidebarSlot();
 
   return (
     <aside
@@ -79,9 +81,10 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
         </span>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+      {/* Navigation + page slot (queue filters) — scroll together when tall */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <nav className="space-y-1 px-3 py-2">
+          {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
           const isActive =
             pathname === href || pathname.startsWith(`${href}/`);
           return (
@@ -119,7 +122,11 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
             </Link>
           );
         })}
-      </nav>
+        </nav>
+        {/* Page-provided slot (queue filters): pinned above the footer when
+            there's spare height; scrolls with the nav when space is tight. */}
+        <div ref={setSlotEl} className="mt-auto" />
+      </div>
 
       {/* Footer */}
       <div

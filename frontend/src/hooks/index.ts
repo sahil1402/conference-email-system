@@ -8,3 +8,4 @@ export * from "./useChairs";
 export * from "./usePolicies";
 export * from "./useAppConfig";
 export * from "./usePersistedState";
+export * from "./useResizableWidth";
