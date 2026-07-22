@@ -100,10 +100,30 @@ _HTML_ALLOWED_ATTRS = {
     "td": ["colspan", "rowspan"],
     "th": ["colspan", "rowspan"],
 }
-_HTML_ALLOWED_PROTOCOLS = ["http", "https", "mailto", "tel", "cid"]
+# http/https/mailto/tel/cid are allowed anywhere; ``data:`` is permitted ONLY on
+# <img src> and ONLY for safe raster types (see ``_allow_attribute``) — this lets
+# inline screenshots embedded as base64 render while blocking data:svg (which can
+# carry script) and data: on links.
+_HTML_ALLOWED_PROTOCOLS = ["http", "https", "mailto", "tel", "cid", "data"]
+_IMG_DATA_URI_RE = re.compile(r"^data:image/(png|jpe?g|gif|webp);base64,", re.I)
 # Drop <script>/<style> blocks WITH their contents first: bleach removes the
 # tags but would otherwise leave their inner JS/CSS as visible literal text.
 _SCRIPT_STYLE_RE = re.compile(r"(?is)<(script|style)\b[^>]*>.*?</\1>")
+
+
+def _allow_attribute(tag: str, name: str, value: str) -> bool:
+    """Attribute allowlist for bleach, with a guarded exception for data: URIs.
+
+    Enforces :data:`_HTML_ALLOWED_ATTRS`, and additionally permits a ``data:``
+    URI only on ``<img src>`` and only for safe raster image types — never on
+    links or any other attribute (blocks data:text/html, data:image/svg+xml).
+    """
+    if name not in _HTML_ALLOWED_ATTRS.get(tag, ()):  # noqa: SIM118 - dict.get
+        return False
+    v = (value or "").strip()
+    if v[:5].lower() == "data:":
+        return tag == "img" and name == "src" and bool(_IMG_DATA_URI_RE.match(v))
+    return True
 
 
 def _sanitize_html(raw: str | None) -> str | None:
@@ -118,7 +138,7 @@ def _sanitize_html(raw: str | None) -> str | None:
     return bleach.clean(
         stripped,
         tags=_HTML_ALLOWED_TAGS,
-        attributes=_HTML_ALLOWED_ATTRS,
+        attributes=_allow_attribute,
         protocols=_HTML_ALLOWED_PROTOCOLS,
         strip=True,
     )

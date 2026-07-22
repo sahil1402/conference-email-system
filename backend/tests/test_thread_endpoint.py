@@ -142,3 +142,9 @@ def test_sanitize_html_helper():
     assert _sanitize_html("<b>x</b><style>b{}</style>") == "<b>x</b>"
     assert _sanitize_html("<p onclick='e()'>t</p>") == "<p>t</p>"
     assert "javascript:" not in _sanitize_html('<a href="javascript:e()">t</a>')
+    # Inline raster data: images are kept; svg / data-on-links are blocked.
+    assert 'src="data:image/png;base64,AAA="' in _sanitize_html(
+        '<img src="data:image/png;base64,AAA=">'
+    )
+    assert _sanitize_html('<img src="data:image/svg+xml;base64,PHN2Zz4=">') == "<img>"
+    assert "data:" not in _sanitize_html('<a href="data:text/html,x">t</a>')
