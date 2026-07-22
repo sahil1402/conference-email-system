@@ -247,6 +247,14 @@ export interface Email {
    */
   zendesk_ticket_id?: number | null;
   /**
+   * Deep link to this ticket in the Zendesk agent UI, built server-side
+   * (api/v1/emails.py _email_to_dict) as
+   * `https://{ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/{id}`. Populated only
+   * when the row has a `zendesk_ticket_id` AND the backend has ZENDESK_SUBDOMAIN
+   * configured; null otherwise.
+   */
+  zendesk_ticket_url?: string | null;
+  /**
    * Zendesk ticket status (new/open/pending/hold/solved/closed) — only
    * meaningful when `source === "zendesk"`; null for other sources.
    */
