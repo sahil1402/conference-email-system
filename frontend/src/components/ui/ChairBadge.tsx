@@ -1,7 +1,10 @@
+"use client";
+
 import { UserRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { chairColor } from "@/lib/format";
+import { useTheme } from "@/hooks/useTheme";
 
 interface ChairBadgeProps {
   /** The assigned chair id, or null when the email has no chair. */
@@ -25,6 +28,7 @@ export function ChairBadge({
   size = "sm",
   className,
 }: ChairBadgeProps) {
+  const { theme } = useTheme();
   const base = cn(
     "inline-flex items-center gap-1 whitespace-nowrap rounded-full font-medium leading-none",
     size === "sm" ? "px-2 py-1 text-[11px]" : "px-2.5 py-1 text-xs",
@@ -46,7 +50,7 @@ export function ChairBadge({
     );
   }
 
-  const { color, bg } = chairColor(chairId);
+  const { color, bg } = chairColor(chairId, theme);
   return (
     <span className={base} style={{ color, backgroundColor: bg }}>
       <UserRound className="h-3 w-3" />

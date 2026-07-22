@@ -53,6 +53,8 @@ const CHART_PALETTE = {
     surface: "#1a1d27", // --surface
     text: "#f0f2f8", // --text-primary
     cursor: "rgba(255,255,255,0.04)", // hover highlight on dark
+    warnBg: "rgba(245,158,11,0.08)", // caveat callout tint
+    warnBorder: "rgba(245,158,11,0.25)", // caveat callout border
   },
   light: {
     green: "#059669", // --success (light)
@@ -66,6 +68,8 @@ const CHART_PALETTE = {
     surface: "#ffffff", // --surface (light)
     text: "#14161f", // --text-primary (light)
     cursor: "rgba(0,0,0,0.04)", // hover highlight on white
+    warnBg: "#fdf3e0", // --warning-subtle (light); the dark rgba is invisible on white
+    warnBorder: "rgba(217,119,6,0.4)", // --warning (light) at 0.4 — a warm border that reads on white
   },
 } as const;
 
@@ -150,10 +154,10 @@ export default function AnalyticsPage() {
       .map((c) => ({
         label: c.name,
         count: counts[String(c.id)] ?? 0,
-        color: chairColor(c.id).color,
+        color: chairColor(c.id, theme).color,
       }))
       .sort((a, b) => b.count - a.count);
-  }, [summary, chairs]);
+  }, [summary, chairs, theme]);
   const chairVolumeTotal = chairVolumeData.reduce((s, d) => s + d.count, 0);
 
   // Reassignments grouped by the chair each email was moved AWAY from — a
@@ -169,7 +173,7 @@ export default function AnalyticsPage() {
       .map((c) => ({
         label: c.name,
         count: dist[String(c.id)] ?? 0,
-        color: chairColor(c.id).color,
+        color: chairColor(c.id, theme).color,
       }))
       .filter((r) => r.count > 0);
     const unassigned = dist["unassigned"] ?? 0;
@@ -177,7 +181,7 @@ export default function AnalyticsPage() {
       rows.push({ label: "Unassigned", count: unassigned, color: C.axis });
     }
     return rows.sort((a, b) => b.count - a.count);
-  }, [summary, chairs, C]);
+  }, [summary, chairs, C, theme]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-8 py-10">
@@ -644,8 +648,8 @@ function CalibrationDiagram({
         className="rounded-md px-3 py-2 text-xs"
         style={{
           color: "var(--text-secondary)",
-          backgroundColor: "rgba(245,158,11,0.08)",
-          border: "1px solid rgba(245,158,11,0.25)",
+          backgroundColor: C.warnBg,
+          border: `1px solid ${C.warnBorder}`,
         }}
       >
         {calibration.caveat}
