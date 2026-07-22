@@ -75,6 +75,10 @@ class SyncResult(BaseModel):
     # (ZENDESK_SYNC_STATUSES config default, or a per-call override).
     skipped_status: int = 0
     classified: int = 0
+    # New CLOSED tickets ingested for visibility but deliberately NOT run through
+    # the pipeline (no classification/draft) — a reply can't be sent to a closed
+    # ticket, so drafting one is wasted work.
+    closed_ingested: int = 0
     # New public end-user replies on already-processed tickets (surfaced for a
     # chair to review; never auto-redrafted — see the follow-up policy below).
     customer_replies: int = 0
@@ -489,6 +493,24 @@ class ZendeskIngestAdapter:
         requester's message).
         """
         initial = self._find_initial_inquiry(messages)
+        # Closed tickets are terminal/immutable — a reply can't be sent to one (a
+        # genuine follow-up spawns a NEW ticket). Ingest for visibility/history but
+        # SKIP the pipeline entirely: no classification, no draft. Status ARCHIVED
+        # marks it as tracked-but-not-actionable.
+        if ticket.get("status") == "closed":
+            email = await self.email_repo.create_email(
+                db,
+                {
+                    "sender": requester.get("email") or f"ticket-{ticket['id']}@zendesk.local",
+                    "sender_name": requester.get("name"),
+                    "subject": ticket.get("subject") or "",
+                    "body": (initial.get("plain_body") if initial else ticket.get("description")) or "",
+                    "status": EmailStatus.ARCHIVED.value,
+                    "source": EmailSource.ZENDESK.value,
+                },
+            )
+            result.closed_ingested += 1
+            return str(email.id)
         if initial is not None:
             email_data = {
                 "from": requester.get("email") or f"ticket-{ticket['id']}@zendesk.local",

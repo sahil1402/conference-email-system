@@ -378,6 +378,28 @@ async def test_agent_only_new_comment_does_not_reprocess(adb):
 
 
 @pytest.mark.asyncio
+async def test_new_closed_ticket_ingested_but_not_drafted(adb):
+    """A NEW closed ticket is ingested for visibility (status ARCHIVED) but NOT
+    run through the pipeline — no classification, no draft (can't reply to closed).
+    """
+    requester = _user(500, "end-user")
+    pipeline = FakePipeline()
+    page1 = _incremental_page([_ticket(100, status="closed")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    res = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep
+    )
+    assert res.created == 1
+    assert res.closed_ingested == 1
+    assert res.classified == 0
+    assert len(pipeline.calls) == 0  # process_email NOT called for a closed ticket
+    email = (await adb.execute(select(Email))).scalar_one()
+    assert email.status == EmailStatus.ARCHIVED.value
+    assert email.draft is None  # no draft generated
+    assert email.zendesk_status == "closed"
+
+
+@pytest.mark.asyncio
 async def test_deleted_tickets_filtered_out(adb):
     requester = _user(500, "end-user")
     page = _incremental_page(
