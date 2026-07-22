@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, ChairBadge, ConfidenceBar } from "@/components/ui";
+import { Badge, ConfidenceBar } from "@/components/ui";
 import {
   initials,
   laneBadgeVariant,
@@ -22,7 +22,6 @@ export function EmailListItem({
   email,
   isSelected,
   onClick,
-  chairName,
 }: EmailListItemProps) {
   const lane = email.routing?.lane ?? null;
   const confidence = email.classification?.confidence;
@@ -71,14 +70,10 @@ export function EmailListItem({
           className="truncate text-xs"
           style={{ color: "var(--text-secondary)" }}
         >
-          {/* Zendesk ticket number — muted, secondary to sender/time. Omitted
-              entirely for non-Zendesk rows (zendesk_ticket_id null). */}
-          {email.zendesk_ticket_id != null && (
-            <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>
-              #{email.zendesk_ticket_id} ·{" "}
-            </span>
-          )}
-          {email.sender} · {timeAgo(email.received_at ?? email.created_at)}
+          {/* Sender name (falls back to the email address) + the time of the
+              requester's email. */}
+          {(email.sender_name?.trim() || email.sender)} ·{" "}
+          {timeAgo(email.received_at ?? email.created_at)}
         </span>
       </span>
 
@@ -93,10 +88,6 @@ export function EmailListItem({
           <Badge variant={laneBadgeVariant(lane)} size="sm">
             {laneLabel(lane)}
           </Badge>
-        )}
-        {/* Assigned chair — only meaningful for human-review emails. */}
-        {lane === "human_review" && (
-          <ChairBadge chairId={email.assigned_chair_id} chairName={chairName} />
         )}
         {typeof confidence === "number" && (
           <span className="w-[60px]">
