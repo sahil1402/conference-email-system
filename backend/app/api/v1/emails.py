@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.events import get_event_broker
 from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
@@ -242,6 +243,14 @@ def _email_to_dict(email: Email) -> dict:
         "assigned_chair_id": email.assigned_chair_id,
         "source": email.source,
         "zendesk_ticket_id": email.zendesk_ticket_id,
+        # Deep link to the ticket in the Zendesk agent UI. Built from the
+        # existing ZENDESK_SUBDOMAIN config so the frontend needs no Zendesk env
+        # var. Null unless this row has a ticket id AND a subdomain is configured.
+        "zendesk_ticket_url": (
+            f"https://{settings.ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/{email.zendesk_ticket_id}"
+            if email.zendesk_ticket_id is not None and settings.ZENDESK_SUBDOMAIN
+            else None
+        ),
         "zendesk_status": email.zendesk_status,
         "classification": email.classification,
         "routing": email.routing,
