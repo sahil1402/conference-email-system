@@ -443,6 +443,7 @@ class EmailRepository:
             {
                 "comment_id": r.zendesk_comment_id,
                 "public": r.public,
+                "author_id": r.author_id,
                 "author_role": r.author_role,
                 "plain_body": r.plain_body,
                 "html_body": r.html_body,

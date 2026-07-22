@@ -449,6 +449,11 @@ async def get_email_thread(
             detail=f"Email {email_id} not found",
         )
     messages = await email_repo.get_thread_messages(db, email_id)
+    # The requester is identified by author_id == ticket requester_id — NOT by
+    # Zendesk's ``role``, since chairs/agents often have role "end-user" in this
+    # account (so role alone mislabels their replies as the requester). None when
+    # there is no Zendesk requester (non-Zendesk email) → UI falls back to role.
+    requester_id = email.zendesk_requester_id
     return {
         "messages": [
             {
@@ -457,6 +462,10 @@ async def get_email_thread(
                 # Server-sanitized HTML for rich rendering; None → UI falls back
                 # to plain_body. Requester-authored, so sanitize before exposing.
                 "html_body": _sanitize_html(m.get("html_body")),
+                "is_requester": (
+                    (m.get("author_id") == requester_id)
+                    if requester_id is not None else None
+                ),
             }
             for m in messages
         ]

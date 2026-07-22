@@ -9,8 +9,13 @@ type TurnKind = "requester" | "support" | "internal";
 
 function turnMeta(m: EmailThreadMessage): { label: string; kind: TurnKind } {
   if (!m.public) return { label: "Internal note", kind: "internal" };
-  if (m.author_role === "end-user") return { label: "Requester", kind: "requester" };
-  return { label: "Support", kind: "support" };
+  // Prefer the reliable requester-id match from the backend; fall back to
+  // author_role only when it's unavailable (e.g. non-Zendesk email). Zendesk
+  // ``role`` alone mislabels chairs (often role "end-user") as the requester.
+  const isRequester = m.is_requester ?? m.author_role === "end-user";
+  return isRequester
+    ? { label: "Requester", kind: "requester" }
+    : { label: "Support", kind: "support" };
 }
 
 const KIND_STYLE: Record<TurnKind, { bg: string; border: string; accent: string }> = {

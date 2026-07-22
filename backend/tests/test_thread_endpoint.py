@@ -133,6 +133,38 @@ async def test_get_thread_sanitizes_malicious_html(client):
     assert "<p>hi</p>" in html  # formatting preserved
 
 
+async def test_is_requester_uses_author_id_not_role(client):
+    """The chair's reply (author_id != requester_id) is NOT the requester even
+    when Zendesk gives that chair role 'end-user' (the 13780 case)."""
+    c, factory = client
+    async with factory() as s:
+        email = Email(
+            sender="a@x", subject="s", body="b", status="PENDING",
+            source="zendesk", zendesk_ticket_id=999, zendesk_requester_id=500,
+        )
+        s.add(email)
+        await s.commit()
+        await s.refresh(email)
+        s.add_all([
+            EmailThreadMessage(
+                email_id=email.id, zendesk_comment_id=1, public=True,
+                author_id=500, author_role="end-user", plain_body="requester",
+                created_at=datetime(2026, 7, 21, 10, 0, tzinfo=timezone.utc),
+            ),
+            EmailThreadMessage(  # chair: role 'end-user' but a different author_id
+                email_id=email.id, zendesk_comment_id=2, public=True,
+                author_id=900, author_role="end-user", plain_body="chair reply",
+                created_at=datetime(2026, 7, 21, 10, 1, tzinfo=timezone.utc),
+            ),
+        ])
+        await s.commit()
+        email_id = email.id
+
+    msgs = (await c.get(f"/api/v1/emails/{email_id}/thread")).json()["messages"]
+    assert msgs[0]["is_requester"] is True   # author_id == requester_id
+    assert msgs[1]["is_requester"] is False  # chair, despite role 'end-user'
+
+
 def test_sanitize_html_helper():
     from app.api.v1.emails import _sanitize_html
 

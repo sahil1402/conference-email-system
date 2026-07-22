@@ -124,8 +124,15 @@ export interface EmailThreadMessage {
   comment_id: number | null;
   /** True = reply visible to the requester; False = internal note. */
   public: boolean;
-  /** "end-user" | "agent" | "admin" (Zendesk role); null if unresolved. */
+  /** Zendesk user id of the comment author. */
+  author_id?: number | null;
+  /** "end-user" | "agent" | "admin" (Zendesk role); null if unresolved. NOTE:
+   * unreliable for identifying the requester — chairs often have role "end-user"
+   * in this account. Prefer `is_requester`. */
   author_role: string | null;
+  /** True iff author_id === the ticket's requester_id (the reliable requester
+   * signal); null for non-Zendesk emails (then fall back to author_role). */
+  is_requester?: boolean | null;
   plain_body: string | null;
   /** Server-sanitized (backend bleach allowlist) comment HTML for rich
    * rendering; null → render plain_body instead. Safe to inject. */
