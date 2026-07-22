@@ -35,6 +35,7 @@ import {
 import { PolicyDetailModal } from "./PolicyDetailModal";
 import { ConversationThread } from "./ConversationThread";
 import { SendVisibilityToggle } from "./SendVisibilityToggle";
+import { ZendeskLinkButton } from "./ZendeskLinkButton";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
@@ -283,6 +284,7 @@ export function EmailDetail({
             {lane === "human_review" && (
               <ChairBadge chairId={currentChairId} chairName={currentChairName} />
             )}
+            <ZendeskLinkButton url={email.zendesk_ticket_url} className="ml-auto" />
           </div>
 
           {/* Intent classification + confidence (from the classifier/distiller). */}
