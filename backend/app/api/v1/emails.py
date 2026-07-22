@@ -554,11 +554,14 @@ async def send_email_reply(
                     "zendesk_status": email.zendesk_status},
         )
 
-    # A public reply is an extra gate on top of the send gate: it requires the
-    # ALLOW_AUTO_SEND policy AND an explicit request. Otherwise we only ever post
-    # an internal note (which does not notify the requester).
+    # A public reply is an extra gate on top of the send gate. A chair-approved
+    # draft (human-reviewed) may go public regardless of ALLOW_AUTO_SEND — the
+    # human IS the authorization. For any non-approved draft (e.g. an unreviewed
+    # FAQ-lane draft_generated), public still requires ALLOW_AUTO_SEND; otherwise
+    # we only ever post an internal note (which does not notify the requester).
     want_public = bool(payload.public)
-    if want_public and not settings.ALLOW_AUTO_SEND:
+    is_approved = (email.status or "").lower() == "approved"
+    if want_public and not is_approved and not settings.ALLOW_AUTO_SEND:
         await audit_repo.log_action(
             db, email_id, "send_blocked_public_disabled", payload.sent_by,
             {"reason": "public reply requested but ALLOW_AUTO_SEND is False"},
