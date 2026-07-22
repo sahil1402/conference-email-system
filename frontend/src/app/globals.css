@@ -127,3 +127,45 @@ body {
 .conf-html p {
   margin: 0.4em 0;
 }
+
+/* Restore formatting that Tailwind's preflight reset strips from the injected
+   (sanitized) email HTML — lists, headings, emphasis, code, rules. */
+.conf-html ul {
+  list-style: disc;
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.conf-html ol {
+  list-style: decimal;
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.conf-html li {
+  margin: 0.2em 0;
+}
+.conf-html h1 { font-size: 1.5em; font-weight: 600; margin: 0.6em 0 0.3em; }
+.conf-html h2 { font-size: 1.3em; font-weight: 600; margin: 0.6em 0 0.3em; }
+.conf-html h3 { font-size: 1.15em; font-weight: 600; margin: 0.5em 0 0.3em; }
+.conf-html h4,
+.conf-html h5,
+.conf-html h6 { font-weight: 600; margin: 0.5em 0 0.3em; }
+.conf-html strong,
+.conf-html b { font-weight: 600; }
+.conf-html em,
+.conf-html i { font-style: italic; }
+.conf-html pre {
+  white-space: pre-wrap;
+  background: var(--surface);
+  padding: 0.5em;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.conf-html code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+.conf-html hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.75em 0;
+}
