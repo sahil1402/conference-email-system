@@ -1,3 +1,5 @@
+import { ExternalLink } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 interface ZendeskLinkButtonProps {
@@ -24,6 +26,7 @@ export function ZendeskLinkButton({ url, className }: ZendeskLinkButtonProps) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
+      aria-label="Open ticket in Zendesk (opens in new tab)"
       className={cn(
         // Size/shape matched to the header's `Badge size="sm"` pills so it sits
         // in the badge row without looking oversized; a border + hover accent
@@ -35,6 +38,9 @@ export function ZendeskLinkButton({ url, className }: ZendeskLinkButtonProps) {
         className
       )}
     >
+      {/* Icon inherits the <a>'s currentColor, so it shifts to --accent on
+          hover together with the text. aria-hidden — the label conveys it. */}
+      <ExternalLink className="h-3 w-3" aria-hidden />
       Zendesk
     </a>
   );
