@@ -26,7 +26,7 @@ main includes Jiacheng's Phase 7 work (HEAD c4ed3f5) and the SQLite→PostgreSQL
 |---|---|
 | Frontend | Next.js 14 + TypeScript + Tailwind CSS v3 + shadcn/ui |
 | Backend | Python + FastAPI + async SQLAlchemy |
-| Database | SQLite via Alembic (PostgreSQL-ready since Phase 3C; not migrated on main) |
+| Database | PostgreSQL via Alembic (migrated from SQLite, now on main); SQLite remains the safe default fallback for local dev/test/CI per config.py |
 | AI | Cloud API, self-hosted OpenAI-compatible endpoint, template, or fallback — swappable via config |
 | Retrieval | BM25 (rank_bm25), FAISS dense vectors, or RRF fusion — swappable via config |
 | Testing | pytest + pytest-asyncio (`ml` marker for embedding-heavy tests) |
@@ -61,7 +61,6 @@ Typed pydantic-settings `Settings`; env → `.env`. Access: `from app.core.confi
 | FAISS_MODEL_NAME | Embedding model for FAISS | `all-MiniLM-L6-v2` |
 | ANTHROPIC_API_KEY | Cloud API secret | `None` |
 | DATABASE_URL | Async DB URL (SQLite→aiosqlite; Postgres+asyncpg passthrough) | `sqlite:///./conference_email.db` |
-| SYNC_DATABASE_URL | Sync URL for Alembic / sync tooling only | `sqlite:///./conference_email.db` |
 
 ## Database Tables (`backend/app/db/models.py`)
 Pipeline outputs (classification, routing, draft) stored as JSON columns on `emails`.
