@@ -12,6 +12,7 @@ import html as _html
 import json
 import logging
 from datetime import timezone
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -59,6 +60,13 @@ class SendRequest(BaseModel):
         "False = internal note (default, safe).",
     )
     sent_by: str = Field(default="chair", description="Actor recorded in the audit log.")
+    # Reserved (not yet consumed): the Zendesk status to set on send. Mirrors the
+    # frontend ApproveRequest.target_status naming/values (types/index.ts). Inert
+    # in this piece — /send still hardcodes status behavior until a later piece.
+    target_status: Literal["open", "pending", "solved"] | None = Field(
+        default=None,
+        description="Zendesk ticket status to set on send (reserved; currently unused).",
+    )
 
 
 def _text_to_html(text: str) -> str:
