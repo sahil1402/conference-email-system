@@ -197,10 +197,29 @@ export function EmailDetail({
   }
 
   // Keyboard shortcuts, scoped to the review pane (this component only mounts
-  // when an email is open). A = approve, E = edit (focus draft), R = reroute.
-  // They never fire while focus is in a text field, so typing is never hijacked.
+  // when an email is open). Ctrl+Alt+S = approve, E = edit (focus draft),
+  // R = reroute, C = reassign.
+  //
+  // Two paths: the Ctrl+Alt+S combo is checked FIRST and deliberately bypasses
+  // both the modifier guard and the typing guard, so it still fires while the
+  // chair is editing the draft. The single-key shortcuts keep the original
+  // guards — no modifiers, and never while focus is in a text field.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Matched on e.code (physical key) rather than e.key, so the combo
+      // survives layouts where Ctrl+Alt (AltGr) alters the produced character.
+      if (
+        e.code === "KeyS" &&
+        e.ctrlKey &&
+        e.altKey &&
+        !e.metaKey &&
+        !e.shiftKey
+      ) {
+        e.preventDefault();
+        // S2b wires the real approve call here.
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
@@ -208,10 +227,7 @@ export function EmailDetail({
         return; // don't hijack typing
       }
       const key = e.key.toLowerCase();
-      if (key === "a" && canApprove && !isApproving) {
-        e.preventDefault();
-        onApprove(editedDraft, approveStatus, replyPublic);
-      } else if (key === "e") {
+      if (key === "e") {
         const el = textareaRef.current;
         if (el) {
           e.preventDefault();
