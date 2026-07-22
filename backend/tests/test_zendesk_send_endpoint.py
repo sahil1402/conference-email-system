@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -181,6 +182,129 @@ async def test_tag_conflict_surfaces_warning_but_reply_sent(adb, monkeypatch):
     assert result["status"] == EmailStatus.SENT.value
     assert "warning" in result
     assert result["send"]["tag_conflict"] is True
+
+
+# --- target_status routing into set_status (Piece B-impl-1b) ---------------
+
+
+@pytest.mark.asyncio
+async def test_target_status_overrides_internal_note_default(adb, monkeypatch):
+    """target_status="pending" on an internal note → set_status "pending", not None.
+
+    Proves an explicit target_status wins over the internal-note default (which,
+    with no target_status, would leave status unchanged → set_status=None).
+    """
+    email = await _seed(adb)
+    fake = FakeSender(
+        outcome=SendOutcome(mode="internal_note", public=False, status_set="pending")
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+
+    await emails_api.send_email_reply(
+        str(email.id),
+        emails_api.SendRequest(public=False, target_status="pending"),
+        adb,
+    )
+    call = fake.calls[0]
+    assert call["public"] is False
+    assert call["set_status"] == "pending"  # NOT None
+    assert call["tags"] == ["ai_drafted"]  # tags unaffected by target_status
+
+
+@pytest.mark.asyncio
+async def test_target_status_overrides_public_reply_default(adb, monkeypatch):
+    """target_status="open" on a public reply → set_status "open", not "solved".
+
+    Proves an explicit target_status wins over the public-reply default of
+    "solved". Requires ALLOW_AUTO_SEND for the public path.
+    """
+    email = await _seed(adb)
+    fake = FakeSender(
+        outcome=SendOutcome(
+            mode="public_reply", public=True, status_set="open",
+            tags_added=["ai_auto_replied"],
+        )
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+
+    await emails_api.send_email_reply(
+        str(email.id),
+        emails_api.SendRequest(public=True, target_status="open"),
+        adb,
+    )
+    call = fake.calls[0]
+    assert call["public"] is True
+    assert call["set_status"] == "open"  # NOT "solved"
+
+
+@pytest.mark.asyncio
+async def test_no_target_status_public_defaults_to_solved(adb, monkeypatch):
+    """Regression: target_status=None + public=True → set_status "solved" (old default)."""
+    email = await _seed(adb)
+    fake = FakeSender(
+        outcome=SendOutcome(
+            mode="public_reply", public=True, status_set="solved",
+            tags_added=["ai_auto_replied"],
+        )
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+
+    await emails_api.send_email_reply(
+        str(email.id), emails_api.SendRequest(public=True), adb
+    )
+    assert fake.calls[0]["set_status"] == "solved"
+
+
+@pytest.mark.asyncio
+async def test_no_target_status_internal_defaults_to_none(adb, monkeypatch):
+    """Regression: target_status=None + public=False → set_status None (old default)."""
+    email = await _seed(adb)
+    fake = FakeSender(
+        outcome=SendOutcome(mode="internal_note", public=False, tags_added=["ai_drafted"])
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+
+    await emails_api.send_email_reply(
+        str(email.id), emails_api.SendRequest(public=False), adb
+    )
+    assert fake.calls[0]["set_status"] is None
+
+
+def test_invalid_target_status_rejected_by_validation():
+    """An out-of-Literal target_status is rejected by Pydantic before the handler.
+
+    Direct handler calls bypass ASGI, so the FastAPI 422 wrapper never runs; the
+    faithful equivalent is that constructing the request model raises
+    ValidationError — the invalid value can never reach send_email_reply.
+    """
+    with pytest.raises(ValidationError):
+        emails_api.SendRequest(target_status="closed")
+
+
+@pytest.mark.asyncio
+async def test_target_status_does_not_change_tags(adb, monkeypatch):
+    """Tags key off want_public only: target_status="pending" + public=True still
+    tags ["ai_auto_replied"] (target_status affects status, never tags)."""
+    email = await _seed(adb)
+    fake = FakeSender(
+        outcome=SendOutcome(
+            mode="public_reply", public=True, status_set="pending",
+            tags_added=["ai_auto_replied"],
+        )
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+
+    await emails_api.send_email_reply(
+        str(email.id),
+        emails_api.SendRequest(public=True, target_status="pending"),
+        adb,
+    )
+    call = fake.calls[0]
+    assert call["tags"] == ["ai_auto_replied"]  # unchanged by target_status
+    assert call["set_status"] == "pending"
 
 
 @pytest.mark.asyncio
