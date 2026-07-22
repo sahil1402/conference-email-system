@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api.v1 import emails as emails_api
+from app.core.config import settings
 from app.db.database import Base
 from app.integrations.zendesk.sender import SendOutcome, ZendeskSendError
 from app.models.enums import EmailSource, EmailStatus
@@ -112,7 +113,7 @@ async def test_public_reply_blocked_unless_allow_auto_send(adb, monkeypatch):
     email = await _seed(adb, status="draft_generated")
     fake = FakeSender(outcome=SendOutcome(mode="public_reply", public=True))
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", False)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", False)
 
     with pytest.raises(HTTPException) as exc:
         await emails_api.send_email_reply(
@@ -134,7 +135,7 @@ async def test_approved_public_allowed_without_flag(adb, monkeypatch):
         )
     )
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", False)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", False)
 
     result = await emails_api.send_email_reply(
         str(email.id), emails_api.SendRequest(public=True), adb
@@ -154,7 +155,7 @@ async def test_approved_internal_note_regardless_of_flag(adb, monkeypatch):
         outcome=SendOutcome(mode="internal_note", public=False, tags_added=["ai_drafted"])
     )
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", False)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", False)
 
     result = await emails_api.send_email_reply(
         str(email.id), emails_api.SendRequest(public=False), adb
@@ -178,7 +179,7 @@ async def test_draft_generated_public_auto_send_with_flag(adb, monkeypatch):
         )
     )
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", True)
 
     result = await emails_api.send_email_reply(
         str(email.id), emails_api.SendRequest(public=True), adb
@@ -198,7 +199,7 @@ async def test_public_reply_allowed_when_flag_on(adb, monkeypatch):
         )
     )
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", True)
 
     result = await emails_api.send_email_reply(
         str(email.id), emails_api.SendRequest(public=True), adb
@@ -304,7 +305,7 @@ async def test_target_status_overrides_public_reply_default(adb, monkeypatch):
         )
     )
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", True)
 
     await emails_api.send_email_reply(
         str(email.id),
@@ -327,7 +328,7 @@ async def test_no_target_status_public_defaults_to_solved(adb, monkeypatch):
         )
     )
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", True)
 
     await emails_api.send_email_reply(
         str(email.id), emails_api.SendRequest(public=True), adb
@@ -373,7 +374,7 @@ async def test_target_status_does_not_change_tags(adb, monkeypatch):
         )
     )
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
-    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+    monkeypatch.setattr(settings, "ALLOW_AUTO_SEND", True)
 
     await emails_api.send_email_reply(
         str(email.id),

@@ -19,7 +19,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.events import get_event_broker
 from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
@@ -554,23 +553,12 @@ async def send_email_reply(
                     "zendesk_status": email.zendesk_status},
         )
 
-    # A public reply is an extra gate on top of the send gate. A chair-approved
-    # draft (human-reviewed) may go public regardless of ALLOW_AUTO_SEND — the
-    # human IS the authorization. For any non-approved draft (e.g. an unreviewed
-    # FAQ-lane draft_generated), public still requires ALLOW_AUTO_SEND; otherwise
-    # we only ever post an internal note (which does not notify the requester).
+    # Public reply vs internal note = whether the requester is notified. WHO may
+    # send has already been enforced by the send gate above (authorize_send): an
+    # approved draft may go public regardless of ALLOW_AUTO_SEND, while an
+    # unreviewed draft_generated draft is refused there (409) unless the FAQ-lane
+    # auto path is unlocked. So no additional visibility gate is needed here.
     want_public = bool(payload.public)
-    is_approved = (email.status or "").lower() == "approved"
-    if want_public and not is_approved and not settings.ALLOW_AUTO_SEND:
-        await audit_repo.log_action(
-            db, email_id, "send_blocked_public_disabled", payload.sent_by,
-            {"reason": "public reply requested but ALLOW_AUTO_SEND is False"},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"message": "Public reply requires ALLOW_AUTO_SEND=True. Send "
-                    "as an internal note (public=false), or enable the policy."},
-        )
 
     draft_text = (email.draft or {}).get("draft_text", "") or ""
     html_body = _text_to_html(draft_text)
