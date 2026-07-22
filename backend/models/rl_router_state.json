@@ -5,6 +5,12 @@
       "wins": 221
     }
   },
+  "submission_requirements": {
+    "human_review": {
+      "trials": 20,
+      "wins": 20
+    }
+  },
   "technical_issue": {
     "human_review": {
       "trials": 2,
