@@ -424,6 +424,39 @@ export interface ApproveRequest {
   target_status?: "open" | "pending" | "solved" | null;
 }
 
+/** SendRequest — POST /emails/{id}/send body (backend app/api/v1/emails.py). */
+export interface SendRequest {
+  /** True = public reply to the requester (needs ALLOW_AUTO_SEND); false/omitted
+   * = internal note (default, safe). */
+  public?: boolean;
+  /** Actor recorded in the audit log (defaults to "chair" backend-side). */
+  sent_by?: string;
+  /** Zendesk ticket status to set on send; null/omitted keeps the §4 default
+   * (public → "solved", internal → unchanged). */
+  target_status?: "open" | "pending" | "solved" | null;
+}
+
+/** The `send` metadata block the backend attaches to a successful /send response. */
+export interface SendResult {
+  /** "sent" on success (a failure marks the email send_failed and returns an error). */
+  state: string;
+  /** "internal_note" | "public_reply". */
+  mode: string;
+  public: boolean;
+  /** The Zendesk status set on the ticket, or null when left unchanged. */
+  status_set: string | null;
+  tags_added: string[];
+  /** True when the reply landed but the follow-up tag write hit a 409 (not overwritten). */
+  tag_conflict: boolean;
+}
+
+/** Response of POST /emails/{id}/send — the email row (status flipped to "sent")
+ * plus the send metadata, and an optional warning on a tag conflict. */
+export interface SendResponse extends Email {
+  send: SendResult;
+  warning?: string;
+}
+
 /** RerouteRequest */
 export interface RerouteRequest {
   rerouted_by: string;

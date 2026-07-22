@@ -10,6 +10,8 @@ import type {
   QueueFacets,
   ReassignChairRequest,
   RerouteRequest,
+  SendRequest,
+  SendResponse,
 } from "@/types";
 
 /** Optional filters for the queue fetch. `lane` scopes to a routing lane
@@ -88,6 +90,21 @@ export async function approveEmail(
     data ?? {}
   );
   return email;
+}
+
+/** POST /emails/{id}/send — release the approved draft to the Zendesk ticket
+ * (internal note by default; public reply needs ALLOW_AUTO_SEND). Returns the
+ * updated email plus the send metadata. Gate/transport failures surface as the
+ * normalized ApiError via the shared client interceptor. */
+export async function sendEmail(
+  id: number,
+  data?: SendRequest
+): Promise<SendResponse> {
+  const { data: result } = await apiClient.post<SendResponse>(
+    `/emails/${id}/send`,
+    data ?? {}
+  );
+  return result;
 }
 
 /** PATCH /emails/{id}/reroute — move an email to a different lane. */
