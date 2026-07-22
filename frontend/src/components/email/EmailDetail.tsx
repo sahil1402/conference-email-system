@@ -34,6 +34,7 @@ import {
 } from "@/components/ui";
 import { PolicyDetailModal } from "./PolicyDetailModal";
 import { ConversationThread } from "./ConversationThread";
+import { SendVisibilityToggle } from "./SendVisibilityToggle";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
@@ -482,6 +483,11 @@ export function EmailDetail({
                 onSelectedChange={setApproveStatus}
                 onAction={(status) => onApprove(editedDraft, status)}
               />
+
+              {/* Reply visibility (internal note vs public reply). Presentational
+                  only for now — holds its own state and is NOT yet wired into the
+                  approve/send flow (default = internal note). */}
+              <SendVisibilityToggle disabled={isApproving} />
 
               <button
                 type="button"
