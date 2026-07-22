@@ -46,6 +46,7 @@ import {
   statusLabel,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePersistedState } from "@/hooks";
 import type { ApiError, Chair, Email, RetrievedChunk } from "@/types";
 
 /**
@@ -130,16 +131,19 @@ export function EmailDetail({
   const chairNotes = parseChairNotes(draft?.notes_for_chair);
 
   const [editedDraft, setEditedDraft] = useState(draft?.draft_text ?? "");
-  // Which Zendesk status the split "Approve & Send" button will submit as, or
-  // null for a plain approve. Owned here (not inside SplitActionButton) so the
-  // "A" keyboard shortcut fires with the same chosen status a click would.
-  const [approveStatus, setApproveStatus] = useState<SplitActionStatus | null>(
-    null
+  // Submit-as status + reply visibility. Persisted (localStorage) so a chosen
+  // status / toggle survives switching emails (this pane remounts per email) and
+  // reloads — staying put until changed again. Owned here (not inside the child
+  // controls) so the "A" keyboard shortcut submits with the same values a click
+  // would. Default = submit as Solved, internal note (safe).
+  const [approveStatus, setApproveStatus] = usePersistedState<SplitActionStatus>(
+    "confmail.submitStatus",
+    "solved"
   );
-  // Reply visibility for the send that follows approval: false = internal note
-  // (default, safe), true = public reply to the requester. Lifted here so the
-  // "A" shortcut submits with the same value a click would.
-  const [replyPublic, setReplyPublic] = useState(false);
+  const [replyPublic, setReplyPublic] = usePersistedState(
+    "confmail.replyPublic",
+    false
+  );
   const [rerouteOpen, setRerouteOpen] = useState(false);
   const [rerouteReason, setRerouteReason] = useState("");
   const [showDiff, setShowDiff] = useState(false);
@@ -404,7 +408,7 @@ export function EmailDetail({
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   {unresolvedPlaceholders.length} unresolved [CHAIR] placeholder
                   {unresolvedPlaceholders.length > 1 ? "s" : ""} — resolve to
-                  enable Approve &amp; Send.
+                  enable submitting.
                 </p>
               )}
               <div className="flex items-center justify-between">
@@ -503,10 +507,10 @@ export function EmailDetail({
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-3">
-              {/* Approve & Send — split button: primary approves (with the
-                  currently chosen Zendesk status, if any), the dropdown picks
-                  Open / Pending / Solved. Gating unchanged: disabled while
-                  approving or while unresolved [CHAIR: …] placeholders remain. */}
+              {/* Submit-as split button: primary approves + sends with the
+                  selected status (Solved / Pending / Open, persisted); the
+                  dropdown changes that status. Disabled while approving or while
+                  unresolved [CHAIR: …] placeholders remain. */}
               <SplitActionButton
                 disabled={!canApprove}
                 loading={isApproving}

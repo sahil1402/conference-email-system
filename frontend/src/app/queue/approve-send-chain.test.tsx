@@ -100,7 +100,7 @@ function renderQueue() {
 async function selectEmail(user: ReturnType<typeof userEvent.setup>, subject: string) {
   await user.click(screen.getByRole("button", { name: new RegExp(subject, "i") }));
   // Detail pane action button confirms selection.
-  await screen.findByRole("button", { name: "Approve & Send" });
+  await screen.findByRole("button", { name: "Submit as Solved" });
 }
 
 beforeAll(() => {
@@ -117,6 +117,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  // Reset persisted submit-status / visibility between cases (best-effort —
+  // this jsdom's localStorage stub omits clear()).
+  window.localStorage?.clear?.();
   state.emails = [makeEmail()];
   state.approve.mockReset();
   state.send.mockReset();
@@ -155,12 +158,12 @@ describe("approve → send chain", () => {
     renderQueue();
     await selectEmail(user, "Deadline question");
 
-    await user.click(screen.getByRole("button", { name: "Approve & Send" }));
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
     await waitFor(() =>
       expect(state.send).toHaveBeenCalledWith(1, {
         public: false,
-        target_status: null,
+        target_status: "solved",
       })
     );
   });
@@ -171,12 +174,12 @@ describe("approve → send chain", () => {
     await selectEmail(user, "Deadline question");
 
     await user.click(screen.getByRole("switch")); // internal → public
-    await user.click(screen.getByRole("button", { name: "Approve & Send" }));
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
     await waitFor(() =>
       expect(state.send).toHaveBeenCalledWith(1, {
         public: true,
-        target_status: null,
+        target_status: "solved",
       })
     );
   });
@@ -187,7 +190,7 @@ describe("approve → send chain", () => {
     renderQueue();
     await selectEmail(user, "Deadline question");
 
-    await user.click(screen.getByRole("button", { name: "Approve & Send" }));
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
     await waitFor(() => expect(state.approve).toHaveBeenCalledTimes(1));
     // Give any (incorrect) chained send a chance to fire, then assert it didn't.
@@ -201,7 +204,7 @@ describe("approve → send chain", () => {
     renderQueue();
     await selectEmail(user, "Deadline question");
 
-    await user.click(screen.getByRole("button", { name: "Approve & Send" }));
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/approved locally/i);
@@ -219,7 +222,7 @@ describe("approve → send chain", () => {
     renderQueue();
     await selectEmail(user, "Deadline question");
 
-    await user.click(screen.getByRole("button", { name: "Approve & Send" }));
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
     const alert = await screen.findByRole("alert");
 
     await user.click(within(alert).getByRole("button", { name: /retry/i }));
@@ -242,7 +245,7 @@ describe("approve → send chain", () => {
     renderQueue();
 
     await selectEmail(user, "Deadline question");
-    await user.click(screen.getByRole("button", { name: "Approve & Send" }));
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
     await screen.findByRole("alert"); // banner shows for email 1
 
     // Switch to a different email → the failure banner must not follow.

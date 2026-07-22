@@ -253,22 +253,37 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                         {policy.policy_key} · score {policy.score.toFixed(2)}
                       </p>
                     </div>
-                    <label
-                      className="flex shrink-0 items-center gap-2 text-xs"
-                      style={{
-                        color: "var(--text-secondary)",
-                        opacity: reconciledKeys.has(policy.policy_key) ? 0.5 : 1,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={retireKeys.has(policy.policy_key)}
-                        onChange={() => toggleRetireKey(policy.policy_key)}
-                        disabled={reconciledKeys.has(policy.policy_key)}
-                        className="h-4 w-4"
-                      />
-                      supersede
-                    </label>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <label
+                        className="flex items-center gap-2 text-xs"
+                        style={{
+                          color: "var(--text-secondary)",
+                          opacity: reconciledKeys.has(policy.policy_key) ? 0.5 : 1,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={retireKeys.has(policy.policy_key)}
+                          onChange={() => toggleRetireKey(policy.policy_key)}
+                          disabled={reconciledKeys.has(policy.policy_key)}
+                          className="h-4 w-4"
+                        />
+                        supersede
+                      </label>
+                      {/* Edit sits to the right of the supersede checkbox (away
+                          from the Show more/less control below). */}
+                      {!reconciledKeys.has(policy.policy_key) &&
+                        editingSimilarKey !== policy.policy_key && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingSimilarKey(policy.policy_key)}
+                            className="text-xs font-medium transition-opacity hover:opacity-80"
+                            style={{ color: "var(--accent)" }}
+                          >
+                            Edit
+                          </button>
+                        )}
+                    </div>
                   </div>
 
                   <p
@@ -320,16 +335,7 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                         onCancel={() => setEditingSimilarKey(null)}
                       />
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setEditingSimilarKey(policy.policy_key)}
-                      className="mt-4 inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
-                      style={{ color: "var(--accent)" }}
-                    >
-                      Edit
-                    </button>
-                  )}
+                  ) : null}
                 </div>
               );
             })}

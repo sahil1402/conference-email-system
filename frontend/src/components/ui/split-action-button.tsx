@@ -14,21 +14,11 @@ import { LoadingSpinner } from "./LoadingSpinner";
 import { cn } from "@/lib/utils";
 import { zendeskStatusColor } from "@/lib/zendesk-status";
 
-/**
- * The status a split-action can resolve to. `null` = no status chosen yet
- * (the default "Approve & Send" mode → a plain action with no status change).
- */
+/** The resulting Zendesk status the button submits as. */
 export type SplitActionStatus = "open" | "pending" | "solved";
 
-/**
- * The three dropdown options, in Zendesk's native submit order. Dot colors come
- * from the shared ZENDESK_STATUS_COLORS source of truth (app-harmonized palette,
- * same as ZendeskStatusBar) — see zendeskStatusColor in the render below.
- */
-const STATUS_OPTIONS: {
-  value: SplitActionStatus;
-  label: string;
-}[] = [
+/** The three dropdown options, in Zendesk's native submit order. */
+const STATUS_OPTIONS: { value: SplitActionStatus; label: string }[] = [
   { value: "open", label: "Open" },
   { value: "pending", label: "Pending" },
   { value: "solved", label: "Solved" },
@@ -40,20 +30,17 @@ const LABEL_BY_STATUS: Record<SplitActionStatus, string> = {
   solved: "Solved",
 };
 
+/** Default when the caller supplies no selection (mirrors Zendesk's common case). */
+const DEFAULT_STATUS: SplitActionStatus = "solved";
+
 export interface SplitActionButtonProps {
-  /**
-   * Fired on every primary-button click with the currently selected status,
-   * or `null` when none has been picked (the default "Approve & Send" mode).
-   */
-  onAction: (status: SplitActionStatus | null) => void;
-  /** Primary label shown before any status is selected. */
-  defaultLabel?: string;
+  /** Fired on every primary-button click with the currently selected status. */
+  onAction: (status: SplitActionStatus) => void;
   /** Disables both the primary button and the dropdown trigger. */
   disabled?: boolean;
   /**
-   * Shows a spinner in the primary button's icon area and disables both the
-   * primary button and the dropdown trigger (combined with `disabled`). Use for
-   * an in-flight action (e.g. an approve request awaiting the server).
+   * Shows a spinner in the primary button and disables both controls. Use for an
+   * in-flight action (e.g. an approve/send awaiting the server).
    */
   loading?: boolean;
   /** Optional extra classes on the outer wrapper. */
@@ -61,29 +48,25 @@ export interface SplitActionButtonProps {
   /**
    * Controlled selected status. When provided (paired with `onSelectedChange`),
    * the parent owns the selection — useful when something outside the button
-   * (e.g. a keyboard shortcut) must fire the action with the chosen status.
-   * Omit both to let the component manage selection internally.
+   * (e.g. a keyboard shortcut, or a persisted preference) drives it. Omit both
+   * to let the component manage selection internally.
    */
-  selected?: SplitActionStatus | null;
+  selected?: SplitActionStatus;
   /** Called when a status is picked from the dropdown (controlled mode). */
-  onSelectedChange?: (status: SplitActionStatus | null) => void;
+  onSelectedChange?: (status: SplitActionStatus) => void;
 }
 
 /**
- * A split button: a primary action on the left + a chevron dropdown on the
- * right offering three resulting statuses (Open / Pending / Solved), mirroring
- * Zendesk's native "Submit as …" control.
- *
- * Selecting a status persists it as the active mode — the primary label becomes
- * "Submit as {Status}" and stays there until another is chosen — and clicking
- * the primary button always fires `onAction(selectedStatus)` (or `onAction(null)`
- * in the untouched default state). Selection is internal state; the caller only
- * needs the value at click time. Generic by design — nothing here is bound to
- * the email-review context.
+ * A split button mirroring Zendesk's "Submit as …" control: a primary action on
+ * the left that submits as the currently selected status, plus a chevron
+ * dropdown offering Open / Pending / Solved. The primary label is always
+ * "Submit as {Status}" (default Solved) — there is no separate "approve & send"
+ * mode; picking a status changes what the primary submits as and persists as the
+ * active choice. The primary keeps a fixed width so it doesn't resize between
+ * statuses. Generic by design — nothing here is bound to the email context.
  */
 export function SplitActionButton({
   onAction,
-  defaultLabel = "Approve & Send",
   disabled = false,
   loading = false,
   className,
@@ -91,7 +74,7 @@ export function SplitActionButton({
   onSelectedChange,
 }: SplitActionButtonProps) {
   const [internalSelected, setInternalSelected] =
-    React.useState<SplitActionStatus | null>(null);
+    React.useState<SplitActionStatus>(DEFAULT_STATUS);
   const isControlled = controlledSelected !== undefined;
   const selected = isControlled ? controlledSelected : internalSelected;
 
@@ -100,18 +83,19 @@ export function SplitActionButton({
     onSelectedChange?.(status);
   }
 
-  const label = selected ? `Submit as ${LABEL_BY_STATUS[selected]}` : defaultLabel;
+  const label = `Submit as ${LABEL_BY_STATUS[selected]}`;
   // A loading action is also a disabled one (both controls inert while in flight).
   const isDisabled = disabled || loading;
 
   return (
     <div className={cn("inline-flex items-stretch", className)}>
-      {/* Primary action — indigo accent (Button default variant). */}
+      {/* Primary action — indigo accent (Button default variant). Fixed min-width
+          + centered so the label swapping between statuses never resizes it. */}
       <Button
         type="button"
         disabled={isDisabled}
         onClick={() => onAction(selected)}
-        className="rounded-r-none"
+        className="min-w-[10rem] justify-center rounded-r-none"
       >
         {loading && (
           <LoadingSpinner size="sm" className="!text-[var(--text-primary)]" />

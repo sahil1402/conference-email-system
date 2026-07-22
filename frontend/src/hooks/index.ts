@@ -7,3 +7,4 @@ export * from "./useAudit";
 export * from "./useChairs";
 export * from "./usePolicies";
 export * from "./useAppConfig";
+export * from "./usePersistedState";
