@@ -571,9 +571,13 @@ async def send_email_reply(
 
     draft_text = (email.draft or {}).get("draft_text", "") or ""
     html_body = _text_to_html(draft_text)
-    # §4: public reply → set status "solved" in the same call; internal note →
-    # leave status unchanged. Tags track state via the dedicated tag endpoint.
-    set_status = "solved" if want_public else None
+    # Status: an explicit chair-chosen target_status wins (independent of the
+    # public/internal decision — e.g. "pending" on an internal note). When none
+    # is supplied, fall back to the §4 default: public reply → "solved"; internal
+    # note → leave status unchanged. Tags track state via the dedicated tag endpoint.
+    set_status = payload.target_status if payload.target_status is not None else (
+        "solved" if want_public else None
+    )
     tags = ["ai_auto_replied"] if want_public else ["ai_drafted"]
     updated_stamp = _iso_z(email.zendesk_updated_at)
 
