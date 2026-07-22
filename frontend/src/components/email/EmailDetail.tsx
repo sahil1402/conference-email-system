@@ -200,32 +200,41 @@ export function EmailDetail({
   // when an email is open). Ctrl+Alt+S = approve, E = edit (focus draft),
   // R = reroute, C = reassign.
   //
-  // Two paths: the Ctrl+Alt+S combo is checked FIRST and deliberately bypasses
-  // both the modifier guard and the typing guard, so it still fires while the
-  // chair is editing the draft. The single-key shortcuts keep the original
-  // guards — no modifiers, and never while focus is in a text field.
+  // No shortcut — including Ctrl+Alt+S — fires while focus is in a text field.
+  // The combo is still checked ahead of the blanket modifier guard (which would
+  // otherwise always block it), but it no longer bypasses the typing guard.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // Matched on e.code (physical key) rather than e.key, so the combo
-      // survives layouts where Ctrl+Alt (AltGr) alters the produced character.
-      if (
-        e.code === "KeyS" &&
-        e.ctrlKey &&
-        e.altKey &&
-        !e.metaKey &&
-        !e.shiftKey
-      ) {
-        e.preventDefault();
-        // S2b wires the real approve call here.
-        return;
-      }
-
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Never hijack typing. This runs FIRST so it covers every shortcut: on
+      // AltGr layouts AltGr == Ctrl+Alt, so letting Ctrl+Alt+S through here
+      // would approve-and-send when the chair only meant to type a character.
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) {
         return; // don't hijack typing
       }
+
+      // Matched on e.code (physical key) rather than e.key, so the combo
+      // survives layouts where Ctrl+Alt (AltGr) alters the produced character.
+      // Checked before the blanket modifier guard below, which would otherwise
+      // reject it outright. canApprove/!isApproving are part of the condition ON
+      // PURPOSE: when we can't act we fall through WITHOUT preventDefault, so
+      // the keystroke isn't swallowed for nothing.
+      if (
+        e.code === "KeyS" &&
+        e.ctrlKey &&
+        e.altKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        canApprove &&
+        !isApproving
+      ) {
+        e.preventDefault();
+        onApprove(editedDraft, approveStatus, replyPublic);
+        return;
+      }
+
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key === "e") {
         const el = textareaRef.current;
