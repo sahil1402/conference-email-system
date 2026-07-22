@@ -35,21 +35,22 @@ async def adb():
     await engine.dispose()
 
 
-async def _seed(adb, *, status="approved", zendesk_status="open", ticket_id=123):
-    return await emails_api.email_repo.create_email(
-        adb,
-        {
-            "sender": "author@university.edu",
-            "subject": "Deadline question",
-            "body": "When is the deadline?",
-            "status": status,
-            "source": EmailSource.ZENDESK.value,
-            "zendesk_ticket_id": ticket_id,
-            "zendesk_status": zendesk_status,
-            "zendesk_updated_at": datetime(2026, 7, 15, 9, 0, tzinfo=timezone.utc),
-            "draft": {"draft_text": "Dear author, the deadline is in the CFP."},
-        },
-    )
+async def _seed(adb, *, status="approved", zendesk_status="open", ticket_id=123, routing=None):
+    payload = {
+        "sender": "author@university.edu",
+        "subject": "Deadline question",
+        "body": "When is the deadline?",
+        "status": status,
+        "source": EmailSource.ZENDESK.value,
+        "zendesk_ticket_id": ticket_id,
+        "zendesk_status": zendesk_status,
+        "zendesk_updated_at": datetime(2026, 7, 15, 9, 0, tzinfo=timezone.utc),
+        "draft": {"draft_text": "Dear author, the deadline is in the CFP."},
+    }
+    # Routing lane matters only for the FAQ-lane auto-send path (send gate).
+    if routing is not None:
+        payload["routing"] = routing
+    return await emails_api.email_repo.create_email(adb, payload)
 
 
 class FakeSender:
@@ -97,7 +98,18 @@ async def test_internal_note_send_succeeds(adb, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_public_reply_blocked_unless_allow_auto_send(adb, monkeypatch):
-    email = await _seed(adb)
+    """An UNREVIEWED (draft_generated) public reply is blocked when the flag is off.
+
+    Truth-table case 4. NOTE the status code is **409 (send gate)**, not 403: the
+    send gate refuses a non-approved draft before the public-reply gate is ever
+    reached (with ALLOW_AUTO_SEND off it never authorizes draft_generated). The
+    security property — no unreviewed email goes public without the flag — holds;
+    only the gate that enforces it differs. (Previously this test seeded an
+    *approved* email and asserted 403; post-decouple, approved public sends are
+    allowed regardless of the flag, so that assertion was inverted — see
+    test_approved_public_allowed_without_flag.)
+    """
+    email = await _seed(adb, status="draft_generated")
     fake = FakeSender(outcome=SendOutcome(mode="public_reply", public=True))
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
     monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", False)
@@ -106,8 +118,74 @@ async def test_public_reply_blocked_unless_allow_auto_send(adb, monkeypatch):
         await emails_api.send_email_reply(
             str(email.id), emails_api.SendRequest(public=True), adb
         )
-    assert exc.value.status_code == 403
+    assert exc.value.status_code == 409  # send gate refuses the unreviewed draft
     assert fake.calls == []  # never reached the transport
+
+
+@pytest.mark.asyncio
+async def test_approved_public_allowed_without_flag(adb, monkeypatch):
+    """Truth-table case 1 (NEW behavior): an APPROVED draft may go public even
+    with ALLOW_AUTO_SEND=False — the chair's approval IS the authorization."""
+    email = await _seed(adb, status="approved")
+    fake = FakeSender(
+        outcome=SendOutcome(
+            mode="public_reply", public=True, status_set="solved",
+            tags_added=["ai_auto_replied"],
+        )
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", False)
+
+    result = await emails_api.send_email_reply(
+        str(email.id), emails_api.SendRequest(public=True), adb
+    )
+    assert result["send"]["mode"] == "public_reply"
+    assert result["send"]["state"] == "sent"
+    call = fake.calls[0]
+    assert call["public"] is True  # actually sent public despite the flag being off
+
+
+@pytest.mark.asyncio
+async def test_approved_internal_note_regardless_of_flag(adb, monkeypatch):
+    """Truth-table case 3 (regression guard): an APPROVED internal note (public=
+    False) sends fine with ALLOW_AUTO_SEND=False — the decouple didn't disturb it."""
+    email = await _seed(adb, status="approved")
+    fake = FakeSender(
+        outcome=SendOutcome(mode="internal_note", public=False, tags_added=["ai_drafted"])
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", False)
+
+    result = await emails_api.send_email_reply(
+        str(email.id), emails_api.SendRequest(public=False), adb
+    )
+    assert result["send"]["mode"] == "internal_note"
+    assert result["send"]["state"] == "sent"
+    assert fake.calls[0]["public"] is False
+
+
+@pytest.mark.asyncio
+async def test_draft_generated_public_auto_send_with_flag(adb, monkeypatch):
+    """Truth-table case 5 (unchanged auto path): a complete FAQ-lane draft_generated
+    draft goes public when ALLOW_AUTO_SEND=True — the send gate's auto path."""
+    email = await _seed(
+        adb, status="draft_generated", routing={"lane": "faq"}
+    )
+    fake = FakeSender(
+        outcome=SendOutcome(
+            mode="public_reply", public=True, status_set="solved",
+            tags_added=["ai_auto_replied"],
+        )
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    monkeypatch.setattr(emails_api.settings, "ALLOW_AUTO_SEND", True)
+
+    result = await emails_api.send_email_reply(
+        str(email.id), emails_api.SendRequest(public=True), adb
+    )
+    assert result["send"]["mode"] == "public_reply"
+    assert result["send"]["state"] == "sent"
+    assert fake.calls[0]["public"] is True
 
 
 @pytest.mark.asyncio
