@@ -28,7 +28,6 @@ import {
   DiffView,
   EmptyState,
   ErrorBanner,
-  Kbd,
   LoadingSpinner,
   SplitActionButton,
   type SplitActionStatus,
@@ -37,6 +36,7 @@ import { PolicyDetailModal } from "./PolicyDetailModal";
 import { ConversationThread } from "./ConversationThread";
 import { SendVisibilityToggle } from "./SendVisibilityToggle";
 import { ZendeskLinkButton } from "./ZendeskLinkButton";
+import { ShortcutsHintPopover } from "./ShortcutsHintPopover";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
   formatDateTime,
@@ -584,17 +584,11 @@ export function EmailDetail({
                 Reroute to FAQ
               </button>
 
-              {/* Keyboard shortcut hint (inactive while typing in a field). */}
-              <div
-                className="ml-auto hidden items-center gap-2 text-xs sm:flex"
-                style={{ color: "var(--text-muted)" }}
-                title="Shortcuts work when an email is open and you're not typing in a field"
-              >
-                <Kbd>A</Kbd> approve
-                <Kbd>E</Kbd> edit
-                <Kbd>C</Kbd> reassign
-                <Kbd>R</Kbd> reroute
-              </div>
+              {/* Keyboard shortcuts, collapsed into a popover. Was an
+                  always-visible text row, which crowded the action buttons on
+                  narrower screens; a fixed 32px trigger stays out of the way at
+                  every width (no breakpoint hiding). */}
+              <ShortcutsHintPopover className="ml-auto" />
             </div>
 
             {/* Approve-then-send partial failure: the draft is approved locally
