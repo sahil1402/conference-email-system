@@ -284,7 +284,15 @@ export function EmailDetail({
             {lane === "human_review" && (
               <ChairBadge chairId={currentChairId} chairName={currentChairName} />
             )}
-            <ZendeskLinkButton url={email.zendesk_ticket_url} className="ml-auto" />
+            {/* Wrapper carries the right-push (ml-auto) + a guaranteed ≥12px gap
+                (pl-3, outside the button's border — padding on the bordered
+                button itself wouldn't separate it from the last badge). Guarded
+                so no empty wrapper renders for non-Zendesk emails. */}
+            {email.zendesk_ticket_url && (
+              <div className="ml-auto flex items-center pl-3">
+                <ZendeskLinkButton url={email.zendesk_ticket_url} />
+              </div>
+            )}
           </div>
 
           {/* Intent classification + confidence (from the classifier/distiller). */}
