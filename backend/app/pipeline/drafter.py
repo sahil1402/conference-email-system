@@ -113,6 +113,13 @@ _INLINE_ID_RE = re.compile(
 )
 _SCAFFOLD_RE = re.compile(r"^\s*(?:draft\s+reply|reply|draft)\s*:\s*\n+", re.IGNORECASE)
 
+# The style guide instructs the model to sign off with the literal placeholder
+# "[Sender name]" (see data/style_guide/*). Interim, until the authenticated-chair
+# account lands, substitute a fixed chair name when finalizing the LLM reply —
+# the prompt is unchanged; only the parsed response text is rewritten.
+_SENDER_NAME = "Marc Pujol-Gonzalez"
+_SENDER_PLACEHOLDER_RE = re.compile(r"\[\s*sender[\s_]?name\s*\]", re.IGNORECASE)
+
 # Chair-editable placeholders the drafter inserts where the context cannot
 # support a statement. Public: the approve endpoint uses it as the send-gate.
 PLACEHOLDER_RE = re.compile(r"\[CHAIR:\s*(?P<hint>[^\]]*)\]")
@@ -179,6 +186,7 @@ def _sanitize_reply(reply: str) -> str:
     """
     reply = _SCAFFOLD_RE.sub("", reply)
     reply = _INLINE_ID_RE.sub("", reply)
+    reply = _SENDER_PLACEHOLDER_RE.sub(_SENDER_NAME, reply)  # fill the sign-off name
     reply = re.sub(r"[ \t]+([.,;:!?])", r"\1", reply)  # tidy space before punct
     reply = re.sub(r"[ \t]{2,}", " ", reply)
     return reply.strip()
