@@ -28,6 +28,7 @@ import {
   DiffView,
   EmptyState,
   ErrorBanner,
+  Kbd,
   LoadingSpinner,
   SplitActionButton,
   type SplitActionStatus,
@@ -825,21 +826,6 @@ function HighlightedDraftEditor({
 // ---------------------------------------------------------------------------
 // Keyboard-shortcut key cap
 // ---------------------------------------------------------------------------
-
-function Kbd({ children }: { children: ReactNode }) {
-  return (
-    <kbd
-      className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border px-1 font-mono text-[11px]"
-      style={{
-        backgroundColor: "var(--surface-raised)",
-        borderColor: "var(--border)",
-        color: "var(--text-secondary)",
-      }}
-    >
-      {children}
-    </kbd>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Collapsible section
