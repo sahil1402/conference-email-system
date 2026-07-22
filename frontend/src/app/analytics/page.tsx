@@ -28,42 +28,76 @@ import {
   useActiveLearningCandidates,
 } from "@/hooks/useAnalytics";
 import { useChairs } from "@/hooks/useChairs";
+import { useTheme } from "@/hooks/useTheme";
 import { Badge, StatCard, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { chairColor, formatIntentLabel } from "@/lib/format";
 import type { ActiveLearningCandidate, CalibrationBucket } from "@/types";
 
-// Chart-only hex palette. recharts writes these into SVG fill/stroke attributes,
-// which do NOT resolve CSS variables — so these mirror the globals.css tokens.
-const C = {
-  green: "#10b981",
-  yellow: "#f59e0b",
-  red: "#ef4444",
-  accent: "#6366f1",
-  faq: "#6366f1",
-  review: "#f59e0b",
-  axis: "#8b91a8",
-  grid: "#2a2f45",
-  surface: "#1a1d27",
-  text: "#f0f2f8",
-};
-
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    backgroundColor: C.surface,
-    border: `1px solid ${C.grid}`,
-    borderRadius: 8,
-    color: C.text,
-    fontSize: 12,
+// Chart-only hex palettes. recharts writes these into SVG fill/stroke
+// attributes, which do NOT resolve CSS variables — so we mirror the globals.css
+// tokens per theme and pick the set from useTheme() at render time. `dark`
+// reproduces the original values 1:1; `light` reuses the T2 [data-theme="light"]
+// token hex (semantic hues darkened for contrast on white; chrome swapped to the
+// light surface/border/text) so the charts stay consistent with the rest of the
+// app when the theme flips.
+const CHART_PALETTE = {
+  dark: {
+    green: "#10b981", // --success
+    yellow: "#f59e0b", // --warning
+    red: "#ef4444", // --danger
+    accent: "#6366f1", // --accent
+    faq: "#6366f1", // --faq-color
+    review: "#f59e0b", // --review-color
+    axis: "#8b91a8", // --text-secondary
+    grid: "#2a2f45", // --border
+    surface: "#1a1d27", // --surface
+    text: "#f0f2f8", // --text-primary
+    cursor: "rgba(255,255,255,0.04)", // hover highlight on dark
   },
-  labelStyle: { color: C.axis },
-  itemStyle: { color: C.text },
+  light: {
+    green: "#059669", // --success (light)
+    yellow: "#d97706", // --warning (light)
+    red: "#dc2626", // --danger (light)
+    accent: "#6366f1", // --accent (theme-invariant brand)
+    faq: "#6366f1", // --faq-color (theme-invariant)
+    review: "#d97706", // --review-color (light)
+    axis: "#5b6178", // --text-secondary (light)
+    grid: "#e2e5ee", // --border (light)
+    surface: "#ffffff", // --surface (light)
+    text: "#14161f", // --text-primary (light)
+    cursor: "rgba(0,0,0,0.04)", // hover highlight on white
+  },
 } as const;
+
+type ChartPalette = (typeof CHART_PALETTE)[keyof typeof CHART_PALETTE];
+
+/** recharts <Tooltip> styling derived from the active chart palette. */
+function tooltipStyle(C: ChartPalette) {
+  return {
+    contentStyle: {
+      backgroundColor: C.surface,
+      border: `1px solid ${C.grid}`,
+      borderRadius: 8,
+      color: C.text,
+      fontSize: 12,
+    },
+    labelStyle: { color: C.axis },
+    itemStyle: { color: C.text },
+  } as const;
+}
 
 export default function AnalyticsPage() {
   const { summary, isLoading: aLoading, isError: aError } = useAnalytics();
   const { calibration } = useCalibration();
   const { candidates } = useActiveLearningCandidates();
   const { chairs } = useChairs();
+  const { theme } = useTheme();
+
+  // recharts can't read CSS vars from SVG fills, so pick the hex palette for the
+  // active theme. CHART_PALETTE[theme] is a stable reference per theme, so it's a
+  // safe useMemo dependency below.
+  const C = CHART_PALETTE[theme];
+  const TOOLTIP_STYLE = tooltipStyle(C);
 
   // Analytics now sources every chart from server-side aggregates (summary /
   // chairs / reassignment feed) — it no longer reads the paginated queue, so a
@@ -80,7 +114,7 @@ export default function AnalyticsPage() {
       { name: "FAQ", value: faq, color: C.faq },
       { name: "Human Review", value: human, color: C.review },
     ],
-    [faq, human]
+    [faq, human, C]
   );
 
   const intentData = useMemo(() => {
@@ -102,7 +136,7 @@ export default function AnalyticsPage() {
       count: d.count,
       color: colors[i] ?? C.green,
     }));
-  }, [summary]);
+  }, [summary, C]);
   const confidenceTotal = confidenceData.reduce((s, d) => s + d.count, 0);
 
   // Email volume per chair. Counts come from the server-side aggregate
@@ -143,7 +177,7 @@ export default function AnalyticsPage() {
       rows.push({ label: "Unassigned", count: unassigned, color: C.axis });
     }
     return rows.sort((a, b) => b.count - a.count);
-  }, [summary, chairs]);
+  }, [summary, chairs, C]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-8 py-10">
@@ -287,7 +321,7 @@ export default function AnalyticsPage() {
                         axisLine={false}
                         tickLine={false}
                       />
-                      <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} {...TOOLTIP_STYLE} />
+                      <Tooltip cursor={{ fill: C.cursor }} {...TOOLTIP_STYLE} />
                       <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                         {confidenceData.map((d) => (
                           <Cell key={d.band} fill={d.color} />
@@ -332,7 +366,7 @@ export default function AnalyticsPage() {
                       axisLine={false}
                       tickLine={false}
                     />
-                    <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} {...TOOLTIP_STYLE} />
+                    <Tooltip cursor={{ fill: C.cursor }} {...TOOLTIP_STYLE} />
                     <Bar dataKey="count" fill={C.accent} radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -354,7 +388,7 @@ export default function AnalyticsPage() {
                   description="Human-review emails are assigned to a chair as the pipeline processes them."
                 />
               ) : (
-                <ChairBarChart data={chairVolumeData} />
+                <ChairBarChart data={chairVolumeData} palette={C} />
               )}
             </Panel>
 
@@ -373,14 +407,14 @@ export default function AnalyticsPage() {
                   description="When a chair hands an email to a different chair, it appears here."
                 />
               ) : (
-                <ChairBarChart data={reassignByChairData} />
+                <ChairBarChart data={reassignByChairData} palette={C} />
               )}
             </Panel>
           </div>
 
           {/* SECTION F — Calibration reliability diagram (Phase 5B/5E) */}
           <Panel title="Classifier Calibration Reliability">
-            <CalibrationDiagram calibration={calibration} />
+            <CalibrationDiagram calibration={calibration} palette={C} />
           </Panel>
 
           {/* SECTION G — Active-learning candidates (Phase 5G) */}
@@ -461,10 +495,12 @@ function ActiveLearningCandidates({
   );
 }
 
-function CalibrationTooltip({ active, payload }: {
+function CalibrationTooltip({ active, payload, palette }: {
   active?: boolean;
   payload?: { payload: CalibrationBucket }[];
+  palette: ChartPalette;
 }) {
+  const C = palette;
   if (!active || !payload?.length) return null;
   const b = payload[0].payload;
   return (
@@ -489,6 +525,7 @@ function CalibrationTooltip({ active, payload }: {
 
 function CalibrationDiagram({
   calibration,
+  palette,
 }: {
   calibration:
     | {
@@ -505,7 +542,9 @@ function CalibrationDiagram({
         caveat: string;
       }
     | undefined;
+  palette: ChartPalette;
 }) {
+  const C = palette;
   if (!calibration) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -562,7 +601,7 @@ function CalibrationDiagram({
               stroke={C.axis}
               strokeDasharray="4 4"
             />
-            <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<CalibrationTooltip />} />
+            <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<CalibrationTooltip palette={C} />} />
             <Legend wrapperStyle={{ fontSize: 12, color: C.text }} />
             <Scatter name="Raw confidence" data={calibration.raw} fill={C.review} fillOpacity={0.85} />
             {calibration.calibrated_available && calibration.calibrated && (
@@ -618,9 +657,13 @@ function CalibrationDiagram({
 /** Horizontal bar chart for per-chair series (each bar keyed to its chair color). */
 function ChairBarChart({
   data,
+  palette,
 }: {
   data: { label: string; count: number; color: string }[];
+  palette: ChartPalette;
 }) {
+  const C = palette;
+  const TOOLTIP_STYLE = tooltipStyle(C);
   return (
     <div className="h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -645,7 +688,7 @@ function ChairBarChart({
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} {...TOOLTIP_STYLE} />
+          <Tooltip cursor={{ fill: C.cursor }} {...TOOLTIP_STYLE} />
           <Bar dataKey="count" radius={[0, 4, 4, 0]}>
             {data.map((d) => (
               <Cell key={d.label} fill={d.color} />
