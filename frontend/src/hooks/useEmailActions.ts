@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { approveEmail, ingestEmail, reassignChair, rerouteEmail, retryEmail } from "@/lib/api";
+import { approveEmail, ingestEmail, reassignChair, rerouteEmail, retryEmail, sendEmail } from "@/lib/api";
 import type {
   ApiError,
   ApproveRequest,
@@ -8,6 +8,8 @@ import type {
   PipelineResult,
   ReassignChairRequest,
   RerouteRequest,
+  SendRequest,
+  SendResponse,
 } from "@/types";
 
 /** Invalidate the queries affected by any email mutation. */
@@ -25,6 +27,15 @@ export function useApproveEmail() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data?: ApproveRequest }) =>
       approveEmail(id, data),
+    onSuccess: invalidate,
+  });
+}
+
+/** Release an approved draft to the Zendesk ticket (internal note or public reply). */
+export function useSendEmail() {
+  const invalidate = useInvalidateEmailQueries();
+  return useMutation<SendResponse, ApiError, { id: number; data?: SendRequest }>({
+    mutationFn: ({ id, data }) => sendEmail(id, data),
     onSuccess: invalidate,
   });
 }

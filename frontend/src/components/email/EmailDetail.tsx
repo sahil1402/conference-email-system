@@ -61,11 +61,17 @@ function findPlaceholders(text: string): string[] {
 interface EmailDetailProps {
   email: Email;
   /**
-   * Approve this email. `finalText` is the (possibly edited) draft; `targetStatus`
-   * is the Zendesk status the chair chose from the split button (Open / Pending /
-   * Solved), or null for a plain approve with no status change.
+   * Approve this email, then send. `finalText` is the (possibly edited) draft;
+   * `targetStatus` is the Zendesk status the chair chose from the split button
+   * (Open / Pending / Solved), or null for no status change; `isPublic` is the
+   * reply-visibility toggle (true = public reply to the requester, false =
+   * internal note).
    */
-  onApprove: (finalText?: string, targetStatus?: SplitActionStatus | null) => void;
+  onApprove: (
+    finalText?: string,
+    targetStatus?: SplitActionStatus | null,
+    isPublic?: boolean
+  ) => void;
   onReroute: (reason: string) => void;
   /**
    * Reassign this email to a chair (Phase 6A). Returns a promise so the pane can
@@ -118,6 +124,10 @@ export function EmailDetail({
   const [approveStatus, setApproveStatus] = useState<SplitActionStatus | null>(
     null
   );
+  // Reply visibility for the send that follows approval: false = internal note
+  // (default, safe), true = public reply to the requester. Lifted here so the
+  // "A" shortcut submits with the same value a click would.
+  const [replyPublic, setReplyPublic] = useState(false);
   const [rerouteOpen, setRerouteOpen] = useState(false);
   const [rerouteReason, setRerouteReason] = useState("");
   const [showDiff, setShowDiff] = useState(false);
@@ -184,7 +194,7 @@ export function EmailDetail({
       const key = e.key.toLowerCase();
       if (key === "a" && canApprove && !isApproving) {
         e.preventDefault();
-        onApprove(editedDraft, approveStatus);
+        onApprove(editedDraft, approveStatus, replyPublic);
       } else if (key === "e") {
         const el = textareaRef.current;
         if (el) {
@@ -204,7 +214,7 @@ export function EmailDetail({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canAct, canApprove, isApproving, editedDraft, approveStatus, onApprove]);
+  }, [canAct, canApprove, isApproving, editedDraft, approveStatus, replyPublic, onApprove]);
 
   return (
     <div className="flex h-full flex-col">
@@ -481,13 +491,19 @@ export function EmailDetail({
                 loading={isApproving}
                 selected={approveStatus}
                 onSelectedChange={setApproveStatus}
-                onAction={(status) => onApprove(editedDraft, status)}
+                onAction={(status) =>
+                  onApprove(editedDraft, status, replyPublic)
+                }
               />
 
-              {/* Reply visibility (internal note vs public reply). Presentational
-                  only for now — holds its own state and is NOT yet wired into the
-                  approve/send flow (default = internal note). */}
-              <SendVisibilityToggle disabled={isApproving} />
+              {/* Reply visibility (internal note vs public reply) for the send
+                  that follows approval. Controlled by this pane so the value is
+                  read at submit time (default = internal note). */}
+              <SendVisibilityToggle
+                value={replyPublic}
+                onChange={setReplyPublic}
+                disabled={isApproving}
+              />
 
               <button
                 type="button"

@@ -12,6 +12,7 @@ import {
   useRerouteEmail,
   useReassignChair,
   useRetryEmail,
+  useSendEmail,
 } from "@/hooks/useEmailActions";
 import { useChairs } from "@/hooks/useChairs";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -35,6 +36,7 @@ type LaneFilter = "all" | "faq" | "human_review";
 export default function QueuePage() {
   const { status: streamStatus } = useEmailQueueStream();
   const { mutate: approve, isPending: isApproving } = useApproveEmail();
+  const { mutate: send } = useSendEmail();
   const { mutate: reroute, isPending: isRerouting } = useRerouteEmail();
   const { mutateAsync: reassignChairAsync, isPending: isReassigning } =
     useReassignChair();
@@ -216,15 +218,31 @@ export default function QueuePage() {
             isRerouting={isRerouting}
             isReassigning={isReassigning}
             chairs={chairs}
-            onApprove={(finalText, targetStatus) =>
-              approve({
-                id: selectedEmail.id,
-                data: {
-                  approved_by: "chair",
-                  final_text: finalText,
-                  target_status: targetStatus,
+            onApprove={(finalText, targetStatus, isPublic) =>
+              // Approve first (unchanged); on success, release the draft to the
+              // ticket with the chosen visibility + status. (Partial-failure
+              // handling — approve ok but send fails — comes in a later piece;
+              // for now a failed send surfaces via the send mutation's state.)
+              approve(
+                {
+                  id: selectedEmail.id,
+                  data: {
+                    approved_by: "chair",
+                    final_text: finalText,
+                    target_status: targetStatus,
+                  },
                 },
-              })
+                {
+                  onSuccess: () =>
+                    send({
+                      id: selectedEmail.id,
+                      data: {
+                        public: isPublic,
+                        target_status: targetStatus,
+                      },
+                    }),
+                }
+              )
             }
             onReroute={(reason) =>
               reroute({
