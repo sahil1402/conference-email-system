@@ -39,7 +39,8 @@ interface SidebarProps {
 }
 
 /**
- * Fixed 240px left sidebar: brand mark, primary navigation, footer.
+ * Fixed left nav rail (width from the --rail-width token): brand mark, primary
+ * navigation, footer.
  * Always visible at ≥md; on mobile it slides in from the left, gated by `open`.
  */
 export function Sidebar({ open = false, onNavigate }: SidebarProps) {
@@ -49,7 +50,7 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 flex w-60 flex-col transition-transform duration-200 md:translate-x-0",
+        "fixed inset-y-0 left-0 z-40 flex w-[var(--rail-width)] flex-col transition-transform duration-200 md:translate-x-0",
         open ? "translate-x-0" : "-translate-x-full"
       )}
       style={{

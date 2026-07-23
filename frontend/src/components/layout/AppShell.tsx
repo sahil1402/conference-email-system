@@ -61,7 +61,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sidebar open={mobileOpen} onNavigate={() => setMobileOpen(false)} />
 
       {/* Main content — offset past the sidebar on desktop, past the top bar on mobile */}
-      <main className="min-h-screen pt-14 md:ml-60 md:pt-0">{children}</main>
+      <main className="min-h-screen pt-14 md:ml-[var(--rail-width)] md:pt-0">
+        {children}
+      </main>
     </SidebarSlotProvider>
   );
 }

@@ -41,6 +41,12 @@
 
   /* Radius scale */
   --radius: 0.75rem;
+
+  /* Layout — width of the fixed left nav rail. Single source of truth: the
+     rail (Sidebar) sets its width from this and the main content offsets by
+     the same value, so the two can never drift apart. Theme-invariant, so it
+     is deliberately NOT repeated in the light-theme block below. */
+  --rail-width: 52px;
 }
 
 /* ------------------------------------------------------------------ */
