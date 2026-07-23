@@ -17,16 +17,22 @@ Route order matters: the static ``GET ""`` and ``GET /audit`` are declared BEFOR
 ``GET /{policy_key}`` so ``/policies/audit`` is not captured as a path param.
 """
 
+import logging
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.pipeline.policy_conflict import CONFLICT_TOP_K, ConflictReport, detect_conflicts
 from app.pipeline.retriever import get_retriever
 from app.repositories.policy_audit_repository import PolicyAuditRepository
 from app.repositories.policy_repository import PolicyRepository
 from app.pipeline.reevaluation import reevaluate_open_tickets
 from app.repositories.email_repository import EmailRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 
@@ -56,6 +62,10 @@ class CreatePolicyRequest(BaseModel):
     # [tags-dropped E007] tags: list[str] | None = None
     actor: str
     retire_keys: list[str] = []
+    # Optional conflict report the Add panel already computed via /similar for
+    # this exact text — reused as-is so we don't call the model twice. Omitted
+    # (or on validation failure) ⇒ compute server-side. See detect_conflicts (2e).
+    conflict_report: dict | None = None
 
 
 class RetireRequest(BaseModel):
@@ -109,7 +119,99 @@ def _policy_dict(p) -> dict:
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
         "supersedes": p.supersedes, "superseded_by": p.superseded_by,
         "root_key": p.root_key, "version": p.version,
+        "conflict_report": p.conflict_report,
     }
+
+
+# --- conflict detection (2e) ------------------------------------------------
+
+def _unavailable_report() -> dict:
+    """Stub stored/returned when no real LLM is configured (mirrors ConflictReport)."""
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "available": False,
+        "summary": "Conflict check unavailable (no model configured).",
+        "candidates_checked": [],
+        "conflicts": [],
+    }
+
+
+async def _run_conflict_check(
+    *, title: str, content: str, exclude_key: str | None = None
+) -> ConflictReport | None:
+    """Retrieve the nearest existing policies and detect conflicts in one call.
+
+    Candidates are the top-``CONFLICT_TOP_K`` similar ACTIVE policies (the
+    retriever indexes both public + internal), excluding ``exclude_key`` so a
+    policy is never compared against itself. Returns None when no real LLM is
+    available or the model output is unusable.
+    """
+    hits = await get_retriever().retrieve(
+        f"{title} {content}", intent="", top_k=CONFLICT_TOP_K
+    )
+    candidates = [
+        {"policy_key": h.policy_id, "title": h.title, "content": h.content}
+        for h in hits
+        if h.policy_id != exclude_key
+    ]
+    return await detect_conflicts(title=title, content=content, candidates=candidates)
+
+
+async def _refresh_conflict_report(db: AsyncSession, row) -> dict:
+    """Compute + persist ``row``'s conflict report; return the stored dict.
+
+    Runs after the row's own mutation has committed and the index is rebuilt, so
+    the candidate set reflects the live KB. An unavailable check stores the stub
+    so the card can show 'checked, unavailable' rather than looking unchecked.
+    Fully best-effort: a retrieval/model failure must NEVER break the KB write
+    that triggered it — it just records the check as unavailable.
+    """
+    try:
+        report = await _run_conflict_check(
+            title=row.title, content=row.content, exclude_key=row.policy_key
+        )
+    except Exception as exc:  # noqa: BLE001 - conflict check is advisory
+        logger.warning("Conflict check for %s failed: %s", row.policy_key, exc)
+        report = None
+    stored = report.model_dump() if report is not None else _unavailable_report()
+    await _policies.set_conflict_report(db, row.policy_key, stored)
+    return stored
+
+
+async def _prune_stale_conflicts(db: AsyncSession, dicts: list[dict]) -> None:
+    """In place: drop conflicts whose target policy is no longer an active tip.
+
+    A persisted report is a point-in-time snapshot; if a referenced policy was
+    later retired or superseded, that conflict is moot. Cheap correctness pass —
+    one batched query over every referenced key — leaving the 'edited to resolve'
+    case to the per-card re-check.
+    """
+    referenced: set[str] = set()
+    for d in dicts:
+        rep = d.get("conflict_report") or {}
+        for c in rep.get("conflicts") or []:
+            referenced.add(c["policy_key"])
+    if not referenced:
+        return
+    active = await _policies.active_keys(db, referenced)
+    for d in dicts:
+        rep = d.get("conflict_report")
+        if not rep or not rep.get("conflicts"):
+            continue
+        kept = [c for c in rep["conflicts"] if c["policy_key"] in active]
+        if len(kept) == len(rep["conflicts"]):
+            continue
+        m = len(rep.get("candidates_checked") or [])
+        n = len(kept)
+        d["conflict_report"] = {
+            **rep,
+            "conflicts": kept,
+            "summary": (
+                f"No conflicts found among {m} related policies."
+                if n == 0
+                else f"{n} of {m} related policies conflict."
+            ),
+        }
 
 
 @router.get("")
@@ -124,7 +226,9 @@ async def list_policies(
     rows = await _policies.list(
         db, visibility=visibility, status=status, search=search, limit=limit, offset=offset
     )
-    return {"policies": [_policy_dict(p) for p in rows]}
+    dicts = [_policy_dict(p) for p in rows]
+    await _prune_stale_conflicts(db, dicts)  # drop conflicts vs. now-retired policies
+    return {"policies": dicts}
 
 
 @router.get("/audit")
@@ -202,7 +306,20 @@ async def create_policy(payload: CreatePolicyRequest, db: AsyncSession = Depends
                          actor=f"chair:{payload.actor}", before={"status": prior},
                          after={"status": "inactive", "superseded_by": row.policy_key})
     await _rebuild_index()
-    return {"policy_key": row.policy_key, "visibility": row.visibility, "status": row.status}
+    # Conflict report (2e): reuse the panel's precomputed one for this exact text
+    # if it's valid (no second model call); otherwise compute now.
+    stored: dict | None = None
+    if payload.conflict_report is not None:
+        try:
+            stored = ConflictReport(**payload.conflict_report).model_dump()
+        except Exception:  # noqa: BLE001 - malformed client report → recompute
+            stored = None
+    if stored is not None:
+        await _policies.set_conflict_report(db, row.policy_key, stored)
+    else:
+        stored = await _refresh_conflict_report(db, row)
+    return {"policy_key": row.policy_key, "visibility": row.visibility,
+            "status": row.status, "conflict_report": stored}
 
 
 @router.patch("/{policy_key}/retire")
@@ -246,7 +363,9 @@ async def reactivate_policy(
                      actor=f"chair:{payload.actor}", before={"status": "inactive"},
                      after={"status": "active"})
     await _rebuild_index()
-    return {"policy_key": policy_key, "status": row.status}
+    # Reactivating makes this content live again — re-check it for conflicts (2e).
+    stored = await _refresh_conflict_report(db, row)
+    return {"policy_key": policy_key, "status": row.status, "conflict_report": stored}
 
 
 @router.patch("/{policy_key}/edit")
@@ -292,6 +411,8 @@ async def edit_policy(
                "version": new_row.version},
     )
     await _rebuild_index()
+    # The edit produced new active content — re-check it for conflicts (2e).
+    await _refresh_conflict_report(db, new_row)
     return _policy_dict(new_row)
 
 
@@ -330,17 +451,47 @@ async def revert_edit(
                "content": restored.content, "status": restored.status},
     )
     await _rebuild_index()
+    # Reverting makes the ancestor's content live again — re-check it (2e).
+    await _refresh_conflict_report(db, restored)
     return _policy_dict(restored)
+
+
+@router.post("/{policy_key}/recheck")
+async def recheck_policy(
+    policy_key: str, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Recompute + persist a policy's conflict report on demand (2e).
+
+    Backs the per-card 'Re-check' button, which the chair uses when a stored
+    report may have gone stale after unrelated KB changes.
+    """
+    row = await _policies.get_by_key(db, policy_key)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"policy {policy_key} not found")
+    stored = await _refresh_conflict_report(db, row)
+    return {"policy_key": policy_key, "conflict_report": stored}
 
 
 @router.post("/similar")
 async def similar_policies(payload: SimilarRequest) -> dict:
-    # Surface the top 10 nearest existing policies so the chair sees more of the
-    # neighbourhood before adding a new one (was 5).
-    hits = await get_retriever().retrieve(f"{payload.title} {payload.content}", intent="", top_k=10)
+    # Surface the top-N nearest existing policies so the chair sees the
+    # neighbourhood before adding a new one, AND run the LLM conflict check over
+    # that same set (2e) — one preview, not persisted until the policy is created.
+    hits = await get_retriever().retrieve(
+        f"{payload.title} {payload.content}", intent="", top_k=CONFLICT_TOP_K
+    )
+    similar = [
+        {"policy_key": h.policy_id, "title": h.title, "score": h.score, "content": h.content}
+        for h in hits
+    ]
+    candidates = [
+        {"policy_key": h.policy_id, "title": h.title, "content": h.content} for h in hits
+    ]
+    report = await detect_conflicts(
+        title=payload.title, content=payload.content, candidates=candidates
+    )
     return {
-        "similar": [
-            {"policy_key": h.policy_id, "title": h.title, "score": h.score, "content": h.content}
-            for h in hits
-        ]
+        "similar": similar,
+        "conflict_report": report.model_dump() if report is not None else _unavailable_report(),
     }

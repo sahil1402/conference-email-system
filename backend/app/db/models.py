@@ -412,6 +412,12 @@ class PolicyDocument(Base):
         Integer, nullable=False, default=1, server_default="1"
     )
 
+    # Conflict detection (2e): the last LLM conflict report computed when this
+    # policy was created / edited / reactivated / re-checked. Shape mirrors
+    # app.pipeline.policy_conflict.ConflictReport. NULL ⇒ never checked (e.g.
+    # legacy rows, or checked while no LLM was configured and skipped).
+    conflict_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

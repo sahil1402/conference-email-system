@@ -247,6 +247,39 @@ class PolicyRepository:
         await db.refresh(row)
         return row
 
+    async def set_conflict_report(
+        self, db: AsyncSession, policy_key: str, report: dict | None
+    ) -> PolicyDocument | None:
+        """Persist (or clear) a policy's conflict report (2e). Row or None.
+
+        Assigning a fresh dict is a full reassignment, so SQLAlchemy tracks the
+        change without a Mutable wrapper.
+        """
+        row = await self.get_by_key(db, policy_key)
+        if row is None:
+            return None
+        row.conflict_report = report
+        await db.commit()
+        await db.refresh(row)
+        return row
+
+    async def active_keys(self, db: AsyncSession, keys) -> set[str]:
+        """Subset of ``keys`` that are currently an active, non-superseded tip.
+
+        Backs the conflict-report staleness prune: a conflict pointing at a now
+        retired/superseded policy is moot and should not be shown.
+        """
+        if not keys:
+            return set()
+        result = await db.execute(
+            select(PolicyDocument.policy_key).where(
+                PolicyDocument.policy_key.in_(list(keys)),
+                PolicyDocument.status == "active",
+                PolicyDocument.superseded_by.is_(None),
+            )
+        )
+        return set(result.scalars().all())
+
     @staticmethod
     def _root_of(policy: PolicyDocument) -> str:
         """Lineage root key: a versioned row carries ``root_key``; an original is
