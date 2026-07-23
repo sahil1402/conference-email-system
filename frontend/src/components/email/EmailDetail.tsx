@@ -37,6 +37,7 @@ import { PolicyDetailModal } from "./PolicyDetailModal";
 import { ConversationThread } from "./ConversationThread";
 import { SendVisibilityToggle } from "./SendVisibilityToggle";
 import { ZendeskLinkButton } from "./ZendeskLinkButton";
+import { CopyLinkButton } from "./CopyLinkButton";
 import { ShortcutsHintPopover } from "./ShortcutsHintPopover";
 import { hasMeaningfulDiff } from "@/lib/diff";
 import {
@@ -315,12 +316,15 @@ export function EmailDetail({
             {lane === "human_review" && (
               <ChairBadge chairId={currentChairId} chairName={currentChairName} />
             )}
-            {/* Wrapper carries the right-push (ml-auto) + a guaranteed ≥12px gap
-                (pl-3, outside the button's border — padding on the bordered
-                button itself wouldn't separate it from the last badge). Guarded
-                so no empty wrapper renders for non-Zendesk emails. */}
-            {email.zendesk_ticket_url && (
-              <div className="ml-auto flex items-center pl-3">
+            {/* Ticket actions (right-aligned). Wrapper carries the right-push
+                (ml-auto) + a guaranteed ≥12px gap from the last badge (pl-3,
+                outside the buttons' borders) and gap-2 between the two actions.
+                Guarded on the ticket id so no empty wrapper renders for a
+                non-Zendesk row; Copy link needs only the id, ZendeskLinkButton
+                self-suppresses when the agent-UI URL is null. */}
+            {email.zendesk_ticket_id != null && (
+              <div className="ml-auto flex items-center gap-2 pl-3">
+                <CopyLinkButton ticketId={email.zendesk_ticket_id} />
                 <ZendeskLinkButton url={email.zendesk_ticket_url} />
               </div>
             )}
