@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { Sidebar } from "./Sidebar";
 
@@ -80,6 +80,51 @@ describe("Sidebar (icon-only rail)", () => {
     expect(
       within(nav).getByRole("link", { name: "Knowledge Base" }).style.color
     ).toBe("var(--accent)");
+  });
+
+  it("gives inactive items a CSS hover class, not an inline-style handler", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const inactive = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Dashboard",
+    });
+
+    expect(inactive.className).toContain("hover:bg-[var(--surface-raised)]");
+  });
+
+  it("does not mutate inline styles on mouse enter/leave (handlers removed)", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const inactive = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Dashboard",
+    });
+
+    // The old imperative handlers wrote backgroundColor onto the element; with
+    // CSS hover there is nothing inline to change.
+    expect(inactive.style.backgroundColor).toBe("");
+    fireEvent.mouseEnter(inactive);
+    expect(inactive.style.backgroundColor).toBe("");
+    fireEvent.mouseLeave(inactive);
+    expect(inactive.style.backgroundColor).toBe("");
+  });
+
+  it("keeps the active treatment intact on hover, with no hover class applied", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const active = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Email Queue",
+    });
+
+    // Active items opt out of the hover background entirely…
+    expect(active.className).not.toContain("hover:bg-");
+
+    // …and hovering must not disturb the active background/border/color.
+    fireEvent.mouseEnter(active);
+    expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
+    expect(active.style.borderLeftColor).toBe("var(--accent)");
+    expect(active.style.color).toBe("var(--accent)");
+    fireEvent.mouseLeave(active);
+    expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
   });
 
   it("calls onNavigate when a nav link is clicked (mobile drawer close)", () => {

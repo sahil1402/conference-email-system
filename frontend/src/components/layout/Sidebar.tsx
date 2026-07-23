@@ -98,7 +98,14 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
               // of) this.
               aria-label={label}
               title={label}
-              className="group flex h-9 w-9 items-center justify-center rounded-lg border-l-2 transition-colors duration-150"
+              className={cn(
+                "group flex h-9 w-9 items-center justify-center rounded-lg border-l-2 transition-colors duration-150",
+                // Hover feedback only on inactive items — an active item keeps
+                // its --accent-subtle background (matches the previous
+                // imperative `if (!isActive)` guard). Reuses the
+                // transition-colors above rather than adding a second one.
+                !isActive && "hover:bg-[var(--surface-raised)]"
+              )}
               style={
                 isActive
                   ? {
@@ -111,15 +118,6 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
                       borderLeftColor: "transparent",
                     }
               }
-              onMouseEnter={(e) => {
-                if (!isActive)
-                  e.currentTarget.style.backgroundColor =
-                    "var(--surface-raised)";
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive)
-                  e.currentTarget.style.backgroundColor = "transparent";
-              }}
             >
               <Icon className="h-4 w-4 shrink-0" />
             </Link>
