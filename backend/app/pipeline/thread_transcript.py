@@ -28,29 +28,52 @@ class ThreadTranscript:
     omitted: int = 0
 
 
-def _label(msg: dict) -> str:
-    if msg.get("author_role") == MessageAuthorRole.END_USER.value:
-        return "Requester"
-    return "Support"
+def _is_requester(msg: dict, requester_id) -> bool:
+    """The ticket requester, identified by author_id — roles are unreliable
+    (a requester can carry role 'agent'; chairs often carry 'end-user', the same
+    reason the thread view labels by requester_id). Falls back to role only when
+    the requester id is unknown (e.g. a non-Zendesk thread)."""
+    if requester_id is not None:
+        return msg.get("author_id") == requester_id
+    return msg.get("author_role") == MessageAuthorRole.END_USER.value
+
+
+def _label(msg: dict, requester_id) -> str:
+    return "Requester" if _is_requester(msg, requester_id) else "Support"
+
+
+def _sort_dt(dt):
+    """tz-agnostic sort proxy: SQLite reads ``created_at`` back naive while
+    Zendesk supplies aware datetimes, so a mixed thread would raise if compared
+    directly. Strip tzinfo for ordering (all values are effectively UTC)."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 
 def _body(msg: dict) -> str:
     return (msg.get("plain_body") or "").strip()
 
 
-def build_transcript(messages: list[dict], *, char_budget: int) -> ThreadTranscript:
-    """Render an AI-visible, budget-bounded transcript, latest turn anchored."""
+def build_transcript(
+    messages: list[dict], *, char_budget: int, requester_id=None
+) -> ThreadTranscript:
+    """Render an AI-visible, budget-bounded transcript, latest turn anchored.
+
+    ``requester_id`` identifies the requester by author_id for labeling + the
+    anchor (roles are unreliable); omit it to fall back to role.
+    """
     # AI-visible turns only: public messages with non-empty text. Internal
     # notes (public False) are excluded entirely (D6).
     visible = [m for m in messages if m.get("public") and _body(m)]
     # Defensive ordering (repo already returns oldest-first); None sorts last.
-    visible.sort(key=lambda m: (m.get("created_at") is None, m.get("created_at")))
+    visible.sort(key=lambda m: (m.get("created_at") is None, _sort_dt(m.get("created_at"))))
     if not visible:
         return ThreadTranscript()
 
     latest_requester = ""
     for m in visible:
-        if m.get("author_role") == MessageAuthorRole.END_USER.value:
+        if _is_requester(m, requester_id):
             latest_requester = _body(m)
 
     # Render newest-first until the budget is spent, then reverse to reading
@@ -60,7 +83,7 @@ def build_transcript(messages: list[dict], *, char_budget: int) -> ThreadTranscr
     used = 0
     included = 0
     for m in reversed(visible):
-        block = f"{_label(m)}: {_body(m)}"
+        block = f"{_label(m, requester_id)}: {_body(m)}"
         cost = len(block) + 2  # +2 for the joining blank line
         if included == 0 and cost > char_budget:
             rendered.append(block[:char_budget])

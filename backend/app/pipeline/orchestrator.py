@@ -473,7 +473,9 @@ class EmailPipeline:
         (status → draft_generated). ``received_at`` / id / stored body are kept.
         """
         transcript = build_transcript(
-            messages, char_budget=settings.THREAD_TRANSCRIPT_MAX_CHARS
+            messages,
+            char_budget=settings.THREAD_TRANSCRIPT_MAX_CHARS,
+            requester_id=getattr(email, "zendesk_requester_id", None),
         )
         email_data = {
             "from": email.sender,

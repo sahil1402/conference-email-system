@@ -73,3 +73,36 @@ def test_empty_and_blank_messages_yield_empty_transcript():
     assert build_transcript([], char_budget=16000).text == ""
     blank = [_msg(1, "end-user", "   ", minute=0)]
     assert build_transcript(blank, char_budget=16000).text == ""
+
+
+def test_mixed_naive_and_aware_created_at_does_not_crash():
+    """Thread rows can mix tz-aware (Zendesk) and tz-naive (SQLite read-back)
+    created_at; the defensive sort must normalize rather than raise."""
+    msgs = [
+        {"comment_id": 1, "public": True, "author_role": "end-user",
+         "plain_body": "aware turn",
+         "created_at": datetime(2026, 7, 21, 10, 0, tzinfo=timezone.utc)},
+        {"comment_id": 2, "public": True, "author_role": "agent",
+         "plain_body": "naive turn",
+         "created_at": datetime(2026, 7, 21, 10, 1)},  # tz-naive
+    ]
+    t = build_transcript(msgs, char_budget=16000)
+    assert "aware turn" in t.text and "naive turn" in t.text
+
+
+def test_requester_identified_by_author_id_not_role():
+    """With requester_id given, the requester is labeled/anchored by author_id
+    even when their Zendesk role is 'agent'; a chair carrying an end-user role is
+    NOT treated as the requester."""
+    msgs = [
+        {"comment_id": 1, "public": True, "author_id": 500, "author_role": "agent",
+         "plain_body": "My question",
+         "created_at": datetime(2026, 7, 21, 10, 0, tzinfo=timezone.utc)},
+        {"comment_id": 2, "public": True, "author_id": 900, "author_role": "end-user",
+         "plain_body": "Chair reply",
+         "created_at": datetime(2026, 7, 21, 10, 1, tzinfo=timezone.utc)},
+    ]
+    t = build_transcript(msgs, char_budget=16000, requester_id=500)
+    assert "Requester: My question" in t.text   # author 500, despite agent role
+    assert "Support: Chair reply" in t.text      # author 900, despite end-user role
+    assert t.latest_requester_message == "My question"
