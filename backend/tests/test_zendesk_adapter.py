@@ -378,6 +378,66 @@ async def test_agent_only_new_comment_does_not_reprocess(adb):
 
 
 @pytest.mark.asyncio
+async def test_followup_from_agent_role_requester_reprocesses(adb):
+    """A follow-up FROM THE REQUESTER re-drafts even when the requester's Zendesk
+    role is 'agent' — both the initial classification and the follow-up trigger
+    key on author_id == requester_id, not role. (Regression: role-based logic
+    missed a genuine requester reply from an agent-role requester — e.g. test
+    ticket #22655.)"""
+    requester = _user(500, "agent")  # the requester, but with an agent role
+    pipeline = FakePipeline()
+    adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
+
+    page1 = _incremental_page([_ticket(100, status="open")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    r1 = await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
+    # Initial ingest classifies the requester's message despite the agent role.
+    assert r1.created == 1
+    assert pipeline.calls and pipeline.calls[0]["body"]
+
+    page2 = _incremental_page(
+        [_ticket(100, status="open", updated="2026-07-15T11:00:00Z")], users=[requester]
+    )
+    comments2 = {100: {"comments": [
+        _comment(9001, 500),
+        _comment(9002, 500, body="Any update?", created="2026-07-15T11:00:00Z"),
+    ], "users": [requester]}}
+    r2 = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep)
+    assert r2.reprocessed == 1
+    assert pipeline.reprocess_calls[-1]["triggering"] == [9002]
+
+
+@pytest.mark.asyncio
+async def test_followup_from_non_requester_enduser_does_not_reprocess(adb):
+    """A new public comment from a DIFFERENT end-user (not the ticket's requester)
+    does NOT reprocess — only the requester's own reply does. (Regression: the old
+    role-based logic would have reprocessed any end-user comment, e.g. a chair who
+    carries an end-user role replying on the ticket.)"""
+    requester = _user(500, "end-user")
+    other = _user(700, "end-user")  # a different end-user, not the requester
+    pipeline = FakePipeline()
+    adapter = ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline)
+
+    page1 = _incremental_page([_ticket(100, status="open")], users=[requester])
+    comments1 = {100: {"comments": [_comment(9001, 500)], "users": [requester]}}
+    await adapter.sync(adb, client=FakeAsyncClient([page1], comments1), sleep=_nosleep)
+
+    page2 = _incremental_page(
+        [_ticket(100, status="open", updated="2026-07-15T11:00:00Z")],
+        users=[requester, other],
+    )
+    comments2 = {100: {"comments": [
+        _comment(9001, 500),
+        _comment(9003, 700, body="a cc'd party chimes in", created="2026-07-15T11:00:00Z"),
+    ], "users": [requester, other]}}
+    r2 = await ZendeskIngestAdapter(provider=FakeProvider(), pipeline=pipeline).sync(
+        adb, client=FakeAsyncClient([page2], comments2), sleep=_nosleep)
+    assert r2.reprocessed == 0
+    assert len(pipeline.reprocess_calls) == 0
+
+
+@pytest.mark.asyncio
 async def test_new_closed_ticket_ingested_but_not_drafted(adb):
     """A NEW closed ticket is ingested for visibility (status ARCHIVED) but NOT
     run through the pipeline — no classification, no draft (can't reply to closed).

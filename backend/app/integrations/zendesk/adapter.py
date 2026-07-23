@@ -34,7 +34,7 @@ from app.integrations.zendesk.credential_provider import (
     ZendeskCredentialProvider,
     get_zendesk_credential_provider,
 )
-from app.models.enums import EmailSource, EmailStatus, MessageAuthorRole
+from app.models.enums import EmailSource, EmailStatus
 from app.pipeline.orchestrator import EmailPipeline
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.email_repository import EmailRepository
@@ -192,14 +192,18 @@ class ZendeskIngestAdapter:
         }
 
     @staticmethod
-    def _find_initial_inquiry(messages: list[dict]) -> dict | None:
-        """First public end-user message by created_at — the classified message."""
+    def _find_initial_inquiry(messages: list[dict], requester_id) -> dict | None:
+        """First public message FROM THE REQUESTER (by created_at) — the message
+        we classify. Identified by author_id == requester_id, NOT by Zendesk role:
+        roles are unreliable here (a requester can carry role 'agent'; chairs often
+        carry 'end-user'), the same reason the thread view labels by requester_id.
+        ``requester_id`` None → no inquiry is identifiable, returns None."""
         ordered = sorted(
             (m for m in messages if m.get("created_at") is not None),
             key=lambda m: m["created_at"],
         )
         for m in ordered:
-            if m["public"] and m.get("author_role") == MessageAuthorRole.END_USER.value:
+            if m["public"] and m.get("author_id") == requester_id:
                 return m
         return None
 
@@ -307,11 +311,18 @@ class ZendeskIngestAdapter:
             # draft cycle stored as an EmailProcessingResult (Piece T2) — plus the
             # existing customer_reply_received audit signal (option (a)), kept
             # unchanged (additive).
+            # A follow-up that should re-draft = a NEW public comment FROM THE
+            # REQUESTER, identified by author_id == ticket.requester_id — NOT by
+            # Zendesk role. Roles are unreliable here (chairs often carry role
+            # "end-user"; a requester can carry role "agent"), the same reason the
+            # thread view labels by requester_id. Keying on role both MISSED genuine
+            # requester replies (agent-role requester) and could reprocess a chair's
+            # OWN reply (end-user-role chair). requester_id None → matches nothing.
+            requester_id = ticket.get("requester_id")
             new_customer = [
                 m
                 for m in new_messages
-                if m.get("public")
-                and m.get("author_role") == MessageAuthorRole.END_USER.value
+                if m.get("public") and m.get("author_id") == requester_id
             ]
             if new_customer:
                 if ticket_status == "closed":
@@ -493,7 +504,7 @@ class ZendeskIngestAdapter:
         now such tickets stay pending (rare: threads normally open with the
         requester's message).
         """
-        initial = self._find_initial_inquiry(messages)
+        initial = self._find_initial_inquiry(messages, ticket.get("requester_id"))
         # Closed tickets are terminal/immutable — a reply can't be sent to one (a
         # genuine follow-up spawns a NEW ticket). Ingest for visibility/history but
         # SKIP the pipeline entirely: no classification, no draft. Status ARCHIVED
