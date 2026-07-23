@@ -73,10 +73,26 @@ describe("Sidebar (icon-only rail)", () => {
     const active = within(nav).getByRole("link", { name: "Email Queue" });
     const inactive = within(nav).getByRole("link", { name: "Dashboard" });
 
+    // Active = filled accent square + accent glyph; inactive = no background,
+    // muted glyph. No left-border indicator (removed in N2f — see Sidebar.tsx).
     expect(active.style.color).toBe("var(--accent)");
-    expect(active.style.borderLeftColor).toBe("var(--accent)");
+    expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
     expect(inactive.style.color).toBe("var(--text-secondary)");
-    expect(inactive.style.borderLeftColor).toBe("transparent");
+    expect(inactive.style.backgroundColor).toBe("");
+  });
+
+  it("uses no single-side border on the icon target (stays centred)", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    for (const label of ["Email Queue", "Dashboard"]) {
+      const link = within(nav).getByRole("link", { name: label });
+      // border-l-2 would consume 2px of the 36px box (border-box), shifting the
+      // icon 1px right on active items only.
+      expect(link.className).not.toContain("border-l");
+      expect(link.style.borderLeftColor).toBe("");
+    }
   });
 
   it("treats a nested route as active for its section", () => {
@@ -125,10 +141,9 @@ describe("Sidebar (icon-only rail)", () => {
     // Active items opt out of the hover background entirely…
     expect(active.className).not.toContain("hover:bg-");
 
-    // …and hovering must not disturb the active background/border/color.
+    // …and hovering must not disturb the active background/colour.
     fireEvent.mouseEnter(active);
     expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
-    expect(active.style.borderLeftColor).toBe("var(--accent)");
     expect(active.style.color).toBe("var(--accent)");
     fireEvent.mouseLeave(active);
     expect(active.style.backgroundColor).toBe("var(--accent-subtle)");

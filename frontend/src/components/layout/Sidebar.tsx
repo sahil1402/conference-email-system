@@ -109,7 +109,13 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
               // replacement — screen readers rely on the aria-label.
               aria-label={label}
               className={cn(
-                "group flex h-9 w-9 items-center justify-center rounded-lg border-l-2 transition-colors duration-150",
+                // No left-border indicator: at 36x36 a single-side border is
+                // mostly corner-radius arc, sits 8px inboard of the rail edge
+                // (so it no longer reads as an edge marker), and — because
+                // preflight sets border-box — steals 2px from the width,
+                // nudging the icon 1px off-centre on active items only. The
+                // filled --accent-subtle square + --accent glyph carries it.
+                "group flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150",
                 // Hover feedback only on inactive items — an active item keeps
                 // its --accent-subtle background (matches the previous
                 // imperative `if (!isActive)` guard). Reuses the
@@ -121,11 +127,9 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
                   ? {
                       backgroundColor: "var(--accent-subtle)",
                       color: "var(--accent)",
-                      borderLeftColor: "var(--accent)",
                     }
                   : {
                       color: "var(--text-secondary)",
-                      borderLeftColor: "transparent",
                     }
               }
             >
