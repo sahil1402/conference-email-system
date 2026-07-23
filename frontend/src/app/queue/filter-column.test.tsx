@@ -109,6 +109,38 @@ describe("filter column — placement", () => {
   });
 });
 
+describe("filter column — persisted collapse state (N4a)", () => {
+  const KEY = "confmail.filterColumnCollapsed";
+  const column = () => searchBox().closest<HTMLElement>("div.w-64")!;
+
+  it("defaults to expanded and persists that default", () => {
+    renderQueue();
+
+    expect(column()).toHaveAttribute("data-collapsed", "false");
+    expect(window.localStorage.getItem(KEY)).toBe("false");
+  });
+
+  it("restores a persisted collapsed state on mount", () => {
+    window.localStorage.setItem(KEY, JSON.stringify(true));
+
+    renderQueue();
+
+    expect(column()).toHaveAttribute("data-collapsed", "true");
+  });
+
+  it("keeps the stored value across a remount rather than resetting it", () => {
+    window.localStorage.setItem(KEY, JSON.stringify(true));
+
+    const first = renderQueue();
+    expect(column()).toHaveAttribute("data-collapsed", "true");
+    first.unmount();
+
+    renderQueue();
+    expect(column()).toHaveAttribute("data-collapsed", "true");
+    expect(window.localStorage.getItem(KEY)).toBe("true");
+  });
+});
+
 describe("filter column — interactions still work page-owned", () => {
   it("types into the search box and keeps the value", async () => {
     const user = userEvent.setup();

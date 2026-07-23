@@ -5,6 +5,7 @@ import { Inbox, SearchX } from "lucide-react";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useResizableWidth } from "@/hooks/useResizableWidth";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
 import { useQueueFacets } from "@/hooks/useQueueFacets";
 import type { EmailQueueParams, QueueFacetsParams } from "@/lib/api";
@@ -44,6 +45,16 @@ export default function QueuePage() {
   const { mutate: retry } = useRetryEmail();
   const { allowAutoSend } = useAppConfig();
   const { chairs, byId: chairsById } = useChairs();
+
+  // Filter column collapse state (N4a). Persisted so the chair's choice sticks
+  // across reloads, like the list width and the submit-as preferences. No
+  // visible effect yet — N4b adds the toggle button, N4c the collapsed render.
+  const [filterColumnCollapsed, setFilterColumnCollapsed] =
+    usePersistedState<boolean>("confmail.filterColumnCollapsed", false);
+  // Consumed by the toggle button in N4b; declared here so the state and its
+  // updater live together.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const toggleFilterColumn = () => setFilterColumnCollapsed((v) => !v);
 
   // Queue-list column: draggable + persisted width. The viewport-aware bounds
   // stop a width saved on a wide monitor from squeezing the detail pane when
@@ -143,6 +154,9 @@ export default function QueuePage() {
           the sidebar; they now render here, directly in the queue's own
           layout, with the same page-held state. */}
       <div
+        // Reflects the persisted collapse state. No visual effect yet — N4c
+        // makes the column actually render collapsed.
+        data-collapsed={filterColumnCollapsed}
         className="w-64 shrink-0 overflow-y-auto"
         style={{ borderRight: "1px solid var(--border)" }}
       >
