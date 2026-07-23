@@ -268,11 +268,13 @@ function RecheckButton({
  *  come from the loaded row when available, else PolicyEditor's defaults. */
 function ConflictEditRow({
   policyKey,
+  snippets,
   resolved,
   onDone,
   onCancel,
 }: {
   policyKey: string;
+  snippets: string[];
   resolved: PolicyDocument | undefined;
   onDone: () => void;
   onCancel: () => void;
@@ -294,6 +296,13 @@ function ConflictEditRow({
   }
   return (
     <div className="mt-2">
+      {/* The conflicting passage is highlighted IN the content box below (a
+          textarea can't mark text itself — see HighlightTextarea). */}
+      {snippets.length > 0 && (
+        <p className="mb-1 text-xs font-medium" style={{ color: "var(--danger)" }}>
+          Conflicting passage highlighted below — edit to resolve.
+        </p>
+      )}
       <PolicyEditor
         policyKey={policyKey}
         initialTitle={policy.title}
@@ -301,6 +310,7 @@ function ConflictEditRow({
         initialCategory={policy.category}
         initialVisibility={resolved?.visibility}
         expectedUpdatedAt={resolved?.updated_at}
+        highlightSnippets={snippets}
         onDone={onDone}
         onCancel={onCancel}
       />
@@ -388,6 +398,7 @@ function ConflictStrip({
               {editingKey === c.policy_key && (
                 <ConflictEditRow
                   policyKey={c.policy_key}
+                  snippets={c.snippets}
                   resolved={resolvePolicy(c.policy_key)}
                   onDone={() => setEditingKey(null)}
                   onCancel={() => setEditingKey(null)}

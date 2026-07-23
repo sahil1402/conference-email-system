@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useEditPolicy } from "@/hooks";
 import { Button, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { HighlightTextarea } from "@/components/kb/HighlightTextarea";
 import type { ApiError, PolicyVisibility } from "@/types";
 
 const FIELD_STYLE = {
@@ -17,10 +18,14 @@ interface PolicyEditorProps {
   initialTitle: string;
   initialContent: string;
   initialCategory?: string | null;
-  /** Undefined ⇒ unknown current visibility (injection list) → default to internal. */
+  /** Undefined ⇒ current visibility unknown → PRESERVE it (the edit omits the
+   *  field so the backend keeps base.visibility); the visibility control is
+   *  hidden in that case so a public policy can't silently flip to internal. */
   initialVisibility?: PolicyVisibility;
   /** Undefined ⇒ skip optimistic-concurrency check. */
   expectedUpdatedAt?: string | null;
+  /** Passages to highlight inside the content box (conflict edit, 2e). */
+  highlightSnippets?: string[];
   onDone: () => void;
   onCancel: () => void;
 }
@@ -37,15 +42,21 @@ export function PolicyEditor({
   initialCategory,
   initialVisibility,
   expectedUpdatedAt,
+  highlightSnippets,
   onDone,
   onCancel,
 }: PolicyEditorProps) {
   const [title, setTitle] = useState(initialTitle);
   const [content, setContent] = useState(initialContent);
   const [category, setCategory] = useState(initialCategory ?? "");
+  // Only manage visibility when we know the current value; otherwise leave it
+  // out of the payload so the backend preserves base.visibility (public stays
+  // public, internal stays internal).
+  const canSetVisibility = initialVisibility !== undefined;
   const [visibility, setVisibility] = useState<PolicyVisibility>(
     initialVisibility ?? "internal",
   );
+  const highlight = highlightSnippets ?? [];
 
   const editPolicy = useEditPolicy();
   const error = editPolicy.error as ApiError | null;
@@ -58,7 +69,7 @@ export function PolicyEditor({
           title: title.trim(),
           content: content.trim(),
           category: category.trim() || null,
-          visibility,
+          visibility: canSetVisibility ? visibility : undefined,
           expected_updated_at: expectedUpdatedAt ?? undefined,
         },
       },
@@ -92,13 +103,22 @@ export function PolicyEditor({
         <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
           Content
         </span>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={5}
-          className="w-full resize-y rounded-lg border px-3 py-2 text-sm leading-relaxed outline-none focus:border-[var(--accent)]"
-          style={FIELD_STYLE}
-        />
+        {highlight.length > 0 ? (
+          <HighlightTextarea
+            value={content}
+            onChange={setContent}
+            snippets={highlight}
+            minRows={5}
+          />
+        ) : (
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={5}
+            className="w-full resize-y rounded-lg border px-3 py-2 text-sm leading-relaxed outline-none focus:border-[var(--accent)]"
+            style={FIELD_STYLE}
+          />
+        )}
       </label>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block space-y-1">
@@ -113,20 +133,22 @@ export function PolicyEditor({
             style={FIELD_STYLE}
           />
         </label>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-            Visibility
-          </span>
-          <select
-            value={visibility}
-            onChange={(e) => setVisibility(e.target.value as PolicyVisibility)}
-            className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-            style={FIELD_STYLE}
-          >
-            <option value="public">public</option>
-            <option value="internal">internal</option>
-          </select>
-        </label>
+        {canSetVisibility && (
+          <label className="block space-y-1">
+            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+              Visibility
+            </span>
+            <select
+              value={visibility}
+              onChange={(e) => setVisibility(e.target.value as PolicyVisibility)}
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+              style={FIELD_STYLE}
+            >
+              <option value="public">public</option>
+              <option value="internal">internal</option>
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

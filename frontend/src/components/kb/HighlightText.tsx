@@ -45,7 +45,7 @@ export function HighlightText({
           <mark
             key={i}
             style={{
-              backgroundColor: "var(--danger-subtle)",
+              backgroundColor: "rgba(239, 68, 68, 0.35)",
               color: "var(--text-primary)",
               borderRadius: "3px",
               padding: "0 2px",

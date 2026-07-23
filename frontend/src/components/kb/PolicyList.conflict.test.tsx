@@ -1,9 +1,18 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { PolicyList } from "./PolicyList";
 import type { ConflictReport, PolicyDocument } from "@/types";
+
+// Keep the API real except getPolicy, which ConflictEditRow calls to load the
+// conflicting policy's full text for the highlighted edit reference.
+const state = vi.hoisted(() => ({ getPolicy: vi.fn() }));
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
+  getPolicy: state.getPolicy,
+}));
 
 function makePolicy(overrides: Partial<PolicyDocument> = {}): PolicyDocument {
   return {
@@ -39,26 +48,32 @@ const REPORT_WITH_CONFLICT: ConflictReport = {
 };
 
 function renderList(policy: PolicyDocument, onRecheck = vi.fn()) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <PolicyList
-      policies={[policy]}
-      onRetire={vi.fn()}
-      onReactivate={vi.fn()}
-      onRecheck={onRecheck}
-      pendingKey={null}
-      recheckingKey={null}
-    />
+    <QueryClientProvider client={qc}>
+      <PolicyList
+        policies={[policy]}
+        onRetire={vi.fn()}
+        onReactivate={vi.fn()}
+        onRecheck={onRecheck}
+        pendingKey={null}
+        recheckingKey={null}
+      />
+    </QueryClientProvider>
   );
   return onRecheck;
 }
+
+beforeEach(() => {
+  state.getPolicy.mockReset();
+});
 
 describe("PolicyList conflict strip (2e)", () => {
   it("shows a conflict count that expands to the detail + snippet", async () => {
     const user = userEvent.setup();
     renderList(makePolicy({ conflict_report: REPORT_WITH_CONFLICT }));
 
-    const toggle = screen.getByRole("button", { name: /1 conflict/i });
-    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: /1 conflict/i }));
 
     expect(screen.getByText(/new says 10 days/i)).toBeInTheDocument();
     expect(screen.getByText(/policy_b/)).toBeInTheDocument();
@@ -75,6 +90,32 @@ describe("PolicyList conflict strip (2e)", () => {
     expect(onRecheck).toHaveBeenCalledWith("int_a");
   });
 
+  it("highlights the conflicting passage when editing a conflicting policy", async () => {
+    state.getPolicy.mockResolvedValue({
+      policy_key: "policy_b",
+      title: "Reviewer deadline",
+      content: "Reviews are due within 14 days of assignment.",
+      category: null,
+      source: null,
+      score: null,
+    });
+    const user = userEvent.setup();
+    renderList(makePolicy({ conflict_report: REPORT_WITH_CONFLICT }));
+
+    await user.click(screen.getByRole("button", { name: /1 conflict/i }));
+    // Two "Edit" buttons exist (the owner row + the conflict item); the conflict
+    // one is rendered last.
+    const edits = screen.getAllByRole("button", { name: "Edit" });
+    await user.click(edits[edits.length - 1]);
+
+    // The read-only reference renders once the target's text loads.
+    await screen.findByText(/conflicting passage/i);
+    expect(state.getPolicy).toHaveBeenCalledWith("policy_b");
+    const marks = document.querySelectorAll("mark");
+    expect(marks.length).toBe(1);
+    expect(marks[0].textContent).toBe("due within 14 days");
+  });
+
   it("shows a 'no conflicts' line when the report is clean", () => {
     const clean: ConflictReport = {
       checked_at: new Date().toISOString(),
@@ -89,11 +130,19 @@ describe("PolicyList conflict strip (2e)", () => {
   });
 
   it("renders nothing conflict-related when never checked or unavailable", () => {
-    const { container: c1 } = render(
-      <PolicyList policies={[makePolicy({ conflict_report: null })]}
-        onRetire={vi.fn()} onReactivate={vi.fn()} onRecheck={vi.fn()}
-        pendingKey={null} recheckingKey={null} />
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <PolicyList
+          policies={[makePolicy({ conflict_report: null })]}
+          onRetire={vi.fn()}
+          onReactivate={vi.fn()}
+          onRecheck={vi.fn()}
+          pendingKey={null}
+          recheckingKey={null}
+        />
+      </QueryClientProvider>
     );
-    expect(within(c1 as HTMLElement).queryByRole("button", { name: /re-check/i })).toBeNull();
+    expect(within(container).queryByRole("button", { name: /re-check/i })).toBeNull();
   });
 });
