@@ -45,12 +45,22 @@ export default function QueuePage() {
   const { allowAutoSend } = useAppConfig();
   const { chairs, byId: chairsById } = useChairs();
 
-  // Queue-list column: draggable + persisted width.
+  // Queue-list column: draggable + persisted width. The viewport-aware bounds
+  // stop a width saved on a wide monitor from squeezing the detail pane when
+  // the same width is restored on a smaller screen.
   const { width: listWidth, isDragging, handleProps } = useResizableWidth(
     "confmail.queueListWidth",
     320,
     240,
-    640
+    640,
+    {
+      // Nav rail (52) + filter column incl. its border (257) + drag handle (6).
+      reservedWidth: 315,
+      // Floor for the detail pane: below this, reading/editing a draft gets
+      // cramped. 440 is also the largest value that still lets the list keep
+      // its 240px minimum on a 1024px viewport (315 + 240 + 440 = 995).
+      minRemainingWidth: 440,
+    }
   );
 
   const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
