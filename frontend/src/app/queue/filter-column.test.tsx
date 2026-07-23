@@ -273,6 +273,65 @@ describe("filter column — collapsed rendering (N4c)", () => {
   });
 });
 
+/**
+ * Collapsing frees chrome, so the list/detail panes get more room. jsdom's
+ * viewport is 1024px, which is exactly where the clamp bites:
+ *   expanded  → reserved 315, max = 1024 - 315 - 440 = 269
+ *   collapsed → reserved 111, max = 1024 - 111 - 440 = 473
+ */
+describe("filter column — collapse frees space for list/detail (N4d)", () => {
+  const LIST_KEY = "confmail.queueListWidth";
+  const COLLAPSE_KEY = "confmail.filterColumnCollapsed";
+  /** The resizable list column, whose width is an inline style. */
+  const listPane = () => document.querySelector<HTMLElement>("aside")!;
+
+  it("clamps the list harder while the filter column is expanded", () => {
+    window.localStorage.setItem(LIST_KEY, JSON.stringify(640));
+
+    renderQueue();
+
+    expect(listPane().style.width).toBe("269px");
+  });
+
+  it("allows a wider list when mounted with the filter column collapsed", () => {
+    window.localStorage.setItem(LIST_KEY, JSON.stringify(640));
+    window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(true));
+
+    renderQueue();
+
+    // 204px of chrome freed → the ceiling rises from 269 to 473.
+    expect(listPane().style.width).toBe("473px");
+  });
+
+  it("re-clamps at runtime when expanding consumes the space back", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(LIST_KEY, JSON.stringify(640));
+    window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(true));
+
+    renderQueue();
+    expect(listPane().style.width).toBe("473px");
+
+    // Expanding is the direction that *consumes* space, so the width that was
+    // legal while collapsed must be clamped back down.
+    await user.click(screen.getByRole("button", { name: "Show filters" }));
+
+    expect(listPane().style.width).toBe("269px");
+  });
+
+  it("does not shrink the list when collapsing (collapsing only frees space)", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+    const before = listPane().style.width;
+    expect(before).toBe("269px");
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+
+    // The ceiling rises; clamping only lowers, so the list keeps its width and
+    // the freed space goes to the flex-1 detail pane.
+    expect(listPane().style.width).toBe(before);
+  });
+});
+
 describe("filter column — interactions still work page-owned", () => {
   it("types into the search box and keeps the value", async () => {
     const user = userEvent.setup();

@@ -41,6 +41,20 @@ import { cn } from "@/lib/utils";
 
 type LaneFilter = "all" | "faq" | "human_review";
 
+/**
+ * Fixed chrome widths (px) used to work out how much room the list and detail
+ * panes actually have. Kept next to the markup that produces them so the two
+ * can't drift silently.
+ */
+/** Mirrors --rail-width in globals.css — keep the two in step. */
+const RAIL_WIDTH = 52;
+/** Filter column expanded: w-64 plus its 1px right border. */
+const FILTER_COL_EXPANDED = 256 + 1;
+/** Filter column collapsed: w-[52px] plus its 1px right border. */
+const FILTER_COL_COLLAPSED = 52 + 1;
+/** The drag handle between the list and the detail pane: w-1.5. */
+const DRAG_HANDLE_WIDTH = 6;
+
 export default function QueuePage() {
   const { status: streamStatus } = useEmailQueueStream();
   const { mutate: approve, isPending: isApproving } = useApproveEmail();
@@ -63,6 +77,14 @@ export default function QueuePage() {
     ? "Show filters"
     : "Hide filters";
 
+  // Chrome that is never available to the list or the detail pane. Tracks the
+  // filter column's collapse state so collapsing actually hands the freed space
+  // back to the detail pane.
+  const reservedWidth =
+    RAIL_WIDTH +
+    (filterColumnCollapsed ? FILTER_COL_COLLAPSED : FILTER_COL_EXPANDED) +
+    DRAG_HANDLE_WIDTH;
+
   // Queue-list column: draggable + persisted width. The viewport-aware bounds
   // stop a width saved on a wide monitor from squeezing the detail pane when
   // the same width is restored on a smaller screen.
@@ -72,8 +94,7 @@ export default function QueuePage() {
     240,
     640,
     {
-      // Nav rail (52) + filter column incl. its border (257) + drag handle (6).
-      reservedWidth: 315,
+      reservedWidth,
       // Floor for the detail pane: below this, reading/editing a draft gets
       // cramped. 440 is also the largest value that still lets the list keep
       // its 240px minimum on a 1024px viewport (315 + 240 + 440 = 995).
