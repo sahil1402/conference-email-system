@@ -6,8 +6,13 @@
  * `var(--rail-width)` / `var(--topbar-height)` inside className strings would
  * still pass even if the tokens were deleted or renamed. And BR4 flagged that
  * four independent declarations — `--topbar-height`, the mobile bar's `h-14`,
- * `<main>`'s `pt-14`, and the queue's hand-written `3.5rem` — must all stay at
- * 56px. These file-read assertions cover both: token existence and drift.
+ * `<main>`'s `pt-14`, and the split-pane's hand-written `3.5rem` — must all stay
+ * at 56px. These file-read assertions cover both: token existence and drift.
+ *
+ * NOTE (C2b): the split-pane height string moved out of app/queue/page.tsx into
+ * the shared components/email/EmailWorkspace.tsx (rendered by BOTH /queue and
+ * /tickets/[ticketId]) — the rendered value is unchanged, so this guard now
+ * reads the workspace, its new owner.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -18,7 +23,7 @@ const read = (...p: string[]) => readFileSync(join(SRC, ...p), "utf8");
 
 const GLOBALS = read("app", "globals.css");
 const APPSHELL = read("components", "layout", "AppShell.tsx");
-const QUEUE = read("app", "queue", "page.tsx");
+const WORKSPACE = read("components", "email", "EmailWorkspace.tsx");
 
 /** px value of a `--token: <n>px;` declaration in globals.css. */
 function tokenPx(name: string): number {
@@ -49,11 +54,12 @@ describe("the 56px top-bar coupling stays consistent (BR4)", () => {
     expect(APPSHELL).toMatch(/\bpt-14\b/);
     expect(APPSHELL).toContain("md:pt-[var(--topbar-height)]");
 
-    // Queue split-pane subtracts the bar: mobile 3.5rem must equal the token.
-    const rem = QUEUE.match(/100vh-(\d+(?:\.\d+)?)rem/);
-    expect(rem, "queue page should subtract a rem value for the mobile bar")
+    // Split-pane subtracts the bar: mobile 3.5rem must equal the token. Lives
+    // in the shared EmailWorkspace (C2b) — rendered by /queue and the ticket route.
+    const rem = WORKSPACE.match(/100vh-(\d+(?:\.\d+)?)rem/);
+    expect(rem, "workspace should subtract a rem value for the mobile bar")
       .not.toBeNull();
     expect(Number(rem![1]) * REM_PX).toBe(topbar); // 3.5 * 16 === 56
-    expect(QUEUE).toContain("md:h-[calc(100vh-var(--topbar-height))]");
+    expect(WORKSPACE).toContain("md:h-[calc(100vh-var(--topbar-height))]");
   });
 });
