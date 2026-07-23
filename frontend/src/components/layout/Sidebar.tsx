@@ -20,7 +20,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSidebarSlot } from "./SidebarSlot";
 
 type NavItem = {
   label: string;
@@ -51,7 +50,6 @@ interface SidebarProps {
  */
 export function Sidebar({ open = false, onNavigate }: SidebarProps) {
   const pathname = usePathname();
-  const { setSlotEl } = useSidebarSlot();
 
   return (
     <aside
@@ -88,7 +86,7 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
         </span>
       </div>
 
-      {/* Navigation + page slot (queue filters) — scroll together when tall */}
+      {/* Navigation — scrolls when there are more items than height */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {/* ONE provider for the whole rail: sharing it enables Radix's skip
             delay, so moving between adjacent icons shows the next label
@@ -144,9 +142,6 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
         })}
         </nav>
         </TooltipProvider>
-        {/* Page-provided slot (queue filters): pinned above the footer when
-            there's spare height; scrolls with the nav when space is tight. */}
-        <div ref={setSlotEl} className="mt-auto" />
       </div>
 
       {/* Footer — the theme toggle, icon-sized to match the nav targets and
