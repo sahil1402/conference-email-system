@@ -486,6 +486,21 @@ class EmailRepository:
         result = await db.execute(select(Email).where(Email.id == pk))
         return result.scalar_one_or_none()
 
+    async def get_email_by_zendesk_ticket_id(
+        self, db: AsyncSession, ticket_id: int
+    ) -> Email | None:
+        """Return a single email by its Zendesk ticket id, or ``None``.
+
+        Mirrors ``get_email_by_id`` in style. ``zendesk_ticket_id`` is unique and
+        nullable — a row with a NULL ticket id can never match an integer
+        ``ticket_id`` (``NULL == n`` is never true in SQL), so non-Zendesk rows
+        are inherently excluded.
+        """
+        result = await db.execute(
+            select(Email).where(Email.zendesk_ticket_id == ticket_id)
+        )
+        return result.scalar_one_or_none()
+
     async def get_email_with_thread(
         self, db: AsyncSession, email_id: str
     ) -> Email | None:
