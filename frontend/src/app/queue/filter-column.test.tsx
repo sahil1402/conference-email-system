@@ -73,6 +73,13 @@ function renderQueue() {
 
 const searchBox = () => screen.getByPlaceholderText(/search subject or sender/i);
 
+/**
+ * The filter column. Queried by [data-collapsed] rather than a width class or a
+ * descendant, since both change with the collapse state.
+ */
+const column = () =>
+  document.querySelector<HTMLElement>("[data-collapsed]")!;
+
 beforeEach(() => {
   window.localStorage.clear();
 });
@@ -111,7 +118,6 @@ describe("filter column — placement", () => {
 
 describe("filter column — persisted collapse state (N4a)", () => {
   const KEY = "confmail.filterColumnCollapsed";
-  const column = () => searchBox().closest<HTMLElement>("div.w-64")!;
 
   it("defaults to expanded and persists that default", () => {
     renderQueue();
@@ -142,7 +148,6 @@ describe("filter column — persisted collapse state (N4a)", () => {
 });
 
 describe("filter column — collapse toggle button (N4b)", () => {
-  const column = () => searchBox().closest<HTMLElement>("div.w-64")!;
 
   it("renders the toggle, labelled for the action when expanded", () => {
     renderQueue();
@@ -191,15 +196,80 @@ describe("filter column — collapse toggle button (N4b)", () => {
     );
   });
 
-  it("still renders the filter panel in full while collapsed (N4c changes this)", async () => {
+});
+
+describe("filter column — collapsed rendering (N4c)", () => {
+  it("hides the filter panel when collapsed", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+    expect(searchBox()).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+
+    expect(
+      screen.queryByPlaceholderText(/search subject or sender/i)
+    ).toBeNull();
+    expect(screen.queryByLabelText("Filter by assigned chair")).toBeNull();
+    expect(screen.queryByRole("button", { name: "FAQ" })).toBeNull();
+  });
+
+  it("keeps the toggle reachable when collapsed, so it can re-expand", async () => {
     const user = userEvent.setup();
     renderQueue();
 
     await user.click(screen.getByRole("button", { name: "Hide filters" }));
+    const reopen = screen.getByRole("button", { name: "Show filters" });
+    expect(reopen).toBeInTheDocument();
 
-    expect(column()).toHaveAttribute("data-collapsed", "true");
+    await user.click(reopen);
+
+    expect(searchBox()).toBeInTheDocument();
+  });
+
+  it("shrinks to a 52px sliver when collapsed and back to 256px expanded", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+    expect(column().className).toContain("w-64");
+    expect(column().className).not.toContain("w-[52px]");
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+
+    expect(column().className).toContain("w-[52px]");
+    expect(column().className).not.toContain("w-64");
+
+    await user.click(screen.getByRole("button", { name: "Show filters" }));
+
+    expect(column().className).toContain("w-64");
+  });
+
+  it("animates the width change rather than jumping", () => {
+    renderQueue();
+
+    // Named-property transition, matching the codebase's convention.
+    expect(column().className).toContain("transition-[width]");
+    expect(column().className).toContain("duration-200");
+    // Stops the panel flashing a horizontal scrollbar mid-animation.
+    expect(column().className).toContain("overflow-x-hidden");
+  });
+
+  it("renders the full panel alongside the toggle when expanded", () => {
+    renderQueue();
+
+    expect(screen.getByRole("button", { name: "Hide filters" })).toBeInTheDocument();
     expect(searchBox()).toBeInTheDocument();
     expect(screen.getByLabelText("Filter by assigned chair")).toBeInTheDocument();
+  });
+
+  it("restores the collapsed sliver on mount from persisted state", () => {
+    window.localStorage.setItem("confmail.filterColumnCollapsed", "true");
+
+    renderQueue();
+
+    expect(column().className).toContain("w-[52px]");
+    expect(
+      screen.queryByPlaceholderText(/search subject or sender/i)
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Show filters" })).toBeInTheDocument();
   });
 });
 

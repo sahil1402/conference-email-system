@@ -164,13 +164,20 @@ export default function QueuePage() {
         // Reflects the persisted collapse state. No visual effect yet — N4c
         // makes the column actually render collapsed.
         data-collapsed={filterColumnCollapsed}
-        className="w-64 shrink-0 overflow-y-auto"
+        className={cn(
+          "shrink-0 overflow-y-auto overflow-x-hidden transition-[width] duration-200",
+          // Collapsed: 36px button + px-2 either side = 52px, the same rhythm
+          // as the nav rail. overflow-x-hidden stops the panel (which mounts at
+          // full width) from flashing a scrollbar while the width animates.
+          filterColumnCollapsed ? "w-[52px]" : "w-64"
+        )}
         style={{ borderRight: "1px solid var(--border)" }}
       >
-        {/* Collapse toggle. Its own provider: the rail's lives inside Sidebar,
+        {/* Collapse toggle — rendered in BOTH states; it's the only way back
+            from collapsed. Its own provider: the rail's lives inside Sidebar,
             a sibling of <main>, so it isn't an ancestor of this button. */}
         <TooltipProvider>
-          <div className="px-3 pt-4">
+          <div className={cn("pt-4", filterColumnCollapsed ? "px-2" : "px-3")}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -194,6 +201,7 @@ export default function QueuePage() {
           </div>
         </TooltipProvider>
 
+        {!filterColumnCollapsed && (
         <QueueFilterPanel
           search={search}
           onSearchChange={setSearch}
@@ -219,6 +227,7 @@ export default function QueuePage() {
           zendeskStatusFilter={zendeskStatusFilter}
           onZendeskStatusSelect={setZendeskStatusFilter}
         />
+        )}
       </div>
 
       {/* LEFT PANE */}
