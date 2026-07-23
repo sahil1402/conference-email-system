@@ -335,32 +335,6 @@ Exposing the app more widely — a reverse proxy and TLS termination in front of
 
 ---
 
-## Current Status & Roadmap
-
-*Status per CLAUDE.md; test counts not re-run this session.*
-
-### Complete
-- **Phases 0–2** — Scaffold (FastAPI, async SQLAlchemy + Alembic, Next.js 14 shell), data + pipeline + v1 API, full frontend (dashboard, split-pane queue, auto-replies, recharts analytics, audit timeline, SSE live updates).
-- **Phase 3–5** — Postgres-ready, local + template + trainable backends, RL bandit router, FAISS + RRF fusion retrieval, eval harness, confidence calibration, chair-edit diff, active-learning flagging, Docker Compose + secret-free CI.
-- **Phase 6 (A/B/C)** — Multi-chair routing (chair table, chair router, reassignment), chair-assignment frontend, and the paginated-aggregate bug-class fix.
-- **Real corpus + Phase 7** — 93-chunk real AAAI-27 corpus, query distiller, structured placeholder reply contract, send gate, style guide v2, hermetic test conftest.
-- **PostgreSQL migration** — Docker Postgres service, single-source `DATABASE_URL`, dialect-agnostic JSON accessors, PG test suite + CI Postgres (on `main`).
-- **Re-evaluate on policy change** — KB edit → background sweep re-drafts only tickets whose retrieval set shifted (no model call in the gate).
-- **Retrieval rework (E005)** — embed leaf title, not full path (fusion hit@1 .649 → .703).
-- **Zendesk integration (Pieces 1–5)** — OAuth/token credential provider, ticket schema, read-only ingest adapter, and write-back — **proven end-to-end live** (internal-note write-back verified); single-flight overlap guard hardened.
-- **Queue status bar + self-hiding source toggle**; **E007** (dropped signal-free policy tags).
-- **Intent taxonomy + FAQ-lane rework** — 14-intent taxonomy; FAQ lane decided by draft quality (route-after-draft, self-sufficiency floor). *Post-merge suite 303 non-ml / 325 incl-ml / 7 skipped.*
-
-### In progress / operational
-- Enabling background Zendesk polling (`ZENDESK_POLLING_ENABLED`) and/or public auto-replies (`ALLOW_AUTO_SEND`) — both off by design pending production sign-off.
-- Applying the overlap-lock migration to the real production DB (already on the demo Postgres).
-
-### Open blockers
-- **NCSA Delta GPU access pending** — the `local` self-hosted drafter is implemented + mock-tested but not yet run on real GPU hardware.
-- **Synthetic email dataset** — the policy corpus is real (93 chunks), but the toy email set and eval ground truth remain hand-written; headline eval numbers are on synthetic traffic (real-ticket eval uses gitignored PII data).
-
----
-
 ## Research Context
 
 Developed at the **Melady Lab, University of Southern California** (PI: Prof. Yan), exploring AI pipelines for academic conference operations. Active research directions: active learning from chair decisions, online RL routing with human-in-the-loop feedback, learned chair assignment from reroute signal, retrieval-augmented generation grounded in conference policy, and evaluation of AI-assisted human-in-the-loop workflows.
