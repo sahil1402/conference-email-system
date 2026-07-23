@@ -149,19 +149,13 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
         <div ref={setSlotEl} className="mt-auto" />
       </div>
 
-      {/* Footer */}
+      {/* Footer — centred in the rail. No horizontal padding: ThemeToggle is
+          still 52px wide, exactly the rail width, so any side padding would
+          overflow. Padding can return once N2h makes it icon-sized. */}
       <div
-        className="flex shrink-0 items-center justify-between px-5 py-4"
+        className="flex shrink-0 items-center justify-center py-4"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
-        <div className="flex flex-col gap-0.5">
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Melady Lab · USC
-          </span>
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            v0.1.0-mvp
-          </span>
-        </div>
         <ThemeToggle />
       </div>
     </aside>
