@@ -438,9 +438,16 @@ async def get_email_by_ticket(
     value is rejected by FastAPI with a 422 before this handler runs. The
     response shape mirrors ``GET /emails/{email_id}`` exactly (same helpers).
 
-    (B2: happy path only — 404 handling for an unknown ticket lands in B3.)
+    404s when no email maps to ``ticket_id`` — including a row whose
+    ``zendesk_ticket_id`` is NULL (non-Zendesk), which the repository query never
+    matches.
     """
     email = await email_repo.get_email_by_zendesk_ticket_id(db, ticket_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No email found for ticket id {ticket_id}",
+        )
     trail = await audit_repo.get_audit_trail(db, str(email.id))
     return {
         "email": _email_to_dict(email),

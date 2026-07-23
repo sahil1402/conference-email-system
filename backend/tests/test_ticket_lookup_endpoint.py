@@ -106,3 +106,28 @@ async def test_by_ticket_non_numeric_is_422(ctx):
     # with 422 before the handler runs (no custom validation needed).
     resp = await ctx.client.get("/api/v1/emails/by-ticket/not-a-number")
     assert resp.status_code == 422
+
+
+# --- B3: 404 handling -----------------------------------------------------
+async def test_by_ticket_unknown_id_is_clean_404(ctx):
+    # A valid integer with no matching row → a clean 404 JSON body, NOT a 500 /
+    # unhandled exception from calling .id on None.
+    resp = await ctx.client.get("/api/v1/emails/by-ticket/99999999")
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "No email found for ticket id 99999999"}
+
+
+async def test_by_ticket_null_ticket_row_never_matched(ctx):
+    """Endpoint-level counterpart to B1's repo test: the seeded non-Zendesk row
+    (zendesk_ticket_id IS NULL) is reachable by its DB id but must never be
+    returned by a by-ticket lookup — the full request path 404s."""
+    # The toy row exists and is fetchable by its internal id...
+    all_rows = (await ctx.client.get("/api/v1/emails/queue")).json()["emails"]
+    toy = next(e for e in all_rows if e["source"] == "toy_dataset")
+    assert toy["zendesk_ticket_id"] is None
+    by_id = await ctx.client.get(f"/api/v1/emails/{toy['id']}")
+    assert by_id.status_code == 200
+    # ...but a by-ticket lookup using that row's DB id as a "ticket id" 404s,
+    # confirming a NULL ticket_id row is never matched.
+    resp = await ctx.client.get(f"/api/v1/emails/by-ticket/{toy['id']}")
+    assert resp.status_code == 404
