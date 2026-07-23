@@ -252,4 +252,49 @@ describe("approve → send chain", () => {
     await selectEmail(user, "Travel grant");
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("8. advances to the next ticket after a successful send", async () => {
+    state.emails = [
+      makeEmail({ id: 1, subject: "Deadline question" }),
+      makeEmail({ id: 2, subject: "Travel grant" }),
+    ];
+    const user = userEvent.setup();
+    renderQueue();
+    await selectEmail(user, "Deadline question");
+    // Detail pane shows the first email (subject is an <h2> heading; list rows
+    // are buttons, so a heading query targets the detail pane specifically).
+    expect(
+      screen.getByRole("heading", { name: /deadline question/i })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
+
+    // After approve→send resolve, selection advances to the next row (email 2).
+    expect(
+      await screen.findByRole("heading", { name: /travel grant/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /deadline question/i })
+    ).toBeNull();
+  });
+
+  it("9. advances to the previous ticket when the last one is sent", async () => {
+    state.emails = [
+      makeEmail({ id: 1, subject: "Deadline question" }),
+      makeEmail({ id: 2, subject: "Travel grant" }),
+    ];
+    const user = userEvent.setup();
+    renderQueue();
+    await selectEmail(user, "Travel grant"); // the LAST row
+    expect(
+      screen.getByRole("heading", { name: /travel grant/i })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
+
+    // No next row → fall back to the previous one (email 1).
+    expect(
+      await screen.findByRole("heading", { name: /deadline question/i })
+    ).toBeInTheDocument();
+  });
 });

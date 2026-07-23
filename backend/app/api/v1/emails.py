@@ -27,6 +27,7 @@ from app.core.events import get_event_broker
 from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
 from app.db.database import async_session_factory, get_db
+from app.integrations.zendesk.adapter import ZendeskIngestAdapter
 from app.integrations.zendesk.sender import (
     ZendeskSender,
     ZendeskSendError,
@@ -50,6 +51,9 @@ audit_repo = AuditRepository()
 chair_repo = ChairRepository()
 # Module-level so tests can monkeypatch the transport without real HTTP.
 zendesk_sender = ZendeskSender()
+# Same — the post-send reconcile (single-ticket re-sync) is best-effort and
+# stubbed in tests so no real HTTP happens.
+zendesk_adapter = ZendeskIngestAdapter()
 
 
 class SendRequest(BaseModel):
@@ -696,12 +700,33 @@ async def send_email_reply(
         "tag_conflict": outcome.tag_conflict,
     }
     sent_draft = {**(email.draft or {}), "send": send_meta}
-    updated = await email_repo.update_email_status(
+    await email_repo.update_email_status(
         db, email_id, EmailStatus.SENT.value, {"draft": sent_draft}
     )
     await audit_repo.log_action(
         db, email_id, "zendesk_sent", payload.sent_by, send_meta
     )
+
+    # Reconcile the local Zendesk state so the ticket moves buckets immediately
+    # and its thread shows the reply we just posted, without waiting for the next
+    # background poll. First optimistically mirror the status we set (this alone
+    # guarantees the bucket move even if the re-sync below can't reach Zendesk),
+    # then best-effort re-sync THIS ticket for the authoritative status + to append
+    # the outbound comment to the thread. A re-sync failure must NEVER turn a
+    # successful send into an error — the reply is already posted to Zendesk.
+    if set_status is not None:
+        await email_repo.apply_zendesk_fields(
+            db, email_id, {"zendesk_status": set_status}
+        )
+    try:
+        await zendesk_adapter.refresh_ticket(db, int(email.zendesk_ticket_id))
+    except Exception as exc:  # noqa: BLE001 - reconcile is best-effort
+        logger.warning(
+            "post-send refresh of ticket %s failed (reply was sent): %s",
+            email.zendesk_ticket_id, exc,
+        )
+
+    updated = await email_repo.get_email_by_id(db, email_id)
     result = _email_to_dict(updated)
     result["send"] = send_meta
     if outcome.tag_conflict:

@@ -36,6 +36,22 @@ async def adb():
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def reconcile_calls(monkeypatch):
+    """Keep the post-send single-ticket re-sync hermetic: stub it so no real
+    Zendesk read happens. Returns the list of ticket ids it was called with, so
+    a test can assert the reconcile ran (or, by re-patching, that a failure is
+    swallowed)."""
+    calls: list[int] = []
+
+    async def _fake_refresh(db, ticket_id, **kwargs):
+        calls.append(ticket_id)
+        return {"zendesk_status": "solved", "new_messages": 0}
+
+    monkeypatch.setattr(emails_api.zendesk_adapter, "refresh_ticket", _fake_refresh)
+    return calls
+
+
 async def _seed(adb, *, status="approved", zendesk_status="open", ticket_id=123, routing=None):
     payload = {
         "sender": "author@university.edu",
@@ -384,6 +400,91 @@ async def test_target_status_does_not_change_tags(adb, monkeypatch):
     call = fake.calls[0]
     assert call["tags"] == ["ai_auto_replied"]  # unchanged by target_status
     assert call["set_status"] == "pending"
+
+
+# --- post-send bucket move + best-effort reconcile -------------------------
+
+
+@pytest.mark.asyncio
+async def test_send_moves_ticket_to_chosen_bucket(adb, monkeypatch, reconcile_calls):
+    """Submit-as-Solved (internal note + target_status="solved"): the local
+    zendesk_status becomes "solved" so the ticket moves to the solved bucket, the
+    response reflects it, and the post-send reconcile runs for that ticket id."""
+    email = await _seed(adb, zendesk_status="open")
+    fake = FakeSender(
+        outcome=SendOutcome(mode="internal_note", public=False, status_set="solved")
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+
+    result = await emails_api.send_email_reply(
+        str(email.id),
+        emails_api.SendRequest(public=False, target_status="solved"),
+        adb,
+    )
+    assert result["status"] == EmailStatus.SENT.value
+    assert result["zendesk_status"] == "solved"       # response shows the bucket move
+    assert reconcile_calls == [123]                    # reconcile invoked for the ticket
+    refreshed = await emails_api.email_repo.get_email_by_id(adb, str(email.id))
+    assert refreshed.zendesk_status == "solved"
+
+
+@pytest.mark.asyncio
+async def test_send_follows_pending_choice(adb, monkeypatch):
+    """Submit-as-Pending moves the ticket to the pending bucket (not solved)."""
+    email = await _seed(adb, zendesk_status="open")
+    fake = FakeSender(
+        outcome=SendOutcome(mode="internal_note", public=False, status_set="pending")
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+
+    result = await emails_api.send_email_reply(
+        str(email.id),
+        emails_api.SendRequest(public=False, target_status="pending"),
+        adb,
+    )
+    assert result["zendesk_status"] == "pending"
+    refreshed = await emails_api.email_repo.get_email_by_id(adb, str(email.id))
+    assert refreshed.zendesk_status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_send_no_status_change_keeps_bucket(adb, monkeypatch):
+    """Internal note with no target_status → set_status None → bucket unchanged
+    (no optimistic write); the reply still posts."""
+    email = await _seed(adb, zendesk_status="open")
+    fake = FakeSender(outcome=SendOutcome(mode="internal_note", public=False))
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+
+    result = await emails_api.send_email_reply(
+        str(email.id), emails_api.SendRequest(public=False), adb
+    )
+    assert result["zendesk_status"] == "open"          # unchanged
+    refreshed = await emails_api.email_repo.get_email_by_id(adb, str(email.id))
+    assert refreshed.zendesk_status == "open"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_failure_does_not_fail_send(adb, monkeypatch):
+    """If the post-send re-sync raises, the send still succeeds (the reply is
+    already posted) and the optimistic bucket move stands."""
+    email = await _seed(adb, zendesk_status="open")
+    fake = FakeSender(
+        outcome=SendOutcome(mode="internal_note", public=False, status_set="solved")
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+
+    async def _boom(db, ticket_id, **kwargs):
+        raise RuntimeError("zendesk unreachable")
+
+    monkeypatch.setattr(emails_api.zendesk_adapter, "refresh_ticket", _boom)
+
+    result = await emails_api.send_email_reply(
+        str(email.id),
+        emails_api.SendRequest(public=False, target_status="solved"),
+        adb,
+    )
+    assert result["status"] == EmailStatus.SENT.value  # send NOT marked failed
+    assert result["zendesk_status"] == "solved"         # optimistic move stands
 
 
 @pytest.mark.asyncio

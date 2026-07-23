@@ -18,6 +18,12 @@ function useInvalidateEmailQueries() {
   return () => {
     queryClient.invalidateQueries({ queryKey: ["emailQueue"] });
     queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    // The Zendesk-status facet counts (the "Solved / Closed" bucket total) and
+    // the thread both shift when a reply is sent — a send moves the ticket's
+    // bucket and appends our reply — so refresh them immediately instead of
+    // waiting for their own 15s poll.
+    queryClient.invalidateQueries({ queryKey: ["queueFacets"] });
+    queryClient.invalidateQueries({ queryKey: ["emailThread"] });
   };
 }
 

@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 INCREMENTAL_PATH = "/incremental/tickets/cursor.json"
 COMMENTS_PATH = "/tickets/{ticket_id}/comments.json"
+TICKET_PATH = "/tickets/{ticket_id}.json"
 
 # Incremental export allows 10 req/min — stay just under it between pages (same
 # slack the one-off pull script uses). Comment fetches use a separate, larger
@@ -658,6 +659,79 @@ class ZendeskIngestAdapter:
             await self.state_repo.release_lock(db, subdomain)
 
         return result
+
+    async def refresh_ticket(
+        self,
+        db: AsyncSession,
+        ticket_id: int,
+        *,
+        client: httpx.AsyncClient | None = None,
+        sleep=asyncio.sleep,
+    ) -> dict | None:
+        """Reconcile ONE ticket after a write-back — targeted, not a full cycle.
+
+        Fetches the ticket's authoritative status and its latest comments
+        directly (``GET /tickets/{id}.json`` + ``/comments.json``), then updates
+        the local row's ``zendesk_status``/``zendesk_updated_at`` and appends any
+        comments not already stored — including the reply the chair just sent, so
+        the thread shows it immediately instead of only after the next poll.
+
+        Unlike :meth:`sync`, this runs NO pipeline and triggers NO follow-up
+        reprocessing (a chair reply is not a requester follow-up): it is a pure
+        read-and-reconcile. Returns ``{"zendesk_status", "new_messages"}`` (or
+        ``None`` if no local row maps to ``ticket_id``). Raises
+        :class:`ZendeskAdapterError` on an unrecoverable read failure — callers
+        that treat it as best-effort should catch it.
+        """
+        existing = await self.email_repo.get_by_zendesk_ticket_id(db, ticket_id)
+        if existing is None:
+            return None
+        email_id = str(existing.id)
+
+        owns_client = client is None
+        if owns_client:
+            client = httpx.AsyncClient(timeout=60)
+        base = self._provider_obj().base_url
+        try:
+            ticket_data = await self._get(
+                client, base + TICKET_PATH.format(ticket_id=ticket_id), {}, sleep
+            )
+            ticket = ticket_data.get("ticket") or {}
+            comments_data = await self._get(
+                client,
+                base + COMMENTS_PATH.format(ticket_id=ticket_id),
+                {"include": "users", "sort": "created_at"},
+                sleep,
+            )
+            comment_users = _index_users(comments_data.get("users", []))
+            messages = [
+                self._to_message_dict(c, comment_users)
+                for c in comments_data.get("comments", [])
+            ]
+            existing_ids = await self.email_repo.get_thread_comment_ids(db, email_id)
+            new_messages = [
+                m for m in messages if m.get("zendesk_comment_id") not in existing_ids
+            ]
+            await self.email_repo.add_thread_messages(db, email_id, new_messages)
+            await self.email_repo.apply_zendesk_fields(
+                db,
+                email_id,
+                {
+                    "zendesk_status": ticket.get("status"),
+                    "zendesk_updated_at": _parse_dt(ticket.get("updated_at")),
+                    "last_processed_comment_id": (
+                        self._max_comment_id(messages)
+                        or existing.last_processed_comment_id
+                    ),
+                },
+            )
+            return {
+                "zendesk_status": ticket.get("status"),
+                "new_messages": len(new_messages),
+            }
+        finally:
+            if owns_client:
+                await client.aclose()
 
 
 async def run_sync_cycle(

@@ -117,6 +117,15 @@ export default function QueuePage() {
       ? null
       : emails.find((e) => e.id === selectedEmailId) ?? null;
 
+  // The id to select after acting on `currentId`: the next row down, else the
+  // previous, else nothing. Computed from the CURRENT list snapshot (before the
+  // post-send refetch drops the acted-on ticket), so advancing is deterministic.
+  const nextEmailId = (currentId: number): number | null => {
+    const idx = emails.findIndex((e) => e.id === currentId);
+    if (idx === -1) return null;
+    return emails[idx + 1]?.id ?? emails[idx - 1]?.id ?? null;
+  };
+
   // Approve-then-send partial failure, scoped to the selected email: the approve
   // succeeded (its own state/error is out of scope here) but the follow-up send
   // to Zendesk failed. `sendMutation.variables.id` identifies which email the
@@ -246,14 +255,21 @@ export default function QueuePage() {
                   },
                 },
                 {
-                  onSuccess: () =>
-                    send({
-                      id: selectedEmail.id,
-                      data: {
-                        public: isPublic,
-                        target_status: targetStatus,
+                  onSuccess: () => {
+                    // Capture the neighbor NOW, before the send's refetch drops
+                    // this ticket, then advance to it once the send lands.
+                    const nextId = nextEmailId(selectedEmail.id);
+                    send(
+                      {
+                        id: selectedEmail.id,
+                        data: {
+                          public: isPublic,
+                          target_status: targetStatus,
+                        },
                       },
-                    }),
+                      { onSuccess: () => setSelectedEmailId(nextId) }
+                    );
+                  },
                 }
               )
             }
@@ -274,8 +290,14 @@ export default function QueuePage() {
             sendError={sendErrorMessage}
             onRetrySend={() => {
               // Retry ONLY the send with the same visibility + status — never
-              // re-approve. `variables` holds the failed attempt's payload.
-              if (sendMutation.variables) send(sendMutation.variables);
+              // re-approve. `variables` holds the failed attempt's payload. On
+              // success, advance to the next ticket like a first-try send.
+              if (sendMutation.variables) {
+                const nextId = nextEmailId(selectedEmail.id);
+                send(sendMutation.variables, {
+                  onSuccess: () => setSelectedEmailId(nextId),
+                });
+              }
             }}
           />
         ) : (
