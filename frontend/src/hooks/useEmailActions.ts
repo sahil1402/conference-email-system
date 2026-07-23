@@ -24,6 +24,13 @@ function useInvalidateEmailQueries() {
     // waiting for their own 15s poll.
     queryClient.invalidateQueries({ queryKey: ["queueFacets"] });
     queryClient.invalidateQueries({ queryKey: ["emailThread"] });
+    // The /tickets/[ticketId] detail pane reads the same email through its own
+    // ["emailByTicket", ticketId] query, so it must refresh on the same actions
+    // as the queue — otherwise the standalone ticket view only updates on its
+    // 15s poll. A prefix invalidation (no id) mirrors ["emailThread"] above:
+    // the mutations key off email id, not ticket id, and only the currently
+    // viewed ticket's query is ever active, so this is effectively scoped.
+    queryClient.invalidateQueries({ queryKey: ["emailByTicket"] });
   };
 }
 
