@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, X } from "lucide-react";
 
 import { ACTOR, useCreatePolicy, useFindSimilar } from "@/hooks";
 import { Button, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { HighlightText } from "@/components/kb/HighlightText";
 import { PolicyEditor } from "@/components/kb/PolicyEditor";
 import { cn } from "@/lib/utils";
-import type { ApiError } from "@/types";
+import type { ApiError, ConflictReport } from "@/types";
 
 const FIELD_STYLE = {
   backgroundColor: "var(--surface)",
@@ -28,7 +29,12 @@ interface AddPolicyPanelProps {
   setContent: (value: string) => void;
   setCategory: (value: string) => void;
   onClose: () => void;
-  onCreated: () => void;
+  /** Called after a successful create (with the new policy's conflict report so
+   *  the page can raise a heads-up banner) or a reconcile edit (no arg). */
+  onCreated: (created?: {
+    policy_key: string;
+    conflict_report?: ConflictReport | null;
+  }) => void;
 }
 
 /**
@@ -67,6 +73,23 @@ export function AddPolicyPanel({
   // at runtime (see lib/api/client.ts), same cast EmailDetail.tsx uses.
   const createError = createPolicy.error as ApiError | null;
   const findSimilarError = findSimilar.error as ApiError | null;
+
+  // Conflict detection (2e): the /similar call also returns the conflict report
+  // over those same hits. Index it by key for per-card badges/highlights.
+  const conflictReport = findSimilar.data?.conflict_report ?? null;
+  const conflictByKey = new Map(
+    (conflictReport?.conflicts ?? []).map((c) => [c.policy_key, c] as const)
+  );
+  const conflictCount = conflictReport?.conflicts.length ?? 0;
+  const conflictChecked = conflictReport != null && conflictReport.available !== false;
+  // Reuse the report on create only while the checked text is unchanged — else
+  // the backend recomputes it for the text actually being created.
+  const reusableReport =
+    conflictReport &&
+    findSimilar.variables?.title === title &&
+    findSimilar.variables?.content === content
+      ? conflictReport
+      : undefined;
 
   function toggleRetireKey(key: string) {
     setRetireKeys((prev) => {
@@ -129,15 +152,17 @@ export function AddPolicyPanel({
               // [tags-dropped E007] tags,
               actor: ACTOR,
               retire_keys: Array.from(retireKeys),
+              // Skip a second model call when the panel already checked this text.
+              conflict_report: reusableReport,
             },
             {
-              onSuccess: () => {
+              onSuccess: (data) => {
                 // Clear the draft ONLY now that a policy was actually created —
                 // closing/reopening the panel keeps whatever was typed (2b).
                 setTitle("");
                 setContent("");
                 setCategory("");
-                onCreated();
+                onCreated(data);
                 onClose();
               },
             }
@@ -252,16 +277,40 @@ export function AddPolicyPanel({
               backgroundColor: "var(--surface)",
             }}
           >
-            <p
-              className="text-xs font-medium"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {similar.length > 0
-                ? "Related existing policies"
-                : "No related policies found."}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p
+                className="text-xs font-medium"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {similar.length > 0
+                  ? "Related existing policies"
+                  : "No related policies found."}
+              </p>
+              {conflictReport &&
+                (conflictReport.available === false ? (
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    Conflict check unavailable
+                  </span>
+                ) : conflictCount > 0 ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-xs font-medium"
+                    style={{ color: "var(--danger)" }}
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                    {conflictCount} of {conflictReport.candidates_checked.length} conflict
+                  </span>
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-1 text-xs"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <Check className="h-3.5 w-3.5" aria-hidden /> No conflicts
+                  </span>
+                ))}
+            </div>
             {similar.map((policy) => {
               const isExpanded = expandedKeys.has(policy.policy_key);
+              const conflict = conflictByKey.get(policy.policy_key);
               return (
                 <div
                   key={policy.policy_key}
@@ -279,6 +328,21 @@ export function AddPolicyPanel({
                       <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                         {policy.policy_key} · score {policy.score.toFixed(2)}
                       </p>
+                      {conflict ? (
+                        <span
+                          className="mt-1 inline-flex items-center gap-1 text-xs font-medium"
+                          style={{ color: "var(--danger)" }}
+                        >
+                          <AlertTriangle className="h-3 w-3" aria-hidden /> Conflict
+                        </span>
+                      ) : conflictChecked ? (
+                        <span
+                          className="mt-1 inline-flex items-center gap-1 text-xs"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          <Check className="h-3 w-3" aria-hidden /> No conflict
+                        </span>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                       <label
@@ -320,8 +384,18 @@ export function AddPolicyPanel({
                     )}
                     style={{ color: "var(--text-secondary)" }}
                   >
-                    {policy.content}
+                    {conflict && conflict.snippets.length > 0 ? (
+                      <HighlightText text={policy.content} snippets={conflict.snippets} />
+                    ) : (
+                      policy.content
+                    )}
                   </p>
+
+                  {conflict && (
+                    <p className="mt-1.5 text-xs" style={{ color: "var(--danger)" }}>
+                      {conflict.explanation}
+                    </p>
+                  )}
 
                   <button
                     type="button"

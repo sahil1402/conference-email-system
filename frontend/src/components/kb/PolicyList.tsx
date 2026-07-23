@@ -1,19 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, RotateCw } from "lucide-react";
 
 import { Badge, Button } from "@/components/ui";
 import { PolicyEditor } from "@/components/kb/PolicyEditor";
 import { cn } from "@/lib/utils";
-import type { PolicyDocument } from "@/types";
+import type { ConflictReport, PolicyDocument } from "@/types";
 
 interface PolicyListProps {
   policies: PolicyDocument[];
   onRetire: (key: string) => void;
   onReactivate: (key: string) => void;
+  onRecheck: (key: string) => void;
   /** policy_key of the retire/reactivate mutation currently in flight, if any. */
   pendingKey: string | null;
+  /** policy_key of the conflict re-check currently in flight, if any. */
+  recheckingKey: string | null;
 }
 
 /** Filtered list of policy documents, each row with a retire/reactivate action. */
@@ -21,7 +24,9 @@ export function PolicyList({
   policies,
   onRetire,
   onReactivate,
+  onRecheck,
   pendingKey,
+  recheckingKey,
 }: PolicyListProps) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -43,7 +48,9 @@ export function PolicyList({
           policy={policy}
           onRetire={onRetire}
           onReactivate={onReactivate}
+          onRecheck={() => onRecheck(policy.policy_key)}
           isPending={pendingKey === policy.policy_key}
+          isRechecking={recheckingKey === policy.policy_key}
           isExpanded={expandedKeys.has(policy.policy_key)}
           onToggleExpanded={() => toggleExpanded(policy.policy_key)}
           isEditing={editingKey === policy.policy_key}
@@ -59,7 +66,9 @@ function PolicyRow({
   policy,
   onRetire,
   onReactivate,
+  onRecheck,
   isPending,
+  isRechecking,
   isExpanded,
   onToggleExpanded,
   isEditing,
@@ -69,7 +78,9 @@ function PolicyRow({
   policy: PolicyDocument;
   onRetire: (key: string) => void;
   onReactivate: (key: string) => void;
+  onRecheck: () => void;
   isPending: boolean;
+  isRechecking: boolean;
   isExpanded: boolean;
   onToggleExpanded: () => void;
   isEditing: boolean;
@@ -192,8 +203,122 @@ function PolicyRow({
             />
             {isExpanded ? "Show less" : "Show more"}
           </button>
+          <ConflictStrip
+            report={policy.conflict_report}
+            onRecheck={onRecheck}
+            isRechecking={isRechecking}
+          />
         </>
       )}
     </li>
+  );
+}
+
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function RecheckButton({
+  onRecheck,
+  isRechecking,
+}: {
+  onRecheck: () => void;
+  isRechecking: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onRecheck}
+      disabled={isRechecking}
+      className="inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-50"
+      style={{ color: "var(--accent)" }}
+    >
+      <RotateCw className={cn("h-3 w-3", isRechecking && "animate-spin")} aria-hidden />
+      Re-check
+    </button>
+  );
+}
+
+/** Persisted conflict report shown inline on the card (2e). Nothing when the
+ *  policy was never checked / the check was unavailable. */
+function ConflictStrip({
+  report,
+  onRecheck,
+  isRechecking,
+}: {
+  report?: ConflictReport | null;
+  onRecheck: () => void;
+  isRechecking: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!report || report.available === false) return null;
+  const conflicts = report.conflicts ?? [];
+  const stamp = report.checked_at ? timeAgo(report.checked_at) : "";
+
+  if (conflicts.length === 0) {
+    return (
+      <div
+        className="mt-2 flex items-center gap-2 text-xs"
+        style={{ color: "var(--text-muted)" }}
+      >
+        <Check className="h-3.5 w-3.5" aria-hidden />
+        No conflicts{stamp ? ` · checked ${stamp}` : ""}
+        <RecheckButton onRecheck={onRecheck} isRechecking={isRechecking} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 overflow-hidden rounded-md border"
+      style={{ borderColor: "var(--danger)", backgroundColor: "var(--danger-subtle)" }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-medium"
+        style={{ color: "var(--danger)" }}
+      >
+        <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+        {conflicts.length} conflict{conflicts.length > 1 ? "s" : ""}
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 transition-transform duration-200", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <div className="space-y-2 px-3 pb-2">
+          {conflicts.map((c) => (
+            <div key={c.policy_key} className="text-xs" style={{ color: "var(--text-primary)" }}>
+              <span className="font-medium">{c.title || c.policy_key}</span>
+              <span style={{ color: "var(--text-muted)" }}> ({c.policy_key})</span>
+              {c.explanation ? <span> — {c.explanation}</span> : null}
+              {c.snippets.map((s, i) => (
+                <span
+                  key={i}
+                  className="mt-0.5 block italic"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  “{s}”
+                </span>
+              ))}
+            </div>
+          ))}
+          <div className="flex items-center gap-2 pt-0.5" style={{ color: "var(--text-muted)" }}>
+            {stamp ? <span className="text-xs">checked {stamp}</span> : null}
+            <RecheckButton onRecheck={onRecheck} isRechecking={isRechecking} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

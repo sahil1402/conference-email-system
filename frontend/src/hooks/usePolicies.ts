@@ -8,6 +8,7 @@ import {
   listPolicies,
   listPolicyAudit,
   reactivatePolicy,
+  recheckPolicy,
   reevaluatePolicies,
   retirePolicy,
   revertPolicyEdit,
@@ -115,6 +116,15 @@ export function useRevertPolicyEdit() {
 export function useFindSimilar() {
   return useMutation({
     mutationFn: (body: { title: string; content: string }) => findSimilarPolicies(body),
+  });
+}
+
+/** Recompute a policy's conflict report on demand (the per-card Re-check). */
+export function useRecheckPolicy() {
+  const invalidate = useInvalidateKb();
+  return useMutation({
+    mutationFn: (key: string) => recheckPolicy(key),
+    onSuccess: invalidate,
   });
 }
 

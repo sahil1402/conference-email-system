@@ -505,6 +505,25 @@ export interface ApiError {
 export type PolicyVisibility = "public" | "internal";
 export type PolicyStatus = "active" | "inactive";
 
+/** One existing policy the model flagged as conflicting with a new one (2e). */
+export interface ConflictItem {
+  policy_key: string;
+  title: string;
+  explanation: string;
+  /** Exact substrings of the conflicting policy's content, for highlighting. */
+  snippets: string[];
+}
+
+/** Compact conflict report persisted on a policy / returned by /similar (2e).
+ *  `available: false` ⇒ no model was configured, so nothing was checked. */
+export interface ConflictReport {
+  checked_at: string;
+  available: boolean;
+  summary: string;
+  candidates_checked: string[];
+  conflicts: ConflictItem[];
+}
+
 /** Mirrors policy_documents (backend/app/db/models.py PolicyDocument). */
 export interface PolicyDocument {
   policy_key: string;
@@ -520,6 +539,7 @@ export interface PolicyDocument {
   superseded_by: string | null;
   root_key: string | null;
   version: number;
+  conflict_report?: ConflictReport | null;
 }
 
 /** One policy_audit_logs row (backend PolicyAuditLog). */
@@ -555,6 +575,9 @@ export interface CreatePolicyRequest {
   // [tags-dropped E007] tags?: string[];
   actor: string;
   retire_keys?: string[];
+  /** The panel's precomputed conflict report for this exact text — reused
+   *  server-side so the model isn't called twice (2e). */
+  conflict_report?: ConflictReport | null;
 }
 
 /** PATCH /api/v1/policies/{key}/edit request body. */
@@ -569,4 +592,7 @@ export interface EditPolicyRequest {
 
 export interface PoliciesResponse { policies: PolicyDocument[]; }
 export interface PolicyAuditResponse { entries: PolicyAuditEntry[]; }
-export interface SimilarResponse { similar: SimilarPolicy[]; }
+export interface SimilarResponse {
+  similar: SimilarPolicy[];
+  conflict_report?: ConflictReport | null;
+}

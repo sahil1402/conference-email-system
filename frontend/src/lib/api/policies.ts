@@ -1,6 +1,7 @@
 import apiClient from "./client";
 
 import type {
+  ConflictReport,
   CreatePolicyRequest,
   EditPolicyRequest,
   PoliciesResponse,
@@ -50,7 +51,9 @@ export async function findSimilarPolicies(body: { title: string; content: string
 // --- Write: chair governance ------------------------------------------------
 
 /** POST /policies — create an internal policy (optionally retiring superseded keys). */
-export async function createPolicy(body: CreatePolicyRequest): Promise<{ policy_key: string; visibility: string; status: string }> {
+export async function createPolicy(
+  body: CreatePolicyRequest,
+): Promise<{ policy_key: string; visibility: string; status: string; conflict_report?: ConflictReport | null }> {
   const { data } = await apiClient.post("/policies", body);
   return data;
 }
@@ -62,8 +65,18 @@ export async function retirePolicy(key: string, actor: string): Promise<{ policy
 }
 
 /** PATCH /policies/{key}/reactivate. */
-export async function reactivatePolicy(key: string, actor: string): Promise<{ policy_key: string; status: string }> {
+export async function reactivatePolicy(
+  key: string, actor: string,
+): Promise<{ policy_key: string; status: string; conflict_report?: ConflictReport | null }> {
   const { data } = await apiClient.patch(`/policies/${encodeURIComponent(key)}/reactivate`, { actor });
+  return data;
+}
+
+/** POST /policies/{key}/recheck — recompute + persist this policy's conflict report (2e). */
+export async function recheckPolicy(
+  key: string,
+): Promise<{ policy_key: string; conflict_report: ConflictReport | null }> {
+  const { data } = await apiClient.post(`/policies/${encodeURIComponent(key)}/recheck`);
   return data;
 }
 

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Plus, RefreshCw } from "lucide-react";
+import { AlertTriangle, BookOpen, Plus, RefreshCw, X } from "lucide-react";
 
 import {
   usePolicies,
   useReactivatePolicy,
+  useRecheckPolicy,
   useReevaluatePolicies,
   useRetirePolicy,
 } from "@/hooks";
@@ -15,7 +16,7 @@ import { PolicyHistory } from "@/components/kb/PolicyHistory";
 import { PolicyList } from "@/components/kb/PolicyList";
 import { Button, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { PolicyListParams } from "@/types";
+import type { ConflictReport, PolicyListParams } from "@/types";
 
 type View = "policies" | "history";
 type VisibilityFilter = "all" | "public" | "internal";
@@ -62,6 +63,7 @@ export default function KnowledgeBasePage() {
   const { policies, isLoading, isError, refetch } = usePolicies(params);
   const retireMutation = useRetirePolicy();
   const reactivateMutation = useReactivatePolicy();
+  const recheckMutation = useRecheckPolicy();
   const reevaluate = useReevaluatePolicies();
 
   const pendingKey = retireMutation.isPending
@@ -69,6 +71,23 @@ export default function KnowledgeBasePage() {
     : reactivateMutation.isPending
       ? reactivateMutation.variables ?? null
       : null;
+  const recheckingKey = recheckMutation.isPending
+    ? recheckMutation.variables ?? null
+    : null;
+
+  // Non-modal heads-up after a KB change introduces conflicts (2e). Advisory —
+  // the durable detail lives on the policy's own card below.
+  const [conflictBanner, setConflictBanner] = useState<
+    { policyKey: string; report: ConflictReport } | null
+  >(null);
+  const announceConflicts = (policyKey: string, report?: ConflictReport | null) => {
+    if (report && report.available !== false && report.conflicts.length > 0) {
+      setConflictBanner({ policyKey, report });
+    }
+  };
+  const bannerPolicyTitle = conflictBanner
+    ? policies.find((p) => p.policy_key === conflictBanner.policyKey)?.title ?? null
+    : null;
 
   return (
     <div className="mx-auto w-full max-w-4xl px-8 py-10">
@@ -152,8 +171,45 @@ export default function KnowledgeBasePage() {
               setContent={setDraftContent}
               setCategory={setDraftCategory}
               onClose={() => setAddOpen(false)}
-              onCreated={() => refetch()}
+              onCreated={(created) => {
+                refetch();
+                if (created) announceConflicts(created.policy_key, created.conflict_report);
+              }}
             />
+          )}
+
+          {conflictBanner && (
+            <div
+              className="flex items-start gap-3 rounded-xl border px-4 py-3 text-sm"
+              style={{
+                backgroundColor: "var(--danger-subtle)",
+                borderColor: "var(--danger)",
+                color: "var(--text-primary)",
+              }}
+              role="alert"
+            >
+              <AlertTriangle
+                className="mt-0.5 h-5 w-5 shrink-0"
+                style={{ color: "var(--danger)" }}
+                aria-hidden
+              />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{conflictBanner.report.summary}</p>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {bannerPolicyTitle ? `On “${bannerPolicyTitle}” — ` : ""}
+                  expand its “conflicts” on the card below to review and reconcile.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConflictBanner(null)}
+                aria-label="Dismiss conflict notice"
+                className="shrink-0 rounded-md p-1 transition-colors hover:bg-[var(--surface)]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           )}
 
           <PolicyFilters
@@ -188,8 +244,15 @@ export default function KnowledgeBasePage() {
             <PolicyList
               policies={policies}
               onRetire={(key) => retireMutation.mutate(key)}
-              onReactivate={(key) => reactivateMutation.mutate(key)}
+              onReactivate={(key) =>
+                reactivateMutation.mutate(key, {
+                  onSuccess: (data) =>
+                    announceConflicts(data.policy_key, data.conflict_report),
+                })
+              }
+              onRecheck={(key) => recheckMutation.mutate(key)}
               pendingKey={pendingKey}
+              recheckingKey={recheckingKey}
             />
           )}
         </div>
