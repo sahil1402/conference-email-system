@@ -426,6 +426,28 @@ async def stream_emails(request: Request) -> StreamingResponse:
     )
 
 
+@router.get("/by-ticket/{ticket_id}")
+async def get_email_by_ticket(
+    ticket_id: int, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Return one email (by its Zendesk ticket id) with its full audit trail.
+
+    A two-segment static path, so it MUST be declared before the ``/{email_id}``
+    catch-all below — otherwise ``by-ticket`` is captured as an ``email_id`` and
+    this route never matches. ``ticket_id`` is typed ``int``, so a non-numeric
+    value is rejected by FastAPI with a 422 before this handler runs. The
+    response shape mirrors ``GET /emails/{email_id}`` exactly (same helpers).
+
+    (B2: happy path only — 404 handling for an unknown ticket lands in B3.)
+    """
+    email = await email_repo.get_email_by_zendesk_ticket_id(db, ticket_id)
+    trail = await audit_repo.get_audit_trail(db, str(email.id))
+    return {
+        "email": _email_to_dict(email),
+        "audit_trail": [_audit_to_dict(a) for a in trail],
+    }
+
+
 @router.get("/{email_id}")
 async def get_email(
     email_id: str, db: AsyncSession = Depends(get_db)
