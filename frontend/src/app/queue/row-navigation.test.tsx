@@ -116,4 +116,18 @@ describe("queue row navigation (C4)", () => {
     // selected on /queue, and clicking (above) navigates rather than selecting.
     expect(screen.getByText("Select an email to review")).toBeInTheDocument();
   });
+
+  it("does NOT auto-redirect on load — /queue stays an overview (C6 decision)", () => {
+    // Decision (C6): /queue's landing state is the empty detail pane, NOT a
+    // redirect to the first ticket. Loading /queue with rows present must not
+    // navigate anywhere.
+    renderQueue();
+
+    expect(state.push).not.toHaveBeenCalled();
+    expect(screen.getByText("Select an email to review")).toBeInTheDocument();
+    // The list still renders its rows (overview intact).
+    expect(
+      screen.getByRole("button", { name: /deadline question/i })
+    ).toBeInTheDocument();
+  });
 });

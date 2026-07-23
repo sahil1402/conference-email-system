@@ -231,13 +231,17 @@ export function EmailWorkspace({
     return emails[idx + 1] ?? emails[idx - 1] ?? null;
   };
 
-  // Failed-send tracking. Advance is now navigate-on-success (see onApprove), so
-  // a send that fails keeps us on the ticket and surfaces the selection-scoped
-  // banner below — the queue-level notice here only lights up for a failure
-  // recorded against a ticket other than the one in view (kept for the reopen
-  // affordance; fuller cross-navigation surfacing is a follow-up). The ticket is
-  // marked SEND_FAILED server-side and, as the queue applies no default status
-  // filter, stays visible in the list.
+  // Failed-send tracking. Advance is navigate-on-success (see onApprove), so a
+  // send that fails keeps us on the ticket, surfacing the selection-scoped
+  // banner below. This state ALSO closes the cross-navigation case: the
+  // workspace is the same mounted component across /tickets/[id] → /tickets/[id]
+  // navigation (only the route param changes), so `failedSends` persists — once
+  // the chair opens a DIFFERENT ticket, the failure (now for a ticket other than
+  // the one in view) lights up the queue-level notice here, with a link back.
+  // The email is also marked SEND_FAILED server-side and, as the queue applies
+  // no default status filter, stays visible in the list. Residual (accepted):
+  // navigating to /queue or a hard reload mounts a fresh workspace and drops the
+  // in-memory notice — the ticket is still recoverable from the list by status.
   const [failedSends, setFailedSends] = useState<
     { id: number; ticket: number | null }[]
   >([]);

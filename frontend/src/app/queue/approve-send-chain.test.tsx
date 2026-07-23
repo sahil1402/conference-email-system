@@ -267,4 +267,45 @@ describe("approve → send chain (on the ticket route)", () => {
       expect(state.push).toHaveBeenCalledWith("/tickets/22001")
     );
   });
+
+  it("8. a failed send stays surfaced after the chair opens another ticket (C6 cross-navigation)", async () => {
+    state.send.mockRejectedValue({ detail: "Zendesk write failed", status: 502 });
+    const user = userEvent.setup();
+
+    // Same QueryClient across the "navigation" so the workspace's mutation +
+    // failed-send state persists (as it does in-app: /tickets/[id] → /tickets/[id]
+    // only changes the route param — the workspace component is not remounted).
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const ui = (ticketId: string) => (
+      <QueryClientProvider client={qc}>
+        <TicketPage params={{ ticketId }} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui("21567"));
+    await waitForDetail();
+
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
+
+    // Send failed → we STAY on #21567 with the scoped banner; no advance.
+    await screen.findByText(/approved locally/i);
+    expect(state.push).not.toHaveBeenCalled();
+
+    // Chair opens a DIFFERENT ticket (#22001). The workspace persists.
+    state.current = makeEmail({ id: 2, subject: "Travel grant", zendesk_ticket_id: 22001 });
+    rerender(ui("22001"));
+
+    // The #21567 failure now surfaces via the queue-level notice on the new
+    // ticket, with a link back to reopen + retry it — not lost on navigation.
+    await waitFor(() => {
+      const notice = screen.getByRole("alert");
+      expect(notice).toHaveTextContent(/failed to send/i);
+      expect(
+        within(notice).getByRole("button", { name: /#21567/ })
+      ).toBeInTheDocument();
+    });
+    // And the scoped "approved locally" banner is no longer shown (we're on #22001).
+    expect(screen.queryByText(/approved locally/i)).toBeNull();
+  });
 });
