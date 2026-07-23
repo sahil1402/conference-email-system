@@ -14,6 +14,12 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSidebarSlot } from "./SidebarSlot";
 
 type NavItem = {
@@ -84,20 +90,24 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
 
       {/* Navigation + page slot (queue filters) — scroll together when tall */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* ONE provider for the whole rail: sharing it enables Radix's skip
+            delay, so moving between adjacent icons shows the next label
+            instantly instead of re-waiting the full delay. Renders no DOM. */}
+        <TooltipProvider>
         <nav className="space-y-1 px-2 py-2">
           {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
           const isActive =
             pathname === href || pathname.startsWith(`${href}/`);
           return (
+            <Tooltip key={href}>
+            <TooltipTrigger asChild>
             <Link
-              key={href}
               href={href}
               onClick={onNavigate}
               // Icon-only: the visible label is gone, so the name comes from
-              // aria-label. N2e adds a visual tooltip on top of (not instead
-              // of) this.
+              // aria-label. The tooltip is additive on top of it, never a
+              // replacement — screen readers rely on the aria-label.
               aria-label={label}
-              title={label}
               className={cn(
                 "group flex h-9 w-9 items-center justify-center rounded-lg border-l-2 transition-colors duration-150",
                 // Hover feedback only on inactive items — an active item keeps
@@ -121,9 +131,15 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
             >
               <Icon className="h-4 w-4 shrink-0" />
             </Link>
+            </TooltipTrigger>
+            {/* Portalled (see tooltip.tsx) so it escapes this rail's
+                overflow-y-auto instead of being clipped by it. */}
+            <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
           );
         })}
         </nav>
+        </TooltipProvider>
         {/* Page-provided slot (queue filters): pinned above the footer when
             there's spare height; scrolls with the nav when space is tight. */}
         <div ref={setSlotEl} className="mt-auto" />

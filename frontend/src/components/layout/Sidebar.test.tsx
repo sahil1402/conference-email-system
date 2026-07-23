@@ -1,5 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { Sidebar } from "./Sidebar";
 
@@ -125,6 +132,69 @@ describe("Sidebar (icon-only rail)", () => {
     expect(active.style.color).toBe("var(--accent)");
     fireEvent.mouseLeave(active);
     expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
+  });
+
+  it("keeps aria-label and drops the native title stopgap", () => {
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    for (const label of NAV_LABELS) {
+      const link = within(nav).getByRole("link", { name: label });
+      expect(link).toHaveAttribute("aria-label", label);
+      expect(link).not.toHaveAttribute("title");
+    }
+  });
+
+  // One render per case: Radix keeps a closing tooltip mounted while the next
+  // opens (skip delay), so hovering several within a single test would match
+  // more than one tooltip at a time.
+  it.each(["Dashboard", "Knowledge Base", "Audit Log"])(
+    "shows the %s label in a tooltip on hover",
+    async (label) => {
+      const user = userEvent.setup();
+      render(<Sidebar />);
+
+      await user.hover(
+        within(screen.getByRole("navigation")).getByRole("link", {
+          name: label,
+        })
+      );
+
+      await waitFor(() =>
+        expect(screen.getByRole("tooltip")).toHaveTextContent(label)
+      );
+    }
+  );
+
+  it("shows the tooltip on keyboard focus", async () => {
+    render(<Sidebar />);
+    const link = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Dashboard",
+    });
+
+    fireEvent.focus(link);
+
+    await waitFor(() =>
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Dashboard")
+    );
+  });
+
+  it("portals tooltip content outside the scrolling rail so it can't be clipped", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+    const link = within(nav).getByRole("link", { name: "Dashboard" });
+
+    await user.hover(link);
+    const tip = await screen.findByRole("tooltip");
+
+    // The overflow-y-auto container that would otherwise clip the tooltip.
+    const scroller = nav.closest(".overflow-y-auto");
+    expect(scroller).not.toBeNull();
+
+    expect(scroller!.contains(tip)).toBe(false);
+    expect(nav.contains(tip)).toBe(false);
+    expect(document.body.contains(tip)).toBe(true);
   });
 
   it("calls onNavigate when a nav link is clicked (mobile drawer close)", () => {
