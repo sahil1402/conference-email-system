@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, Check, ChevronDown, RotateCw } from "lucide-react";
 
-import { Badge, Button } from "@/components/ui";
+import { usePolicy } from "@/hooks";
+import { Badge, Button, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { PolicyEditor } from "@/components/kb/PolicyEditor";
 import { cn } from "@/lib/utils";
 import type { ConflictReport, PolicyDocument } from "@/types";
@@ -31,6 +32,14 @@ export function PolicyList({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
+  // Lets a conflict strip seed its inline editor with the target policy's
+  // visibility + updated_at when that policy is loaded in the current view.
+  const byKey = useMemo(
+    () => new Map(policies.map((p) => [p.policy_key, p])),
+    [policies]
+  );
+  const resolvePolicy = (key: string) => byKey.get(key);
+
   function toggleExpanded(key: string) {
     setExpandedKeys((prev) => {
       const next = new Set(prev);
@@ -49,6 +58,7 @@ export function PolicyList({
           onRetire={onRetire}
           onReactivate={onReactivate}
           onRecheck={() => onRecheck(policy.policy_key)}
+          resolvePolicy={resolvePolicy}
           isPending={pendingKey === policy.policy_key}
           isRechecking={recheckingKey === policy.policy_key}
           isExpanded={expandedKeys.has(policy.policy_key)}
@@ -67,6 +77,7 @@ function PolicyRow({
   onRetire,
   onReactivate,
   onRecheck,
+  resolvePolicy,
   isPending,
   isRechecking,
   isExpanded,
@@ -79,6 +90,7 @@ function PolicyRow({
   onRetire: (key: string) => void;
   onReactivate: (key: string) => void;
   onRecheck: () => void;
+  resolvePolicy: (key: string) => PolicyDocument | undefined;
   isPending: boolean;
   isRechecking: boolean;
   isExpanded: boolean;
@@ -207,6 +219,7 @@ function PolicyRow({
             report={policy.conflict_report}
             onRecheck={onRecheck}
             isRechecking={isRechecking}
+            resolvePolicy={resolvePolicy}
           />
         </>
       )}
@@ -247,18 +260,69 @@ function RecheckButton({
   );
 }
 
+/** Inline editor for a CONFLICTING policy, opened from the strip — mirrors the
+ *  "Check for related policies" list. Fetches the target's full text (the
+ *  report only stores key/title/snippets), then reuses PolicyEditor. Editing it
+ *  into a new version retires the version this policy conflicted with, so the
+ *  stale conflict prunes away on the next load. Visibility + concurrency stamp
+ *  come from the loaded row when available, else PolicyEditor's defaults. */
+function ConflictEditRow({
+  policyKey,
+  resolved,
+  onDone,
+  onCancel,
+}: {
+  policyKey: string;
+  resolved: PolicyDocument | undefined;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const { policy, isLoading, isError } = usePolicy(policyKey);
+  if (isLoading) {
+    return (
+      <div className="mt-2 flex justify-center py-3">
+        <LoadingSpinner size="sm" />
+      </div>
+    );
+  }
+  if (isError || !policy) {
+    return (
+      <div className="mt-2">
+        <ErrorBanner message="Couldn't load this policy to edit." />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <PolicyEditor
+        policyKey={policyKey}
+        initialTitle={policy.title}
+        initialContent={policy.content}
+        initialCategory={policy.category}
+        initialVisibility={resolved?.visibility}
+        expectedUpdatedAt={resolved?.updated_at}
+        onDone={onDone}
+        onCancel={onCancel}
+      />
+    </div>
+  );
+}
+
 /** Persisted conflict report shown inline on the card (2e). Nothing when the
  *  policy was never checked / the check was unavailable. */
 function ConflictStrip({
   report,
   onRecheck,
   isRechecking,
+  resolvePolicy,
 }: {
   report?: ConflictReport | null;
   onRecheck: () => void;
   isRechecking: boolean;
+  resolvePolicy: (key: string) => PolicyDocument | undefined;
 }) {
   const [open, setOpen] = useState(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   if (!report || report.available === false) return null;
   const conflicts = report.conflicts ?? [];
   const stamp = report.checked_at ? timeAgo(report.checked_at) : "";
@@ -302,6 +366,16 @@ function ConflictStrip({
               <span className="font-medium">{c.title || c.policy_key}</span>
               <span style={{ color: "var(--text-muted)" }}> ({c.policy_key})</span>
               {c.explanation ? <span> — {c.explanation}</span> : null}
+              {editingKey !== c.policy_key && (
+                <button
+                  type="button"
+                  onClick={() => setEditingKey(c.policy_key)}
+                  className="ml-2 font-medium transition-opacity hover:opacity-80"
+                  style={{ color: "var(--accent)" }}
+                >
+                  Edit
+                </button>
+              )}
               {c.snippets.map((s, i) => (
                 <span
                   key={i}
@@ -311,6 +385,14 @@ function ConflictStrip({
                   “{s}”
                 </span>
               ))}
+              {editingKey === c.policy_key && (
+                <ConflictEditRow
+                  policyKey={c.policy_key}
+                  resolved={resolvePolicy(c.policy_key)}
+                  onDone={() => setEditingKey(null)}
+                  onCancel={() => setEditingKey(null)}
+                />
+              )}
             </div>
           ))}
           <div className="flex items-center gap-2 pt-0.5" style={{ color: "var(--text-muted)" }}>

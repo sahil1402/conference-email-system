@@ -1,6 +1,6 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { AlertTriangle, Search } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,9 @@ interface PolicyFiltersProps {
   onVisibilityChange: (v: VisibilityFilter) => void;
   status: StatusFilter;
   onStatusChange: (v: StatusFilter) => void;
+  /** "Conflicts only": show only active policies with a live conflict (2e). */
+  conflictsOnly: boolean;
+  onConflictsOnlyChange: (v: boolean) => void;
 }
 
 const VISIBILITY_OPTIONS: { value: VisibilityFilter; label: string }[] = [
@@ -36,6 +39,8 @@ export function PolicyFilters({
   onVisibilityChange,
   status,
   onStatusChange,
+  conflictsOnly,
+  onConflictsOnlyChange,
 }: PolicyFiltersProps) {
   return (
     <div className="flex flex-col gap-3">
@@ -89,10 +94,10 @@ export function PolicyFilters({
         })}
       </div>
 
-      {/* Status toggle */}
+      {/* Status toggle — disabled while "Conflicts only" is on (it forces active). */}
       <div
         className="flex gap-1 rounded-lg p-1"
-        style={{ backgroundColor: "var(--surface)" }}
+        style={{ backgroundColor: "var(--surface)", opacity: conflictsOnly ? 0.5 : 1 }}
       >
         {STATUS_OPTIONS.map(({ value, label }) => {
           const active = status === value;
@@ -101,8 +106,10 @@ export function PolicyFilters({
               key={value}
               type="button"
               onClick={() => onStatusChange(value)}
+              disabled={conflictsOnly}
               className={cn(
-                "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
+                "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+                conflictsOnly && "cursor-not-allowed"
               )}
               style={
                 active
@@ -118,6 +125,22 @@ export function PolicyFilters({
           );
         })}
       </div>
+
+      {/* Conflicts-only toggle (2e): active policies with a live conflict. */}
+      <button
+        type="button"
+        onClick={() => onConflictsOnlyChange(!conflictsOnly)}
+        aria-pressed={conflictsOnly}
+        className="flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors"
+        style={
+          conflictsOnly
+            ? { backgroundColor: "var(--danger-subtle)", color: "var(--danger)" }
+            : { backgroundColor: "var(--surface)", color: "var(--text-secondary)" }
+        }
+      >
+        <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+        {conflictsOnly ? "Showing conflicts only" : "Conflicts only"}
+      </button>
     </div>
   );
 }

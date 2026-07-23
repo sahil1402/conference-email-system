@@ -565,6 +565,8 @@ export interface PolicyListParams {
   visibility?: PolicyVisibility;
   status?: PolicyStatus;
   search?: string;
+  /** Keep only policies with a live conflict (post staleness prune) — 2e. */
+  has_conflicts?: boolean;
 }
 
 /** POST /api/v1/policies request body. */

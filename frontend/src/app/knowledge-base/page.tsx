@@ -43,6 +43,8 @@ export default function KnowledgeBasePage() {
   // Default to "active" — retired policies are the exception, not the norm,
   // so keep them out of the way until the reviewer opts in.
   const [status, setStatus] = useState<StatusFilter>("active");
+  // "Conflicts only" (2e): show just the active policies with a live conflict.
+  const [conflictsOnly, setConflictsOnly] = useState(false);
 
   // Debounce the search box so typing doesn't fire a request per keystroke
   // (mirrors the queue page's search debounce).
@@ -55,10 +57,16 @@ export default function KnowledgeBasePage() {
   const params = useMemo<PolicyListParams>(() => {
     const p: PolicyListParams = {};
     if (visibility !== "all") p.visibility = visibility;
-    if (status !== "all") p.status = status;
+    if (conflictsOnly) {
+      // Conflicts are an active-policy concern — force active + the flag.
+      p.status = "active";
+      p.has_conflicts = true;
+    } else if (status !== "all") {
+      p.status = status;
+    }
     if (debouncedSearch) p.search = debouncedSearch;
     return p;
-  }, [visibility, status, debouncedSearch]);
+  }, [visibility, status, conflictsOnly, debouncedSearch]);
 
   const { policies, isLoading, isError, refetch } = usePolicies(params);
   const retireMutation = useRetirePolicy();
@@ -196,9 +204,21 @@ export default function KnowledgeBasePage() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{conflictBanner.report.summary}</p>
                 <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  {bannerPolicyTitle ? `On “${bannerPolicyTitle}” — ` : ""}
-                  expand its “conflicts” on the card below to review and reconcile.
+                  {bannerPolicyTitle ? `On “${bannerPolicyTitle}”. ` : ""}
+                  Expand “conflicts” on its card to reconcile, or
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConflictsOnly(true);
+                    setStatus("active");
+                    setConflictBanner(null);
+                  }}
+                  className="mt-1 text-xs font-semibold underline transition-opacity hover:opacity-80"
+                  style={{ color: "var(--danger)" }}
+                >
+                  Show all policies with conflicts →
+                </button>
               </div>
               <button
                 type="button"
@@ -219,6 +239,11 @@ export default function KnowledgeBasePage() {
             onVisibilityChange={setVisibility}
             status={status}
             onStatusChange={setStatus}
+            conflictsOnly={conflictsOnly}
+            onConflictsOnlyChange={(v) => {
+              setConflictsOnly(v);
+              if (v) setStatus("active");
+            }}
           />
 
           {isError ? (
@@ -233,11 +258,19 @@ export default function KnowledgeBasePage() {
           ) : policies.length === 0 ? (
             <EmptyState
               icon={<BookOpen className="h-5 w-5" />}
-              title={search ? "No matching policies" : "No policies yet"}
+              title={
+                conflictsOnly
+                  ? "No policies with conflicts"
+                  : search
+                    ? "No matching policies"
+                    : "No policies yet"
+              }
               description={
-                search
-                  ? "Try a different search term or filter."
-                  : "Policy documents will appear here once added to the knowledge base."
+                conflictsOnly
+                  ? "No active policy currently has a flagged conflict."
+                  : search
+                    ? "Try a different search term or filter."
+                    : "Policy documents will appear here once added to the knowledge base."
               }
             />
           ) : (

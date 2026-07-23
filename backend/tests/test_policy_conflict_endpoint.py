@@ -174,6 +174,35 @@ async def test_reactivate_refreshes_report(client, monkeypatch):
     assert r.json()["conflict_report"]["conflicts"][0]["policy_key"] == "other_1"
 
 
+async def test_list_has_conflicts_filter(client, monkeypatch):
+    c, factory = client
+    report = {
+        "checked_at": "2026-07-23T00:00:00Z", "available": True,
+        "summary": "1 of 1 related policies conflict.",
+        "candidates_checked": ["policy_b"],
+        "conflicts": [{"policy_key": "policy_b", "title": "B", "explanation": "x", "snippets": []}],
+    }
+    async with factory() as s:
+        # int_a conflicts with an active policy_b → kept by the filter.
+        s.add(PolicyDocument(policy_key="int_a", title="A", content="a",
+                             visibility="internal", status="active", conflict_report=report))
+        s.add(PolicyDocument(policy_key="policy_b", title="B", content="b",
+                             visibility="public", status="active"))
+        # int_clean was checked but has no conflicts → excluded.
+        s.add(PolicyDocument(policy_key="int_clean", title="Clean", content="c",
+                             visibility="internal", status="active",
+                             conflict_report={"checked_at": "2026-07-23T00:00:00Z", "available": True,
+                                              "summary": "No conflicts.", "candidates_checked": [], "conflicts": []}))
+        # int_never was never checked → excluded.
+        s.add(PolicyDocument(policy_key="int_never", title="Never", content="n",
+                             visibility="internal", status="active"))
+        await s.commit()
+    r = await c.get("/api/v1/policies", params={"status": "active", "has_conflicts": "true"})
+    assert r.status_code == 200
+    keys = [p["policy_key"] for p in r.json()["policies"]]
+    assert keys == ["int_a"]  # only the policy with a live conflict
+
+
 async def test_list_prunes_stale_conflicts(client, monkeypatch):
     c, factory = client
     stale_report = {

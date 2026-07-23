@@ -219,6 +219,7 @@ async def list_policies(
     visibility: str | None = None,
     status: str | None = None,
     search: str | None = None,
+    has_conflicts: bool = False,
     limit: int = 200,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -228,6 +229,10 @@ async def list_policies(
     )
     dicts = [_policy_dict(p) for p in rows]
     await _prune_stale_conflicts(db, dicts)  # drop conflicts vs. now-retired policies
+    if has_conflicts:
+        # Keep only policies that still have a LIVE conflict after pruning (2e) —
+        # the "Conflicts only" filter. Composes with visibility/status/search.
+        dicts = [d for d in dicts if (d.get("conflict_report") or {}).get("conflicts")]
     return {"policies": dicts}
 
 
