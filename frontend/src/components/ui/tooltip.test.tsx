@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -9,18 +9,8 @@ import {
   TooltipTrigger,
 } from "./tooltip";
 
-// Radix's popper positioning needs ResizeObserver, which jsdom doesn't provide.
-// Polyfilled here rather than in the shared vitest.setup.ts to keep this
-// primitive's test self-contained.
-beforeAll(() => {
-  if (!globalThis.ResizeObserver) {
-    globalThis.ResizeObserver = class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    } as unknown as typeof ResizeObserver;
-  }
-});
+// The ResizeObserver polyfill Radix's popper needs now lives in
+// vitest.setup.ts, shared with the other popper-based suites.
 
 function Subject() {
   return (
