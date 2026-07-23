@@ -17,7 +17,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Email, EmailDetailResponse } from "@/types";
 import TicketPage from "./page";
 
-const state = vi.hoisted(() => ({ getByTicket: vi.fn() }));
+const state = vi.hoisted(() => ({ getByTicket: vi.fn(), push: vi.fn() }));
+
+// Row clicks + advance navigate via useRouter.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: state.push }),
+}));
 
 // API boundary: keep the real module, override only the single-email fetch.
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -26,10 +31,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 // Ambient hooks the shared workspace uses → static values (not under test here).
+// A second row (#22001) so a "click a different row" navigation can be asserted.
 vi.mock("@/hooks/useEmailQueue", () => ({
   useEmailQueue: () => ({
-    emails: [EMAIL],
-    total: 1,
+    emails: [EMAIL, OTHER_EMAIL],
+    total: 2,
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
@@ -81,6 +87,14 @@ const EMAIL = {
   redrafting: false,
 } as unknown as Email;
 
+// A second list row with a different ticket id, for the row-click nav test.
+const OTHER_EMAIL = {
+  ...EMAIL,
+  id: 8,
+  subject: "A different ticket",
+  zendesk_ticket_id: 22001,
+} as unknown as Email;
+
 // audit_trail uses EmailAuditTrailEntry's shape (`timestamp`/`metadata`, string
 // email_id) — NOT AuditEntry's `created_at`/`details`/number email_id.
 const RESPONSE: EmailDetailResponse = {
@@ -116,7 +130,25 @@ function renderPage(ticketId = "21567") {
 }
 
 describe("TicketPage (/tickets/[ticketId])", () => {
-  beforeEach(() => state.getByTicket.mockReset());
+  beforeEach(() => {
+    state.getByTicket.mockReset();
+    state.push.mockReset();
+  });
+
+  it("clicking a different list row navigates to that row's ticket URL", async () => {
+    state.getByTicket.mockResolvedValue(RESPONSE);
+    const user = userEvent.setup();
+
+    renderPage("21567");
+    await screen.findByRole("heading", { name: "How do I update my paper?" });
+
+    // Click the OTHER row (#22001) in the list pane.
+    await user.click(
+      screen.getByRole("button", { name: /a different ticket/i })
+    );
+    // Navigates by the row's zendesk_ticket_id, not its DB id (8).
+    expect(state.push).toHaveBeenCalledWith("/tickets/22001");
+  });
 
   it("renders the shared workspace's full layout (filter sidebar + drag-resize + list)", async () => {
     state.getByTicket.mockResolvedValue(RESPONSE);

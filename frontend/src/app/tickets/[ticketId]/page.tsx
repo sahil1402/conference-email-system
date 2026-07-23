@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FileQuestion } from "lucide-react";
 
 import { EmailWorkspace } from "@/components/email";
@@ -18,7 +19,8 @@ import { TicketAuditTrail } from "./TicketAuditTrail";
  *
  * This module owns the non-happy-path detail states (loading / not-found /
  * error) and feeds them into the workspace's detail slot — the workspace's
- * happy-path layout is untouched. Row clicks stay inert (C4 wires navigation).
+ * happy-path layout is untouched. Clicking a list row (or advancing after a
+ * send) navigates to that ticket's URL.
  */
 export default function TicketPage({
   params,
@@ -26,8 +28,16 @@ export default function TicketPage({
   params: { ticketId: string };
 }) {
   const { ticketId } = params;
+  const router = useRouter();
   const { email, auditTrail, isLoading, isError, error, refetch } =
     useEmailByTicket(ticketId);
+
+  // Selection is URL-driven: opening a list row (or advancing after a send) is a
+  // navigation to that ticket. Navigating to the ticket already in view is
+  // harmless (React Query serves the cached detail).
+  const openTicket = (nextTicketId: number | null) => {
+    if (nextTicketId != null) router.push(`/tickets/${nextTicketId}`);
+  };
 
   // 404 (no such ticket) and 422 (non-numeric id in the URL) both mean "this
   // ticket doesn't exist" to the chair — fold into one not-found state. Any
@@ -61,8 +71,7 @@ export default function TicketPage({
     <EmailWorkspace
       selectionMode="email"
       selectedEmail={email}
-      // Row clicks are inert for now — C4 wires click-to-navigate.
-      onSelectEmailId={() => {}}
+      onOpenTicket={openTicket}
       detailLoading={isLoading}
       detailError={detailError}
       detailFooter={<TicketAuditTrail entries={auditTrail} />}

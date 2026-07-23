@@ -69,12 +69,14 @@ export interface EmailWorkspaceProps {
   /** "email" mode: the externally-resolved selected email. */
   selectedEmail?: Email | null;
   /**
-   * Change the selection. Called on a row click, on the post-send advance to
-   * the neighbouring ticket, and from the failed-send notice's retry links.
-   * The queue passes its `setSelectedEmailId`; the ticket route passes a no-op
-   * for now (click-to-navigate is wired later).
+   * Open a ticket by its Zendesk ticket id. Fired on a row click, on the
+   * post-send advance to the neighbouring ticket, and from the failed-send
+   * notice's links. Both routes wire this to router.push(`/tickets/${id}`), so
+   * selection is URL-driven (every viewed email has a shareable URL); null
+   * (e.g. no neighbour to advance to) is a no-op. Replaces the former in-memory
+   * DB-id selection setter.
    */
-  onSelectEmailId: (id: number | null) => void;
+  onOpenTicket: (ticketId: number | null) => void;
   /** "email" mode: the external fetch is in flight (queue leaves this false). */
   detailLoading?: boolean;
   /**
@@ -103,7 +105,7 @@ export function EmailWorkspace({
   selectionMode = "id",
   selectedEmailId = null,
   selectedEmail: selectedEmailProp = null,
-  onSelectEmailId,
+  onOpenTicket,
   detailLoading = false,
   detailError = null,
   detailFooter,
@@ -219,21 +221,23 @@ export function EmailWorkspace({
   const highlightId =
     selectionMode === "email" ? selectedEmailProp?.id ?? null : selectedEmailId;
 
-  // The id to select after acting on `currentId`: the next row down, else the
-  // previous, else nothing. Computed from the CURRENT list snapshot (before the
-  // post-send refetch drops the acted-on ticket), so advancing is deterministic.
-  const nextEmailId = (currentId: number): number | null => {
+  // The email to advance to after acting on `currentId`: the next row down,
+  // else the previous, else none. Returns the EMAIL (not just an id) so the
+  // caller can navigate by its zendesk_ticket_id. Computed from the CURRENT list
+  // snapshot (before the post-send refetch drops the acted-on ticket).
+  const neighborEmail = (currentId: number): Email | null => {
     const idx = emails.findIndex((e) => e.id === currentId);
     if (idx === -1) return null;
-    return emails[idx + 1]?.id ?? emails[idx - 1]?.id ?? null;
+    return emails[idx + 1] ?? emails[idx - 1] ?? null;
   };
 
-  // Optimistic resolve: the submit flow fires the Zendesk send in the
-  // background and advances the queue immediately (see onApprove), so a send
-  // that fails AFTER we've moved on can't rely on the selection-scoped banner
-  // below. We track failed sends here to raise a non-blocking, queue-level
-  // notice instead. The ticket itself is marked SEND_FAILED server-side and, as
-  // the queue applies no default status filter, stays visible in the list.
+  // Failed-send tracking. Advance is now navigate-on-success (see onApprove), so
+  // a send that fails keeps us on the ticket and surfaces the selection-scoped
+  // banner below — the queue-level notice here only lights up for a failure
+  // recorded against a ticket other than the one in view (kept for the reopen
+  // affordance; fuller cross-navigation surfacing is a follow-up). The ticket is
+  // marked SEND_FAILED server-side and, as the queue applies no default status
+  // filter, stays visible in the list.
   const [failedSends, setFailedSends] = useState<
     { id: number; ticket: number | null }[]
   >([]);
@@ -398,7 +402,7 @@ export function EmailWorkspace({
                     <button
                       key={f.id}
                       type="button"
-                      onClick={() => onSelectEmailId(f.id)}
+                      onClick={() => onOpenTicket(f.ticket)}
                       className="rounded-md px-2 py-0.5 text-xs font-medium transition-colors hover:opacity-80"
                       style={{
                         color: "var(--danger)",
@@ -459,7 +463,7 @@ export function EmailWorkspace({
                   <EmailListItem
                     email={email}
                     isSelected={email.id === highlightId}
-                    onClick={() => onSelectEmailId(email.id)}
+                    onClick={() => onOpenTicket(email.zendesk_ticket_id ?? null)}
                     chairName={
                       email.assigned_chair_id != null
                         ? chairsById.get(email.assigned_chair_id)?.name ?? null
@@ -523,13 +527,14 @@ export function EmailWorkspace({
                     },
                     {
                       onSuccess: () => {
-                        // Optimistic resolve: the approve (the local send gate)
-                        // passed, so jump to the next ticket NOW and let the
-                        // Zendesk send finish in the background — the chair never
-                        // waits on the round-trip. Capture the ticket + neighbor
-                        // first (the send's refetch will drop this row).
+                        // Release to Zendesk, then advance by NAVIGATING to the
+                        // neighbouring ticket once the send lands. On failure we
+                        // stay on this ticket so the scoped "approved locally —
+                        // retry the send" banner is actionable. Capture the ticket
+                        // + neighbour up front (the send's refetch drops this row
+                        // from the list).
                         const current = selectedEmail;
-                        const nextId = nextEmailId(current.id);
+                        const next = neighborEmail(current.id);
                         send(
                           {
                             id: current.id,
@@ -539,14 +544,13 @@ export function EmailWorkspace({
                             },
                           },
                           {
-                            onSuccess: () => clearSendFailed(current.id),
-                            // A background failure can't use the selection-scoped
-                            // banner (we've already advanced) — surface it in the
-                            // queue-level notice instead.
+                            onSuccess: () => {
+                              clearSendFailed(current.id);
+                              onOpenTicket(next?.zendesk_ticket_id ?? null);
+                            },
                             onError: () => noteSendFailed(current),
                           }
                         );
-                        onSelectEmailId(nextId);
                       },
                     }
                   )
@@ -574,11 +578,11 @@ export function EmailWorkspace({
                   // outcome; on success, clear the notice and advance.
                   if (sendMutation.variables) {
                     const current = selectedEmail;
-                    const nextId = nextEmailId(current.id);
+                    const next = neighborEmail(current.id);
                     send(sendMutation.variables, {
                       onSuccess: () => {
                         clearSendFailed(current.id);
-                        onSelectEmailId(nextId);
+                        onOpenTicket(next?.zendesk_ticket_id ?? null);
                       },
                       onError: () => noteSendFailed(current),
                     });

@@ -1,27 +1,33 @@
 /**
- * Approve-then-send chain (Piece B-impl-3a/3b) — integration test over the REAL
- * QueuePage + EmailDetail wiring.
+ * Approve → send → advance chain (Pieces B-impl-3 + C4).
  *
- * Faithful to production: the action hooks (useApproveEmail/useSendEmail) run for
- * real through a real QueryClient; only the network boundary is stubbed —
- * `approveEmail`/`sendEmail` are spies injected at the @/lib/api layer (NOT by
- * mocking the hooks). The surrounding data-fetch hooks are stubbed to static
- * values so the queue renders a selectable email deterministically.
+ * Since C4 made selection URL-driven, the review/approve interaction lives on
+ * the ticket route (/tickets/[id]), not the queue. This renders the REAL
+ * TicketPage + EmailWorkspace: the action hooks (useApproveEmail/useSendEmail)
+ * run for real through a real QueryClient; only the network boundary
+ * (approveEmail/sendEmail), the ticket-detail fetch (useEmailByTicket), and
+ * router navigation are stubbed. Advancing after a successful send is now a
+ * NAVIGATION to the neighbouring ticket, so those tests assert router.push.
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import QueuePage from "./page";
+import TicketPage from "@/app/tickets/[ticketId]/page";
 import type { Email } from "@/types";
 
-// Shared, mutable across the mock factories (which are hoisted above imports).
-// The spies live here so tests reconfigure them without re-mocking the module.
 const state = vi.hoisted(() => ({
   emails: [] as unknown[],
+  current: null as unknown,
   approve: vi.fn(),
   send: vi.fn(),
+  push: vi.fn(),
+}));
+
+// Router: capture navigations (advance + row clicks).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: state.push }),
 }));
 
 // API boundary: keep the real module, override only the two write calls.
@@ -30,7 +36,19 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return { ...actual, approveEmail: state.approve, sendEmail: state.send };
 });
 
-// Data-fetch hooks → static values (not action hooks; the chain stays real).
+// The ticket detail is the "selected" email — driven directly.
+vi.mock("@/hooks/useEmailByTicket", () => ({
+  useEmailByTicket: () => ({
+    email: state.current,
+    auditTrail: [],
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
+// The list (for the advance neighbour + the row-click nav test).
 vi.mock("@/hooks/useEmailQueue", () => ({
   useEmailQueue: () => ({
     emails: state.emails,
@@ -58,7 +76,6 @@ vi.mock("@/hooks/useAppConfig", () => ({
 vi.mock("@/hooks/useEmailQueueStream", () => ({
   useEmailQueueStream: () => ({ status: "live" }),
 }));
-// Rendered inside EmailDetail (ConversationThread) — stub so it needs no network.
 vi.mock("@/hooks/useEmailThread", () => ({
   useEmailThread: () => ({ messages: [], isLoading: false, isError: false }),
 }));
@@ -85,58 +102,56 @@ function makeEmail(overrides: Partial<Email> = {}): Email {
   } as Email;
 }
 
-function renderQueue() {
+function renderTicket() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={qc}>
-      <QueuePage />
+      <TicketPage params={{ ticketId: String((state.current as Email).zendesk_ticket_id) }} />
     </QueryClientProvider>
   );
 }
 
-// Select an email from the list by its subject (the list item is a button).
-async function selectEmail(user: ReturnType<typeof userEvent.setup>, subject: string) {
-  await user.click(screen.getByRole("button", { name: new RegExp(subject, "i") }));
-  // Detail pane action button confirms selection.
+// The ticket email is already "selected"; wait for the detail's submit control.
+async function waitForDetail() {
   await screen.findByRole("button", { name: "Submit as Solved" });
 }
 
 beforeAll(() => {
-  // Radix DropdownMenu (used by SplitActionButton) needs these in jsdom.
   window.HTMLElement.prototype.hasPointerCapture = vi.fn();
   window.HTMLElement.prototype.releasePointerCapture = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
-  // Minimal ResizeObserver stub for Radix's popper (jsdom lacks it).
   global.ResizeObserver = class {
     observe() {}
     unobserve() {}
     disconnect() {}
-  };
+  } as unknown as typeof ResizeObserver;
 });
 
 beforeEach(() => {
-  // Reset persisted submit-status / visibility between cases (best-effort —
-  // this jsdom's localStorage stub omits clear()).
   window.localStorage?.clear?.();
-  state.emails = [makeEmail()];
+  // Current ticket (id 1, #21567) + a neighbour (id 2, #22001) to advance to.
+  state.current = makeEmail();
+  state.emails = [
+    makeEmail(),
+    makeEmail({ id: 2, subject: "Travel grant", zendesk_ticket_id: 22001 }),
+  ];
   state.approve.mockReset();
   state.send.mockReset();
+  state.push.mockReset();
   state.approve.mockResolvedValue(makeEmail({ status: "approved" }));
   state.send.mockResolvedValue({ status: "sent", send: { state: "sent" } });
 });
 
-describe("approve → send chain", () => {
-  it("1. approves then sends with status from the selector + toggle value", async () => {
+describe("approve → send chain (on the ticket route)", () => {
+  it("1. approves then sends with the status from the selector + toggle value", async () => {
     const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Deadline question");
+    renderTicket();
+    await waitForDetail();
 
-    // Pick a resulting status from the split-button dropdown.
     await user.click(screen.getByRole("button", { name: /choose a resulting status/i }));
     await user.click(await screen.findByRole("menuitem", { name: /solved/i }));
-
     await user.click(screen.getByRole("button", { name: /submit as solved/i }));
 
     await waitFor(() =>
@@ -153,10 +168,10 @@ describe("approve → send chain", () => {
     );
   });
 
-  it("2. defaults to an internal note (public: false) with no interaction", async () => {
+  it("2. defaults to an internal note (public: false)", async () => {
     const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Deadline question");
+    renderTicket();
+    await waitForDetail();
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
@@ -170,8 +185,8 @@ describe("approve → send chain", () => {
 
   it("3. toggling 'Send to requester' sends with public: true", async () => {
     const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Deadline question");
+    renderTicket();
+    await waitForDetail();
 
     await user.click(screen.getByRole("switch")); // internal → public
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
@@ -187,54 +202,45 @@ describe("approve → send chain", () => {
   it("4. does NOT send when approve fails", async () => {
     state.approve.mockRejectedValue({ detail: "approve blew up", status: 400 });
     const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Deadline question");
+    renderTicket();
+    await waitForDetail();
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
     await waitFor(() => expect(state.approve).toHaveBeenCalledTimes(1));
-    // Give any (incorrect) chained send a chance to fire, then assert it didn't.
     await new Promise((r) => setTimeout(r, 0));
     expect(state.send).not.toHaveBeenCalled();
+    expect(state.push).not.toHaveBeenCalled(); // no advance on a failed approve
   });
 
-  it("5. approve ok + background send fails → queue-level notice, approve NOT rolled back", async () => {
+  it("5. send fails → stay on the ticket with the scoped banner, approve NOT rolled back, no advance", async () => {
     state.send.mockRejectedValue({ detail: "Zendesk write failed", status: 502 });
     const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Deadline question");
+    renderTicket();
+    await waitForDetail();
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
-    // Optimistic resolve advanced us off the ticket, so the failure surfaces in
-    // the queue-level notice (not the selection-scoped banner), naming the
-    // ticket so the chair can reopen it.
-    const notice = await screen.findByRole("alert");
-    expect(notice).toHaveTextContent(/failed to send/i);
-    expect(notice).toHaveTextContent(/stays in the queue/i);
-    expect(
-      within(notice).getByRole("button", { name: /#21567/ })
-    ).toBeInTheDocument();
-    // Approve fired exactly once and was never re-called / compensated.
+    // Scoped "approved locally, retry the send" banner shows on this ticket.
+    const banner = await screen.findByText(/approved locally/i);
+    expect(banner).toBeInTheDocument();
+    // Approve fired once, was not compensated, and we did NOT navigate away.
     expect(state.approve).toHaveBeenCalledTimes(1);
+    expect(state.push).not.toHaveBeenCalled();
   });
 
-  it("6. reopening a failed ticket from the notice retries with the same payload", async () => {
+  it("6. retrying the send from the banner re-sends the same payload, then advances", async () => {
     state.send
       .mockRejectedValueOnce({ detail: "Zendesk write failed", status: 502 })
       .mockResolvedValueOnce({ status: "sent", send: { state: "sent" } });
     const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Deadline question");
+    renderTicket();
+    await waitForDetail();
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
-    // Reopen the failed ticket from the queue-level notice.
-    const notice = await screen.findByRole("alert");
-    await user.click(within(notice).getByRole("button", { name: /#21567/ }));
-
-    // The selection-scoped banner (with Retry) now shows in the detail pane.
-    // Scope to the banner — EmailDetail also has a pipeline "Retry" button.
+    // The scoped banner (with Retry) appears. Scope to it — EmailDetail also has
+    // a pipeline "Retry" button.
     const banner = await screen.findByRole("alert");
     expect(banner).toHaveTextContent(/approved locally/i);
     await user.click(within(banner).getByRole("button", { name: /retry/i }));
@@ -243,75 +249,22 @@ describe("approve → send chain", () => {
     await waitFor(() => expect(state.send).toHaveBeenCalledTimes(2));
     expect(state.send.mock.calls[0]).toEqual(state.send.mock.calls[1]);
     expect(state.approve).toHaveBeenCalledTimes(1);
+    // On the successful retry, advance by navigating to the neighbour (#22001).
+    await waitFor(() =>
+      expect(state.push).toHaveBeenCalledWith("/tickets/22001")
+    );
   });
 
-  it("7. a background send failure shows a queue-level notice, not a scoped banner on the advanced-to email", async () => {
-    state.emails = [
-      makeEmail({ id: 1, subject: "Deadline question", zendesk_ticket_id: 21567 }),
-      makeEmail({ id: 2, subject: "Travel grant", zendesk_ticket_id: 22001 }),
-    ];
-    state.send.mockRejectedValue({ detail: "Zendesk write failed", status: 502 });
+  it("7. advances by navigating to the neighbouring ticket after a successful send", async () => {
     const user = userEvent.setup();
-    renderQueue();
-
-    await selectEmail(user, "Deadline question");
-    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
-
-    // Optimistically advanced to the next ticket…
-    expect(
-      await screen.findByRole("heading", { name: /travel grant/i })
-    ).toBeInTheDocument();
-    // …and the failure surfaces in the queue-level notice naming the failed
-    // ticket (#21567), NOT as a scoped "approved locally" banner on email 2.
-    const notice = await screen.findByRole("alert");
-    expect(
-      within(notice).getByRole("button", { name: /#21567/ })
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/approved locally/i)).toBeNull();
-  });
-
-  it("8. advances to the next ticket after a successful send", async () => {
-    state.emails = [
-      makeEmail({ id: 1, subject: "Deadline question" }),
-      makeEmail({ id: 2, subject: "Travel grant" }),
-    ];
-    const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Deadline question");
-    // Detail pane shows the first email (subject is an <h2> heading; list rows
-    // are buttons, so a heading query targets the detail pane specifically).
-    expect(
-      screen.getByRole("heading", { name: /deadline question/i })
-    ).toBeInTheDocument();
+    renderTicket();
+    await waitForDetail();
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
-    // After approve→send resolve, selection advances to the next row (email 2).
-    expect(
-      await screen.findByRole("heading", { name: /travel grant/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("heading", { name: /deadline question/i })
-    ).toBeNull();
-  });
-
-  it("9. advances to the previous ticket when the last one is sent", async () => {
-    state.emails = [
-      makeEmail({ id: 1, subject: "Deadline question" }),
-      makeEmail({ id: 2, subject: "Travel grant" }),
-    ];
-    const user = userEvent.setup();
-    renderQueue();
-    await selectEmail(user, "Travel grant"); // the LAST row
-    expect(
-      screen.getByRole("heading", { name: /travel grant/i })
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
-
-    // No next row → fall back to the previous one (email 1).
-    expect(
-      await screen.findByRole("heading", { name: /deadline question/i })
-    ).toBeInTheDocument();
+    // #21567 sent → advance to the neighbour #22001 via the URL, NOT the DB id.
+    await waitFor(() =>
+      expect(state.push).toHaveBeenCalledWith("/tickets/22001")
+    );
   });
 });

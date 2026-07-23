@@ -27,6 +27,11 @@ vi.mock("@/components/email", () => ({
   },
 }));
 
+// Both pages navigate via useRouter now.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 // The ticket page also pulls these; stub so the identity check needs no network.
 vi.mock("@/hooks/useEmailByTicket", () => ({
   useEmailByTicket: () => ({

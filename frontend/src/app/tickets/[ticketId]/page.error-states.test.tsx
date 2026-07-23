@@ -26,6 +26,11 @@ const hookState = vi.hoisted(() => ({
   },
 }));
 
+// TicketPage calls useRouter (navigation on row click / advance).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 // Drive the page's error branches directly via the hook's return value.
 vi.mock("@/hooks/useEmailByTicket", () => ({
   useEmailByTicket: () => hookState.value,

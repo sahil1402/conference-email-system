@@ -30,6 +30,11 @@ const state = vi.hoisted(() => ({
   ],
 }));
 
+// QueuePage now navigates on row click, so it calls useRouter.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 vi.mock("@/hooks/useEmailQueue", () => ({
   useEmailQueue: () => ({
     emails: [],
