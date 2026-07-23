@@ -11,7 +11,13 @@
  * covered by their own unit tests and is not repeated here.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -329,6 +335,142 @@ describe("filter column — collapse frees space for list/detail (N4d)", () => {
     // The ceiling rises; clamping only lowers, so the list keeps its width and
     // the freed space goes to the flex-1 detail pane.
     expect(listPane().style.width).toBe(before);
+  });
+});
+
+/**
+ * The collapse feature end to end (N4e). The pieces above each test one
+ * direction from a fresh fixture; these drive a single continuous session, so
+ * an asymmetric or accumulating bug between the two directions has somewhere to
+ * show up.
+ */
+describe("filter column — collapse round trip (N4e)", () => {
+  const listPane = () => document.querySelector<HTMLElement>("aside")!;
+
+  it("returns to its exact starting state after collapse → expand", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    const before = {
+      columnWidth: column().className.includes("w-64"),
+      listWidth: listPane().style.width,
+      collapsed: column().getAttribute("data-collapsed"),
+    };
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+    await user.click(screen.getByRole("button", { name: "Show filters" }));
+
+    expect(column().className.includes("w-64")).toBe(before.columnWidth);
+    expect(listPane().style.width).toBe(before.listWidth);
+    expect(column().getAttribute("data-collapsed")).toBe(before.collapsed);
+    expect(searchBox()).toBeInTheDocument();
+  });
+
+  it("stays stable across repeated cycles (no ratcheting)", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+    const startWidth = listPane().style.width;
+
+    for (let i = 0; i < 3; i++) {
+      await user.click(screen.getByRole("button", { name: "Hide filters" }));
+      await user.click(screen.getByRole("button", { name: "Show filters" }));
+    }
+
+    // A width that crept in either direction each cycle would show up here.
+    expect(listPane().style.width).toBe(startWidth);
+    expect(column().className).toContain("w-64");
+  });
+
+  it("hands space to the detail pane while collapsed, and takes it back", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("confmail.queueListWidth", JSON.stringify(640));
+    renderQueue();
+
+    // Expanded: chrome is 315, so the list ceiling is 269.
+    expect(listPane().style.width).toBe("269px");
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+    // Collapsed frees 204px of chrome; the list keeps its width (clamping only
+    // lowers) so the freed space goes to the flex-1 detail pane.
+    expect(listPane().style.width).toBe("269px");
+    expect(column().className).toContain("w-[52px]");
+
+    await user.click(screen.getByRole("button", { name: "Show filters" }));
+    expect(listPane().style.width).toBe("269px");
+    expect(column().className).toContain("w-64");
+  });
+});
+
+describe("filter column — toggle keyboard accessibility (N4e)", () => {
+  it("is reachable by keyboard and operable with Enter in both states", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    // Tab lands on the toggle: it's the first focusable control in the column.
+    await user.tab();
+    const toggle = screen.getByRole("button", { name: "Hide filters" });
+    expect(toggle).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(column()).toHaveAttribute("data-collapsed", "true");
+
+    // Still focused and operable once collapsed — the only way back.
+    const reopen = screen.getByRole("button", { name: "Show filters" });
+    expect(reopen).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(column()).toHaveAttribute("data-collapsed", "false");
+  });
+
+  it("is operable with Space", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.tab();
+    await user.keyboard(" ");
+
+    expect(column()).toHaveAttribute("data-collapsed", "true");
+  });
+
+  it("shows its tooltip on keyboard focus, not just hover", async () => {
+    renderQueue();
+
+    fireEvent.focus(screen.getByRole("button", { name: "Hide filters" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Hide filters")
+    );
+  });
+});
+
+describe("filter column — filter values survive a collapse cycle (N4e)", () => {
+  it("retains search, lane, status and chair selections", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    // Set every control to a non-default value…
+    await user.type(searchBox(), "deadline");
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    await user.selectOptions(screen.getAllByRole("combobox")[0], "APPROVED");
+    await user.selectOptions(
+      screen.getByLabelText("Filter by assigned chair"),
+      "2"
+    );
+
+    // …collapse (which UNMOUNTS the panel) and expand again.
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+    expect(
+      screen.queryByPlaceholderText(/search subject or sender/i)
+    ).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Show filters" }));
+
+    // State lives in the page, not the unmounted panel, so nothing resets.
+    expect(searchBox()).toHaveValue("deadline");
+    expect(screen.getByRole("button", { name: "Review" }).style.color).toBe(
+      "var(--accent)"
+    );
+    expect(screen.getAllByRole("combobox")[0]).toHaveValue("APPROVED");
+    expect(screen.getByLabelText("Filter by assigned chair")).toHaveValue("2");
   });
 });
 
