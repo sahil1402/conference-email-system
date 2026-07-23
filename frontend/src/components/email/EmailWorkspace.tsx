@@ -77,8 +77,14 @@ export interface EmailWorkspaceProps {
   onSelectEmailId: (id: number | null) => void;
   /** "email" mode: the external fetch is in flight (queue leaves this false). */
   detailLoading?: boolean;
-  /** "email" mode: the external fetch failed (queue leaves this null). */
-  detailError?: string | null;
+  /**
+   * "email" mode: content to show in the detail pane when the external fetch
+   * did not yield an email — e.g. a not-found empty state or a generic error
+   * banner. Rendered centered in the pane (the caller owns the exact node so it
+   * can distinguish 404 from other failures). Falsy → normal detail rendering.
+   * The queue leaves this unset.
+   */
+  detailError?: ReactNode;
   /** Extra content rendered beneath EmailDetail in the right pane (e.g. the
    *  ticket route's activity trail). Omitted on the queue. */
   detailFooter?: ReactNode;
@@ -491,7 +497,7 @@ export function EmailWorkspace({
           </div>
         ) : detailError ? (
           <div className="flex h-full items-center justify-center p-6">
-            <ErrorBanner message={detailError} />
+            {detailError}
           </div>
         ) : selectedEmail ? (
           <>

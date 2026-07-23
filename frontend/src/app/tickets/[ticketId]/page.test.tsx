@@ -1,13 +1,13 @@
 /**
- * Route test for /tickets/[ticketId] (Pieces C2 + C2b).
+ * Route test for /tickets/[ticketId] (Pieces C2 / C2b / C3 loading).
  *
- * Renders the REAL shared EmailWorkspace (not a stub), so this proves the
- * ticket route gets the full 3-column layout — filter sidebar + drag-resize +
- * list + detail — driven by a ticket-id fetch. useEmailByTicket runs for real
- * through a real QueryClient; only the network boundary (getEmailByTicketId)
- * and the ambient data hooks are stubbed. A separate identity test
- * (../shared-workspace-identity.test.tsx) guards against the two routes forking
- * into different components.
+ * Renders the REAL shared EmailWorkspace with the REAL useEmailByTicket hook —
+ * only the network boundary (getEmailByTicketId) and the ambient data hooks are
+ * stubbed. Covers the happy path, the loading state, and that the audit trail
+ * keeps its EmailAuditTrailEntry shape. The not-found / error STATES are covered
+ * in page.error-states.test.tsx (which mocks the hook to drive error branches
+ * deterministically, without react-query surfacing an expected query rejection
+ * as an unhandled rejection).
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -122,14 +122,11 @@ describe("TicketPage (/tickets/[ticketId])", () => {
     state.getByTicket.mockResolvedValue(RESPONSE);
 
     renderPage("21567");
-    // Wait for the detail (ticket fetch resolved) so the workspace is settled.
     await screen.findByRole("heading", { name: "How do I update my paper?" });
 
-    // Filter sidebar: the collapse toggle is present (expanded → "Hide filters").
     expect(
       screen.getByRole("button", { name: "Hide filters" })
     ).toBeInTheDocument();
-    // Drag-resize divider is present.
     expect(
       screen.getByRole("separator", { name: "Resize the email list" })
     ).toBeInTheDocument();
@@ -145,7 +142,6 @@ describe("TicketPage (/tickets/[ticketId])", () => {
     const toggle = screen.getByRole("button", { name: "Hide filters" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     await user.click(toggle);
-    // After collapsing, it flips to the "Show filters" affordance.
     expect(
       screen.getByRole("button", { name: "Show filters" })
     ).toHaveAttribute("aria-expanded", "false");
@@ -160,7 +156,6 @@ describe("TicketPage (/tickets/[ticketId])", () => {
       await screen.findByRole("heading", { name: "How do I update my paper?" })
     ).toBeInTheDocument();
     expect(screen.getByText("#21567")).toBeInTheDocument();
-    // The dedicated by-ticket fetch was used (not a queue-array lookup).
     expect(state.getByTicket).toHaveBeenCalledWith("21567");
   });
 
@@ -172,9 +167,26 @@ describe("TicketPage (/tickets/[ticketId])", () => {
     const trail = await screen.findByTestId("ticket-audit-trail");
     expect(trail).toHaveTextContent("classified");
     expect(trail).toHaveTextContent("pipeline");
-    // Reads `timestamp` (EmailAuditTrailEntry); if coerced to AuditEntry (which
-    // uses `created_at`, absent here) no date would render.
     expect(trail).toHaveTextContent(/2026/);
     expect(screen.getByText(/Activity \(1\)/)).toBeInTheDocument();
+  });
+
+  it("shows a loading indicator while the fetch is pending (C3)", async () => {
+    // A deferred fetch keeps the query pending long enough to assert the loading
+    // UI, then we settle it so no pending query outlives the test.
+    let resolveFetch: (v: EmailDetailResponse) => void = () => {};
+    state.getByTicket.mockReturnValue(
+      new Promise<EmailDetailResponse>((res) => {
+        resolveFetch = res;
+      })
+    );
+
+    renderPage("21567");
+
+    // The app's LoadingSpinner (role=status, aria-label "Loading").
+    expect(screen.getByLabelText("Loading")).toBeInTheDocument();
+
+    resolveFetch(RESPONSE);
+    await screen.findByRole("heading", { name: "How do I update my paper?" });
   });
 });

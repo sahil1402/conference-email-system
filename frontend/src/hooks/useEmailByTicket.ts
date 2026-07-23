@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getEmailByTicketId } from "@/lib/api";
+import type { ApiError, EmailDetailResponse } from "@/types";
 
 /** Fetch one email (and its audit trail) by its Zendesk ticket id.
  *
@@ -10,7 +11,13 @@ import { getEmailByTicketId } from "@/lib/api";
  * when the row isn't on the current queue page. `ticketId` null disables the
  * query. Polls on the same 15s cadence as the queue so the detail stays live. */
 export function useEmailByTicket(ticketId: string | number | null) {
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  // Error is typed as the normalized ApiError ({ detail, status }) the shared
+  // client interceptor rejects with, so callers can branch on `error.status`
+  // (e.g. 404 → not-found vs 5xx → generic error) without casting.
+  const { data, isLoading, isError, error, refetch } = useQuery<
+    EmailDetailResponse,
+    ApiError
+  >({
     queryKey: ["emailByTicket", String(ticketId)],
     queryFn: () => getEmailByTicketId(ticketId as string | number),
     enabled: ticketId != null && ticketId !== "",
