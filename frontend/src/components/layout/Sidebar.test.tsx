@@ -31,6 +31,27 @@ beforeEach(() => {
 });
 
 describe("Sidebar (icon-only rail)", () => {
+  it("renders the brand mark as an icon only — no ConfMail title/subtitle text", () => {
+    const { container } = render(<Sidebar />);
+
+    // The brand text relocated to the top bar (BR3); it must not survive here
+    // in any form.
+    expect(screen.queryByText("ConfMail")).toBeNull();
+    expect(screen.queryByText(/Conference Email System/i)).toBeNull();
+
+    // The logo icon is still present, above the nav.
+    expect(container.querySelector("svg.lucide-mail")).not.toBeNull();
+  });
+
+  it("keeps the brand mark non-interactive (not a link/button)", () => {
+    const { container } = render(<Sidebar />);
+    const logo = container.querySelector("svg.lucide-mail");
+
+    expect(logo).not.toBeNull();
+    // No clickable ancestor around the logo — it never was a link.
+    expect(logo!.closest("a, button")).toBeNull();
+  });
+
   it("renders one link per nav item, each named by its aria-label", () => {
     render(<Sidebar />);
     const nav = screen.getByRole("navigation");

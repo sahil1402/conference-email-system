@@ -62,28 +62,16 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
         borderRight: "1px solid var(--border)",
       }}
     >
-      {/* Brand */}
-      <div className="flex flex-col gap-0.5 px-5 py-5">
-        <div className="flex items-center gap-2.5">
-          <div
-            className="flex h-7 w-7 items-center justify-center rounded-lg"
-            style={{ backgroundColor: "var(--accent)", color: "var(--text-primary)" }}
-          >
-            <Mail className="h-4 w-4" />
-          </div>
-          <span
-            className="text-base font-semibold tracking-tight"
-            style={{ color: "var(--text-primary)" }}
-          >
-            ConfMail
-          </span>
-        </div>
-        <span
-          className="pl-[2.375rem] text-xs"
-          style={{ color: "var(--text-muted)" }}
+      {/* Brand mark — icon only; the "ConfMail" title + subtitle live in the
+          top bar now. Accent fill keeps it reading as a logo, not a nav item,
+          while the 36x36 footprint aligns with the nav icons below. */}
+      <div className="flex justify-center py-4">
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-lg"
+          style={{ backgroundColor: "var(--accent)", color: "var(--text-primary)" }}
         >
-          Conference Email System
-        </span>
+          <Mail className="h-4 w-4" />
+        </div>
       </div>
 
       {/* Navigation — scrolls when there are more items than height */}
