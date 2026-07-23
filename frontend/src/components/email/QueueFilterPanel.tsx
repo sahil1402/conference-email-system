@@ -33,8 +33,8 @@ interface QueueFilterPanelProps {
 
 /**
  * The queue's full filter block — search / lane / status / chair, the source
- * toggle, and the Zendesk status bar — grouped for rendering in the sidebar
- * slot (below the nav, above the footer). Pure pass-through: all state and the
+ * toggle, and the Zendesk status bar — grouped for the queue's own filter
+ * column (page-owned; see queue/page.tsx). Pure pass-through: all state and the
  * source-toggle side effect stay in the queue page.
  */
 export function QueueFilterPanel({
