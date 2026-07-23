@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { Inbox, SearchX } from "lucide-react";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useResizableWidth } from "@/hooks/useResizableWidth";
-import { useSidebarSlot } from "@/components/layout/SidebarSlot";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
 import { useQueueFacets } from "@/hooks/useQueueFacets";
 import type { EmailQueueParams, QueueFacetsParams } from "@/lib/api";
@@ -47,9 +45,7 @@ export default function QueuePage() {
   const { allowAutoSend } = useAppConfig();
   const { chairs, byId: chairsById } = useChairs();
 
-  // Queue-list column: draggable + persisted width, and the sidebar slot the
-  // filters portal into (below the nav, above the theme-toggle footer).
-  const { slotEl } = useSidebarSlot();
+  // Queue-list column: draggable + persisted width.
   const { width: listWidth, isDragging, handleProps } = useResizableWidth(
     "confmail.queueListWidth",
     320,
@@ -133,6 +129,40 @@ export default function QueuePage() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* FILTER COLUMN — page-owned. The filters used to portal into a slot in
+          the sidebar; they now render here, directly in the queue's own
+          layout, with the same page-held state. */}
+      <div
+        className="w-64 shrink-0 overflow-y-auto"
+        style={{ borderRight: "1px solid var(--border)" }}
+      >
+        <QueueFilterPanel
+          search={search}
+          onSearchChange={setSearch}
+          laneFilter={laneFilter}
+          onLaneChange={setLaneFilter}
+          statusFilter={
+            statusFilter as "all" | "PENDING" | "DRAFT_GENERATED" | "APPROVED"
+          }
+          onStatusChange={setStatusFilter}
+          chairs={chairs}
+          chairFilter={chairFilter}
+          onChairChange={setChairFilter}
+          sources={sources}
+          sourceFilter={sourceFilter}
+          onSourceChange={(v) => {
+            setSourceFilter(v);
+            // A zendesk_status filter is meaningless once we scope to
+            // toy_dataset — clear it so the queue isn't silently emptied.
+            if (v === "toy_dataset") setZendeskStatusFilter(null);
+          }}
+          showStatusBar={showStatusBar}
+          byZendeskStatus={byZendeskStatus}
+          zendeskStatusFilter={zendeskStatusFilter}
+          onZendeskStatusSelect={setZendeskStatusFilter}
+        />
+      </div>
+
       {/* LEFT PANE */}
       <aside
         className="flex shrink-0 flex-col"
@@ -289,42 +319,6 @@ export default function QueuePage() {
         )}
       </section>
 
-      {/* The queue filters live in the sidebar (below the nav, above the
-          theme-toggle footer). They render here — keeping the queue's
-          filter state — and portal into the sidebar slot when it exists. */}
-      {slotEl &&
-        createPortal(
-          <QueueFilterPanel
-            search={search}
-            onSearchChange={setSearch}
-            laneFilter={laneFilter}
-            onLaneChange={setLaneFilter}
-            statusFilter={
-              statusFilter as
-                | "all"
-                | "PENDING"
-                | "DRAFT_GENERATED"
-                | "APPROVED"
-            }
-            onStatusChange={setStatusFilter}
-            chairs={chairs}
-            chairFilter={chairFilter}
-            onChairChange={setChairFilter}
-            sources={sources}
-            sourceFilter={sourceFilter}
-            onSourceChange={(v) => {
-              setSourceFilter(v);
-              // A zendesk_status filter is meaningless once we scope to
-              // toy_dataset — clear it so the queue isn't silently emptied.
-              if (v === "toy_dataset") setZendeskStatusFilter(null);
-            }}
-            showStatusBar={showStatusBar}
-            byZendeskStatus={byZendeskStatus}
-            zendeskStatusFilter={zendeskStatusFilter}
-            onZendeskStatusSelect={setZendeskStatusFilter}
-          />,
-          slotEl
-        )}
     </div>
   );
 }
