@@ -30,6 +30,13 @@ export default function KnowledgeBasePage() {
   const [view, setView] = useState<View>("policies");
   const [addOpen, setAddOpen] = useState(false);
 
+  // Add-internal-policy draft fields, lifted out of AddPolicyPanel so they
+  // survive the panel unmounting on close: closing and reopening keeps whatever
+  // the chair typed; the fields clear only after a successful create (2b).
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftContent, setDraftContent] = useState("");
+  const [draftCategory, setDraftCategory] = useState("");
+
   const [search, setSearch] = useState("");
   const [visibility, setVisibility] = useState<VisibilityFilter>("all");
   // Default to "active" — retired policies are the exception, not the norm,
@@ -138,6 +145,12 @@ export default function KnowledgeBasePage() {
 
           {addOpen && (
             <AddPolicyPanel
+              title={draftTitle}
+              content={draftContent}
+              category={draftCategory}
+              setTitle={setDraftTitle}
+              setContent={setDraftContent}
+              setCategory={setDraftCategory}
               onClose={() => setAddOpen(false)}
               onCreated={() => refetch()}
             />

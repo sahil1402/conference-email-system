@@ -16,6 +16,17 @@ const FIELD_STYLE = {
 } as const;
 
 interface AddPolicyPanelProps {
+  /**
+   * The policy draft fields, owned by the parent page so they survive this
+   * panel unmounting when the chair closes and reopens it. Cleared only after a
+   * successful create (never on close) — see the create onSuccess below.
+   */
+  title: string;
+  content: string;
+  category: string;
+  setTitle: (value: string) => void;
+  setContent: (value: string) => void;
+  setCategory: (value: string) => void;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -30,10 +41,16 @@ interface AddPolicyPanelProps {
  * `retire_keys` on create, so the new policy can retire what it supersedes in
  * one step.
  */
-export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [category, setCategory] = useState("");
+export function AddPolicyPanel({
+  title,
+  content,
+  category,
+  setTitle,
+  setContent,
+  setCategory,
+  onClose,
+  onCreated,
+}: AddPolicyPanelProps) {
   // [tags-dropped E007] const [tagsText, setTagsText] = useState("");
   const [retireKeys, setRetireKeys] = useState<Set<string>>(new Set());
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -115,6 +132,11 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
             },
             {
               onSuccess: () => {
+                // Clear the draft ONLY now that a policy was actually created —
+                // closing/reopening the panel keeps whatever was typed (2b).
+                setTitle("");
+                setContent("");
+                setCategory("");
                 onCreated();
                 onClose();
               },
@@ -198,7 +220,12 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
             {findSimilar.isPending ? <LoadingSpinner size="sm" /> : null}
             Check for related policies
           </Button>
-          <Button type="submit" size="sm" disabled={createPolicy.isPending}>
+          <Button
+            type="submit"
+            size="sm"
+            className="ml-auto"
+            disabled={createPolicy.isPending}
+          >
             {createPolicy.isPending ? <LoadingSpinner size="sm" /> : null}
             Create internal policy
           </Button>
@@ -244,7 +271,7 @@ export function AddPolicyPanel({ onClose, onCreated }: AddPolicyPanelProps) {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p
-                        className="truncate text-sm"
+                        className="text-sm break-words"
                         style={{ color: "var(--text-primary)" }}
                       >
                         {policy.title}

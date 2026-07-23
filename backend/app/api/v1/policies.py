@@ -335,7 +335,9 @@ async def revert_edit(
 
 @router.post("/similar")
 async def similar_policies(payload: SimilarRequest) -> dict:
-    hits = await get_retriever().retrieve(f"{payload.title} {payload.content}", intent="", top_k=5)
+    # Surface the top 10 nearest existing policies so the chair sees more of the
+    # neighbourhood before adding a new one (was 5).
+    hits = await get_retriever().retrieve(f"{payload.title} {payload.content}", intent="", top_k=10)
     return {
         "similar": [
             {"policy_key": h.policy_id, "title": h.title, "score": h.score, "content": h.content}
