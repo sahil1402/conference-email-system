@@ -415,6 +415,33 @@ export interface AuditEntry {
   created_at: string;
 }
 
+/**
+ * One audit_trail row exactly as the single-email endpoints serialize it
+ * (backend emails.py::_audit_to_dict). Deliberately distinct from
+ * {@link AuditEntry}: that type is the UI-normalized shape of the analytics
+ * recent-activity feed (email_id as number, `details`, `created_at`), whereas
+ * these endpoints emit `timestamp`/`metadata` and a string `email_id`. Kept
+ * accurate to the wire so downstream consumers read real fields.
+ */
+export interface EmailAuditTrailEntry {
+  id: number;
+  email_id: string;
+  action: string;
+  actor: string;
+  timestamp: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/**
+ * Envelope returned by GET /emails/{email_id} and GET /emails/by-ticket/{id}
+ * (both use the same _email_to_dict / _audit_to_dict helpers, so the shape is
+ * identical).
+ */
+export interface EmailDetailResponse {
+  email: Email;
+  audit_trail: EmailAuditTrailEntry[];
+}
+
 // ---------------------------------------------------------------------------
 // Request payloads — match the live backend request models in
 // backend/app/api/v1/emails.py.

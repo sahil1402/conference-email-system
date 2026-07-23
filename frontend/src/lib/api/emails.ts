@@ -3,6 +3,7 @@ import apiClient from "./client";
 import type {
   ApproveRequest,
   Email,
+  EmailDetailResponse,
   EmailQueueResponse,
   EmailThreadResponse,
   IngestRequest,
@@ -149,6 +150,19 @@ export async function getEmailThread(
 ): Promise<EmailThreadResponse> {
   const { data } = await apiClient.get<EmailThreadResponse>(
     `/emails/${id}/thread`
+  );
+  return data;
+}
+
+/** GET /emails/by-ticket/{ticketId} — fetch one email (and its audit trail) by
+ * its Zendesk ticket id. Same envelope as GET /emails/{email_id}. A 404 (no
+ * email maps to the ticket id) rejects with the normalized ApiError via the
+ * shared client interceptor, exactly like the other functions here. */
+export async function getEmailByTicketId(
+  ticketId: number | string
+): Promise<EmailDetailResponse> {
+  const { data } = await apiClient.get<EmailDetailResponse>(
+    `/emails/by-ticket/${ticketId}`
   );
   return data;
 }
