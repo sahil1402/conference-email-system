@@ -84,7 +84,7 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
 
       {/* Navigation + page slot (queue filters) — scroll together when tall */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <nav className="space-y-1 px-3 py-2">
+        <nav className="space-y-1 px-2 py-2">
           {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
           const isActive =
             pathname === href || pathname.startsWith(`${href}/`);
@@ -93,19 +93,22 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
               key={href}
               href={href}
               onClick={onNavigate}
-              className="group flex items-center gap-3 rounded-lg border-l-2 py-2 pr-3 text-sm font-medium transition-colors duration-150"
+              // Icon-only: the visible label is gone, so the name comes from
+              // aria-label. N2e adds a visual tooltip on top of (not instead
+              // of) this.
+              aria-label={label}
+              title={label}
+              className="group flex h-9 w-9 items-center justify-center rounded-lg border-l-2 transition-colors duration-150"
               style={
                 isActive
                   ? {
                       backgroundColor: "var(--accent-subtle)",
                       color: "var(--accent)",
                       borderLeftColor: "var(--accent)",
-                      paddingLeft: "calc(0.75rem - 2px)",
                     }
                   : {
                       color: "var(--text-secondary)",
                       borderLeftColor: "transparent",
-                      paddingLeft: "calc(0.75rem - 2px)",
                     }
               }
               onMouseEnter={(e) => {
@@ -119,7 +122,6 @@ export function Sidebar({ open = false, onNavigate }: SidebarProps) {
               }}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              {label}
             </Link>
           );
         })}
