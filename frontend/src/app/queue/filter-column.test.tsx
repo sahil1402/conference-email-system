@@ -90,6 +90,23 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+describe("queue layout — full-height without top-bar overflow (BR4)", () => {
+  it("sizes the split-pane root to viewport minus the top bar, not a bare 100vh", () => {
+    renderQueue();
+    // Root is the filter column's parent flex row.
+    const root = column().parentElement!;
+
+    // Bare h-screen (100vh) under <main>'s top padding would overflow; the
+    // container subtracts the bar height at each breakpoint instead.
+    expect(root.className).toContain("h-[calc(100vh-3.5rem)]"); // mobile (pt-14)
+    expect(root.className).toContain(
+      "md:h-[calc(100vh-var(--topbar-height))]"
+    ); // desktop
+    expect(root.className).not.toContain("h-screen");
+    expect(root.className).toContain("overflow-hidden");
+  });
+});
+
 describe("filter column — placement", () => {
   it("renders the filter panel inside the page's own 256px column", () => {
     renderQueue();

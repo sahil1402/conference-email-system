@@ -176,8 +176,11 @@ export default function QueuePage() {
       } It was NOT sent — the approval stands; retry the send.`
     : null;
 
+  // Full-height minus the top bar so the split-pane fills the viewport without
+  // overflowing: the mobile bar below md (pt-14 = 3.5rem on <main>), the desktop
+  // bar at md+ (--topbar-height).
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden md:h-[calc(100vh-var(--topbar-height))]">
       {/* FILTER COLUMN — page-owned. The filters used to portal into a slot in
           the sidebar; they now render here, directly in the queue's own
           layout, with the same page-held state. */}
