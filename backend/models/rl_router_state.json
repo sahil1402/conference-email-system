@@ -7,8 +7,8 @@
   },
   "submission_requirements": {
     "human_review": {
-      "trials": 50,
-      "wins": 50
+      "trials": 60,
+      "wins": 60
     }
   },
   "technical_issue": {
