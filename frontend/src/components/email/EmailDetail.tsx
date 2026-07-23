@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MutableRefObject,
@@ -732,11 +733,20 @@ export function EmailDetail({
 /** Identical box/typography on backdrop + textarea so their text overlays 1:1. */
 const _EDITOR_CLASSES =
   "block w-full whitespace-pre-wrap break-words rounded-lg border p-3 text-sm leading-relaxed";
+const _EDITOR_MIN_ROWS = 8;
 
 /**
- * A textarea whose [CHAIR: ...] tokens glow: a backdrop div paints the text
- * (placeholders wrapped in <mark>), while the textarea on top keeps its text
- * transparent — only the caret, selection, and native editing stay live.
+ * A textarea whose [CHAIR: ...] tokens glow. The textarea itself paints the
+ * VISIBLE text, so the caret and selection are always aligned with what the
+ * chair sees; a backdrop behind it draws only the placeholder highlight boxes
+ * (its text is transparent). The textarea auto-sizes to its content so it never
+ * scrolls — a scrollbar would narrow its wrap width vs. the backdrop and drift
+ * the boxes off the placeholders.
+ *
+ * Note: the placeholder text can't be individually recoloured/bolded (a
+ * textarea renders one style), so the box + inset border carry the emphasis.
+ * The box must use the SAME font weight as the textarea or the glyph advances
+ * would differ and the box would misalign — hence no fontWeight override.
  */
 function HighlightedDraftEditor({
   value,
@@ -747,7 +757,13 @@ function HighlightedDraftEditor({
   onChange: (v: string) => void;
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
 }) {
-  const backdropRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const borderY = ta.offsetHeight - ta.clientHeight; // border (overflow hidden ⇒ no scrollbar)
+    ta.style.height = `${ta.scrollHeight + borderY}px`;
+  }, [value, textareaRef]);
 
   const segments: ReactNode[] = [];
   let last = 0;
@@ -761,8 +777,7 @@ function HighlightedDraftEditor({
         key={at}
         style={{
           backgroundColor: "var(--warning-subtle)",
-          color: "var(--warning)",
-          fontWeight: 600,
+          color: "transparent",
           borderRadius: "3px",
           boxShadow: "inset 0 0 0 1px var(--warning)",
         }}
@@ -777,7 +792,6 @@ function HighlightedDraftEditor({
   return (
     <div className="relative">
       <div
-        ref={backdropRef}
         aria-hidden
         className={cn(
           _EDITOR_CLASSES,
@@ -786,31 +800,43 @@ function HighlightedDraftEditor({
         style={{
           backgroundColor: "var(--surface-raised)",
           borderColor: "transparent",
-          color: "var(--text-primary)",
+          color: "transparent",
         }}
       >
         {segments}
-        {"\n" /* trailing newline keeps backdrop scroll extent == textarea */}
+        {"\n" /* trailing newline keeps the backdrop's last line == textarea */}
       </div>
       <textarea
         ref={textareaRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onScroll={(e) => {
-          const backdrop = backdropRef.current;
-          if (backdrop) backdrop.scrollTop = e.currentTarget.scrollTop;
+        onClick={(e) => {
+          // Click anywhere inside a [CHAIR: …] token → select the whole token,
+          // so the chair can type straight over it. Only on a plain click (a
+          // collapsed caret) — never hijack a manual drag-selection.
+          const ta = e.currentTarget;
+          const pos = ta.selectionStart;
+          if (pos !== ta.selectionEnd) return;
+          for (const m of Array.from(value.matchAll(PLACEHOLDER_RE))) {
+            const start = m.index ?? 0;
+            const end = start + m[0].length;
+            if (pos >= start && pos < end) {
+              ta.setSelectionRange(start, end);
+              break;
+            }
+          }
         }}
-        rows={8}
         spellCheck
         className={cn(
           _EDITOR_CLASSES,
-          "relative resize-y outline-none transition-colors focus:border-[var(--accent)]"
+          "relative resize-none overflow-hidden outline-none transition-colors focus:border-[var(--accent)]"
         )}
         style={{
           backgroundColor: "transparent",
           borderColor: "var(--border)",
-          color: "transparent",
+          color: "var(--text-primary)",
           caretColor: "var(--text-primary)",
+          minHeight: `${_EDITOR_MIN_ROWS * 1.625}em`,
         }}
       />
     </div>
