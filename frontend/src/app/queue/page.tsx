@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Inbox, PanelLeft, SearchX } from "lucide-react";
+import { AlertCircle, Inbox, PanelLeft, SearchX, X } from "lucide-react";
 
 import {
   Tooltip,
@@ -171,6 +171,31 @@ export default function QueuePage() {
     return emails[idx + 1]?.id ?? emails[idx - 1]?.id ?? null;
   };
 
+  // Optimistic resolve: the submit flow fires the Zendesk send in the
+  // background and advances the queue immediately (see onApprove), so a send
+  // that fails AFTER we've moved on can't rely on the selection-scoped banner
+  // below. We track failed sends here to raise a non-blocking, queue-level
+  // notice instead. The ticket itself is marked SEND_FAILED server-side and, as
+  // the queue applies no default status filter, stays visible in the list.
+  const [failedSends, setFailedSends] = useState<
+    { id: number; ticket: number | null }[]
+  >([]);
+  const noteSendFailed = (email: {
+    id: number;
+    zendesk_ticket_id?: number | null;
+  }) =>
+    setFailedSends((prev) => [
+      ...prev.filter((f) => f.id !== email.id),
+      { id: email.id, ticket: email.zendesk_ticket_id ?? null },
+    ]);
+  const clearSendFailed = (id: number) =>
+    setFailedSends((prev) => prev.filter((f) => f.id !== id));
+
+  // The queue-level notice lists failed sends for tickets the chair is NOT
+  // currently viewing — a selected-and-failed ticket shows the richer
+  // selection-scoped banner in the detail pane instead, so don't double up.
+  const unseenFailedSends = failedSends.filter((f) => f.id !== selectedEmailId);
+
   // Approve-then-send partial failure, scoped to the selected email: the approve
   // succeeded (its own state/error is out of scope here) but the follow-up send
   // to Zendesk failed. `sendMutation.variables.id` identifies which email the
@@ -288,6 +313,61 @@ export default function QueuePage() {
           </div>
         </div>
 
+        {unseenFailedSends.length > 0 && (
+          <div
+            className="px-4 py-3"
+            style={{ borderBottom: "1px solid var(--border-subtle)" }}
+          >
+            <div
+              className="flex items-start gap-3 rounded-xl border px-4 py-3 text-sm"
+              style={{
+                backgroundColor: "var(--danger-subtle)",
+                borderColor: "var(--danger)",
+                color: "var(--text-primary)",
+              }}
+              role="alert"
+            >
+              <AlertCircle
+                className="mt-0.5 h-5 w-5 shrink-0"
+                style={{ color: "var(--danger)" }}
+              />
+              <div className="min-w-0 flex-1">
+                <p>
+                  {unseenFailedSends.length === 1
+                    ? "A reply failed to send — it stays in the queue."
+                    : `${unseenFailedSends.length} replies failed to send — they stay in the queue.`}{" "}
+                  Open to retry:
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {unseenFailedSends.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setSelectedEmailId(f.id)}
+                      className="rounded-md px-2 py-0.5 text-xs font-medium transition-colors hover:opacity-80"
+                      style={{
+                        color: "var(--danger)",
+                        backgroundColor: "rgba(239, 68, 68, 0.12)",
+                      }}
+                    >
+                      {f.ticket != null ? `#${f.ticket}` : `Email ${f.id}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFailedSends([])}
+                aria-label="Dismiss send-failure notice"
+                className="shrink-0 rounded-md p-1 transition-colors hover:bg-[var(--surface)]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="min-h-0 flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
@@ -380,19 +460,30 @@ export default function QueuePage() {
                 },
                 {
                   onSuccess: () => {
-                    // Capture the neighbor NOW, before the send's refetch drops
-                    // this ticket, then advance to it once the send lands.
-                    const nextId = nextEmailId(selectedEmail.id);
+                    // Optimistic resolve: the approve (the local send gate)
+                    // passed, so jump to the next ticket NOW and let the Zendesk
+                    // send finish in the background — the chair never waits on
+                    // the round-trip. Capture the ticket + neighbor first (the
+                    // send's refetch will drop this row from the current view).
+                    const current = selectedEmail;
+                    const nextId = nextEmailId(current.id);
                     send(
                       {
-                        id: selectedEmail.id,
+                        id: current.id,
                         data: {
                           public: isPublic,
                           target_status: targetStatus,
                         },
                       },
-                      { onSuccess: () => setSelectedEmailId(nextId) }
+                      {
+                        onSuccess: () => clearSendFailed(current.id),
+                        // A background failure can't use the selection-scoped
+                        // banner (we've already advanced) — surface it in the
+                        // queue-level notice instead.
+                        onError: () => noteSendFailed(current),
+                      }
                     );
+                    setSelectedEmailId(nextId);
                   },
                 }
               )
@@ -414,12 +505,19 @@ export default function QueuePage() {
             sendError={sendErrorMessage}
             onRetrySend={() => {
               // Retry ONLY the send with the same visibility + status — never
-              // re-approve. `variables` holds the failed attempt's payload. On
-              // success, advance to the next ticket like a first-try send.
+              // re-approve. `variables` holds the failed attempt's payload. A
+              // deliberate retry stays on the ticket until it lands (unlike the
+              // optimistic first-try flow), so the chair sees the outcome; on
+              // success, clear the notice and advance like a first-try send.
               if (sendMutation.variables) {
-                const nextId = nextEmailId(selectedEmail.id);
+                const current = selectedEmail;
+                const nextId = nextEmailId(current.id);
                 send(sendMutation.variables, {
-                  onSuccess: () => setSelectedEmailId(nextId),
+                  onSuccess: () => {
+                    clearSendFailed(current.id);
+                    setSelectedEmailId(nextId);
+                  },
+                  onError: () => noteSendFailed(current),
                 });
               }
             }}

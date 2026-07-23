@@ -198,7 +198,7 @@ describe("approve → send chain", () => {
     expect(state.send).not.toHaveBeenCalled();
   });
 
-  it("5. approve ok + send fails → error banner, approve NOT rolled back", async () => {
+  it("5. approve ok + background send fails → queue-level notice, approve NOT rolled back", async () => {
     state.send.mockRejectedValue({ detail: "Zendesk write failed", status: 502 });
     const user = userEvent.setup();
     renderQueue();
@@ -206,15 +206,20 @@ describe("approve → send chain", () => {
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/approved locally/i);
-    expect(alert).toHaveTextContent(/not sent/i);
-    expect(alert).toHaveTextContent(/Zendesk write failed/i);
+    // Optimistic resolve advanced us off the ticket, so the failure surfaces in
+    // the queue-level notice (not the selection-scoped banner), naming the
+    // ticket so the chair can reopen it.
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent(/failed to send/i);
+    expect(notice).toHaveTextContent(/stays in the queue/i);
+    expect(
+      within(notice).getByRole("button", { name: /#21567/ })
+    ).toBeInTheDocument();
     // Approve fired exactly once and was never re-called / compensated.
     expect(state.approve).toHaveBeenCalledTimes(1);
   });
 
-  it("6. retry re-sends the same payload and clears the banner on success", async () => {
+  it("6. reopening a failed ticket from the notice retries with the same payload", async () => {
     state.send
       .mockRejectedValueOnce({ detail: "Zendesk write failed", status: 502 })
       .mockResolvedValueOnce({ status: "sent", send: { state: "sent" } });
@@ -223,22 +228,27 @@ describe("approve → send chain", () => {
     await selectEmail(user, "Deadline question");
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
-    const alert = await screen.findByRole("alert");
 
-    await user.click(within(alert).getByRole("button", { name: /retry/i }));
+    // Reopen the failed ticket from the queue-level notice.
+    const notice = await screen.findByRole("alert");
+    await user.click(within(notice).getByRole("button", { name: /#21567/ }));
+
+    // The selection-scoped banner (with Retry) now shows in the detail pane.
+    // Scope to the banner — EmailDetail also has a pipeline "Retry" button.
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/approved locally/i);
+    await user.click(within(banner).getByRole("button", { name: /retry/i }));
 
     // Re-sent with the SAME payload; approve was NOT called again.
     await waitFor(() => expect(state.send).toHaveBeenCalledTimes(2));
     expect(state.send.mock.calls[0]).toEqual(state.send.mock.calls[1]);
     expect(state.approve).toHaveBeenCalledTimes(1);
-    // Banner clears once the retry succeeds.
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
-  it("7. the error banner is scoped to the affected email only", async () => {
+  it("7. a background send failure shows a queue-level notice, not a scoped banner on the advanced-to email", async () => {
     state.emails = [
-      makeEmail({ id: 1, subject: "Deadline question" }),
-      makeEmail({ id: 2, subject: "Travel grant" }),
+      makeEmail({ id: 1, subject: "Deadline question", zendesk_ticket_id: 21567 }),
+      makeEmail({ id: 2, subject: "Travel grant", zendesk_ticket_id: 22001 }),
     ];
     state.send.mockRejectedValue({ detail: "Zendesk write failed", status: 502 });
     const user = userEvent.setup();
@@ -246,11 +256,18 @@ describe("approve → send chain", () => {
 
     await selectEmail(user, "Deadline question");
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
-    await screen.findByRole("alert"); // banner shows for email 1
 
-    // Switch to a different email → the failure banner must not follow.
-    await selectEmail(user, "Travel grant");
-    expect(screen.queryByRole("alert")).toBeNull();
+    // Optimistically advanced to the next ticket…
+    expect(
+      await screen.findByRole("heading", { name: /travel grant/i })
+    ).toBeInTheDocument();
+    // …and the failure surfaces in the queue-level notice naming the failed
+    // ticket (#21567), NOT as a scoped "approved locally" banner on email 2.
+    const notice = await screen.findByRole("alert");
+    expect(
+      within(notice).getByRole("button", { name: /#21567/ })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/approved locally/i)).toBeNull();
   });
 
   it("8. advances to the next ticket after a successful send", async () => {
