@@ -201,7 +201,10 @@ export default function QueuePage() {
             from collapsed. Its own provider: the rail's lives inside Sidebar,
             a sibling of <main>, so it isn't an ancestor of this button. */}
         <TooltipProvider>
-          <div className={cn("pt-4", filterColumnCollapsed ? "px-2" : "px-3")}>
+          {/* Constant px-2 in both states: the toggle stays flush-left at a
+              fixed 8px inset (no jump when the column width changes), matching
+              the nav rail's icon inset so the two line up vertically. */}
+          <div className="px-2 pt-4">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

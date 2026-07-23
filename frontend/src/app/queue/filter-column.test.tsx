@@ -221,6 +221,34 @@ describe("filter column — collapse toggle button (N4b)", () => {
 
 });
 
+describe("filter column — toggle stays flush-left in both states (BR3b)", () => {
+  /** The toggle's wrapper div (its direct DOM parent — Tooltip parts add no DOM). */
+  const toggleWrapper = (name: RegExp) =>
+    screen.getByRole("button", { name }).parentElement!;
+
+  it("uses a constant left inset when expanded", () => {
+    renderQueue();
+    const wrapper = toggleWrapper(/Hide filters/);
+
+    expect(wrapper.className).toContain("px-2");
+    // px-3 was the old expanded value that made the button jump between states.
+    expect(wrapper.className).not.toContain("px-3");
+  });
+
+  it("keeps the same inset when collapsed — button doesn't jump", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+    const expandedCls = toggleWrapper(/Hide filters/).className;
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+
+    const collapsedCls = toggleWrapper(/Show filters/).className;
+    expect(collapsedCls).toContain("px-2");
+    // Horizontal inset identical across states → no positional jump.
+    expect(collapsedCls).toBe(expandedCls);
+  });
+});
+
 describe("filter column — collapsed rendering (N4c)", () => {
   it("hides the filter panel when collapsed", async () => {
     const user = userEvent.setup();
