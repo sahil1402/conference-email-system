@@ -48,7 +48,7 @@ export default function QueuePage() {
   const { chairs, byId: chairsById } = useChairs();
 
   // Queue-list column: draggable + persisted width, and the sidebar slot the
-  // filters portal into (below the nav, above the "Melady Lab · USC" footer).
+  // filters portal into (below the nav, above the theme-toggle footer).
   const { slotEl } = useSidebarSlot();
   const { width: listWidth, isDragging, handleProps } = useResizableWidth(
     "confmail.queueListWidth",
@@ -290,7 +290,7 @@ export default function QueuePage() {
       </section>
 
       {/* The queue filters live in the sidebar (below the nav, above the
-          "Melady Lab · USC" footer). They render here — keeping the queue's
+          theme-toggle footer). They render here — keeping the queue's
           filter state — and portal into the sidebar slot when it exists. */}
       {slotEl &&
         createPortal(
