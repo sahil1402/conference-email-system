@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import { Inbox, SearchX } from "lucide-react";
+import { Inbox, PanelLeft, SearchX } from "lucide-react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useResizableWidth } from "@/hooks/useResizableWidth";
-import { useSidebarSlot } from "@/components/layout/SidebarSlot";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
 import { useQueueFacets } from "@/hooks/useQueueFacets";
 import type { EmailQueueParams, QueueFacetsParams } from "@/lib/api";
@@ -35,6 +41,20 @@ import { cn } from "@/lib/utils";
 
 type LaneFilter = "all" | "faq" | "human_review";
 
+/**
+ * Fixed chrome widths (px) used to work out how much room the list and detail
+ * panes actually have. Kept next to the markup that produces them so the two
+ * can't drift silently.
+ */
+/** Mirrors --rail-width in globals.css — keep the two in step. */
+const RAIL_WIDTH = 52;
+/** Filter column expanded: w-64 plus its 1px right border. */
+const FILTER_COL_EXPANDED = 256 + 1;
+/** Filter column collapsed: w-[52px] plus its 1px right border. */
+const FILTER_COL_COLLAPSED = 52 + 1;
+/** The drag handle between the list and the detail pane: w-1.5. */
+const DRAG_HANDLE_WIDTH = 6;
+
 export default function QueuePage() {
   const { status: streamStatus } = useEmailQueueStream();
   const { mutate: approve, isPending: isApproving } = useApproveEmail();
@@ -47,14 +67,39 @@ export default function QueuePage() {
   const { allowAutoSend } = useAppConfig();
   const { chairs, byId: chairsById } = useChairs();
 
-  // Queue-list column: draggable + persisted width, and the sidebar slot the
-  // filters portal into (below the nav, above the "Melady Lab · USC" footer).
-  const { slotEl } = useSidebarSlot();
+  // Filter column collapse state (N4a). Persisted so the chair's choice sticks
+  // across reloads, like the list width and the submit-as preferences. No
+  // visible effect yet — N4b adds the toggle button, N4c the collapsed render.
+  const [filterColumnCollapsed, setFilterColumnCollapsed] =
+    usePersistedState<boolean>("confmail.filterColumnCollapsed", false);
+  const toggleFilterColumn = () => setFilterColumnCollapsed((v) => !v);
+  const filterToggleLabel = filterColumnCollapsed
+    ? "Show filters"
+    : "Hide filters";
+
+  // Chrome that is never available to the list or the detail pane. Tracks the
+  // filter column's collapse state so collapsing actually hands the freed space
+  // back to the detail pane.
+  const reservedWidth =
+    RAIL_WIDTH +
+    (filterColumnCollapsed ? FILTER_COL_COLLAPSED : FILTER_COL_EXPANDED) +
+    DRAG_HANDLE_WIDTH;
+
+  // Queue-list column: draggable + persisted width. The viewport-aware bounds
+  // stop a width saved on a wide monitor from squeezing the detail pane when
+  // the same width is restored on a smaller screen.
   const { width: listWidth, isDragging, handleProps } = useResizableWidth(
     "confmail.queueListWidth",
     320,
     240,
-    640
+    640,
+    {
+      reservedWidth,
+      // Floor for the detail pane: below this, reading/editing a draft gets
+      // cramped. 440 is also the largest value that still lets the list keep
+      // its 240px minimum on a 1024px viewport (315 + 240 + 440 = 995).
+      minRemainingWidth: 440,
+    }
   );
 
   const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
@@ -140,8 +185,87 @@ export default function QueuePage() {
       } It was NOT sent — the approval stands; retry the send.`
     : null;
 
+  // Full-height minus the top bar so the split-pane fills the viewport without
+  // overflowing: the mobile bar below md (pt-14 = 3.5rem on <main>), the desktop
+  // bar at md+ (--topbar-height).
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden md:h-[calc(100vh-var(--topbar-height))]">
+      {/* FILTER COLUMN — page-owned. The filters used to portal into a slot in
+          the sidebar; they now render here, directly in the queue's own
+          layout, with the same page-held state. */}
+      <div
+        // Reflects the persisted collapse state. No visual effect yet — N4c
+        // makes the column actually render collapsed.
+        data-collapsed={filterColumnCollapsed}
+        className={cn(
+          "shrink-0 overflow-y-auto overflow-x-hidden transition-[width] duration-200",
+          // Collapsed: 36px button + px-2 either side = 52px, the same rhythm
+          // as the nav rail. overflow-x-hidden stops the panel (which mounts at
+          // full width) from flashing a scrollbar while the width animates.
+          filterColumnCollapsed ? "w-[52px]" : "w-64"
+        )}
+        style={{ borderRight: "1px solid var(--border)" }}
+      >
+        {/* Collapse toggle — rendered in BOTH states; it's the only way back
+            from collapsed. Its own provider: the rail's lives inside Sidebar,
+            a sibling of <main>, so it isn't an ancestor of this button. */}
+        <TooltipProvider>
+          {/* Constant px-2 in both states: the toggle stays flush-left at a
+              fixed 8px inset (no jump when the column width changes), matching
+              the nav rail's icon inset so the two line up vertically. */}
+          <div className="px-2 pt-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={toggleFilterColumn}
+                  aria-label={filterToggleLabel}
+                  aria-expanded={!filterColumnCollapsed}
+                  className={cn(
+                    "flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150",
+                    "hover:bg-[var(--surface-raised)]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                    "focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
+                  )}
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  <PanelLeft className="h-4 w-4" aria-hidden />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{filterToggleLabel}</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
+
+        {!filterColumnCollapsed && (
+        <QueueFilterPanel
+          search={search}
+          onSearchChange={setSearch}
+          laneFilter={laneFilter}
+          onLaneChange={setLaneFilter}
+          statusFilter={
+            statusFilter as "all" | "PENDING" | "DRAFT_GENERATED" | "APPROVED"
+          }
+          onStatusChange={setStatusFilter}
+          chairs={chairs}
+          chairFilter={chairFilter}
+          onChairChange={setChairFilter}
+          sources={sources}
+          sourceFilter={sourceFilter}
+          onSourceChange={(v) => {
+            setSourceFilter(v);
+            // A zendesk_status filter is meaningless once we scope to
+            // toy_dataset — clear it so the queue isn't silently emptied.
+            if (v === "toy_dataset") setZendeskStatusFilter(null);
+          }}
+          showStatusBar={showStatusBar}
+          byZendeskStatus={byZendeskStatus}
+          zendeskStatusFilter={zendeskStatusFilter}
+          onZendeskStatusSelect={setZendeskStatusFilter}
+        />
+        )}
+      </div>
+
       {/* LEFT PANE */}
       <aside
         className="flex shrink-0 flex-col"
@@ -311,42 +435,6 @@ export default function QueuePage() {
         )}
       </section>
 
-      {/* The queue filters live in the sidebar (below the nav, above the
-          "Melady Lab · USC" footer). They render here — keeping the queue's
-          filter state — and portal into the sidebar slot when it exists. */}
-      {slotEl &&
-        createPortal(
-          <QueueFilterPanel
-            search={search}
-            onSearchChange={setSearch}
-            laneFilter={laneFilter}
-            onLaneChange={setLaneFilter}
-            statusFilter={
-              statusFilter as
-                | "all"
-                | "PENDING"
-                | "DRAFT_GENERATED"
-                | "APPROVED"
-            }
-            onStatusChange={setStatusFilter}
-            chairs={chairs}
-            chairFilter={chairFilter}
-            onChairChange={setChairFilter}
-            sources={sources}
-            sourceFilter={sourceFilter}
-            onSourceChange={(v) => {
-              setSourceFilter(v);
-              // A zendesk_status filter is meaningless once we scope to
-              // toy_dataset — clear it so the queue isn't silently emptied.
-              if (v === "toy_dataset") setZendeskStatusFilter(null);
-            }}
-            showStatusBar={showStatusBar}
-            byZendeskStatus={byZendeskStatus}
-            zendeskStatusFilter={zendeskStatusFilter}
-            onZendeskStatusSelect={setZendeskStatusFilter}
-          />,
-          slotEl
-        )}
     </div>
   );
 }

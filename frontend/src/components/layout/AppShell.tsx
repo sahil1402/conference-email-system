@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Menu, Mail } from "lucide-react";
 
 import { Sidebar } from "./Sidebar";
-import { SidebarSlotProvider } from "./SidebarSlot";
+import { DesktopTopBar } from "./DesktopTopBar";
 
 /**
  * App chrome: fixed sidebar (desktop) / slide-in drawer (mobile) + a mobile top
@@ -14,7 +14,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <SidebarSlotProvider>
+    <>
       {/* Mobile top bar (hidden ≥md) */}
       <header
         className="fixed inset-x-0 top-0 z-30 flex h-14 items-center gap-3 px-4 md:hidden"
@@ -48,6 +48,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
+      {/* Desktop top bar (hidden < md; inverse of the mobile bar above). z-30
+          keeps it above scrolling page content but below the rail (z-40) and
+          Radix overlays (z-50), which must render over it. */}
+      <DesktopTopBar className="z-30" />
+
       {/* Backdrop (mobile, when drawer open) */}
       {mobileOpen && (
         <div
@@ -60,8 +65,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <Sidebar open={mobileOpen} onNavigate={() => setMobileOpen(false)} />
 
-      {/* Main content — offset past the sidebar on desktop, past the top bar on mobile */}
-      <main className="min-h-screen pt-14 md:ml-60 md:pt-0">{children}</main>
-    </SidebarSlotProvider>
+      {/* Main content — offset past the rail (left) and a top bar (top): the
+          mobile bar below md (pt-14), the desktop bar at md+ (--topbar-height). */}
+      <main className="min-h-screen pt-14 md:ml-[var(--rail-width)] md:pt-[var(--topbar-height)]">
+        {children}
+      </main>
+    </>
   );
 }

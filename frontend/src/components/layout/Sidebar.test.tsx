@@ -1,0 +1,249 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { Sidebar } from "./Sidebar";
+
+// usePathname drives active-item detection; swap it per test.
+let mockPathname = "/dashboard";
+vi.mock("next/navigation", () => ({
+  usePathname: () => mockPathname,
+}));
+
+/** Labels of NAV_ITEMS, in render order. */
+const NAV_LABELS = [
+  "Dashboard",
+  "Email Queue",
+  "Knowledge Base",
+  "Analytics",
+  "Auto-Replies",
+  "Audit Log",
+];
+
+beforeEach(() => {
+  mockPathname = "/dashboard";
+});
+
+describe("Sidebar (icon-only rail)", () => {
+  it("renders the brand mark as an icon only — no ConfMail title/subtitle text", () => {
+    const { container } = render(<Sidebar />);
+
+    // The brand text relocated to the top bar (BR3); it must not survive here
+    // in any form.
+    expect(screen.queryByText("ConfMail")).toBeNull();
+    expect(screen.queryByText(/Conference Email System/i)).toBeNull();
+
+    // The logo icon is still present, above the nav.
+    expect(container.querySelector("svg.lucide-mail")).not.toBeNull();
+  });
+
+  it("keeps the brand mark non-interactive (not a link/button)", () => {
+    const { container } = render(<Sidebar />);
+    const logo = container.querySelector("svg.lucide-mail");
+
+    expect(logo).not.toBeNull();
+    // No clickable ancestor around the logo — it never was a link.
+    expect(logo!.closest("a, button")).toBeNull();
+  });
+
+  it("renders one link per nav item, each named by its aria-label", () => {
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    for (const label of NAV_LABELS) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    expect(within(nav).getAllByRole("link")).toHaveLength(NAV_LABELS.length);
+  });
+
+  it("shows no visible text in the nav — icons only", () => {
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    // The accessible name comes from aria-label, not rendered text content.
+    for (const link of within(nav).getAllByRole("link")) {
+      expect(link).toHaveTextContent("");
+    }
+    expect(nav).toHaveTextContent("");
+  });
+
+  it("points each link at its route", () => {
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+      "href",
+      "/dashboard"
+    );
+    expect(
+      within(nav).getByRole("link", { name: "Email Queue" })
+    ).toHaveAttribute("href", "/queue");
+  });
+
+  it("marks the current route active and leaves the others inactive", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    const active = within(nav).getByRole("link", { name: "Email Queue" });
+    const inactive = within(nav).getByRole("link", { name: "Dashboard" });
+
+    // Active = filled accent square + accent glyph; inactive = no background,
+    // muted glyph. No left-border indicator (removed in N2f — see Sidebar.tsx).
+    expect(active.style.color).toBe("var(--accent)");
+    expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
+    expect(inactive.style.color).toBe("var(--text-secondary)");
+    expect(inactive.style.backgroundColor).toBe("");
+  });
+
+  it("uses no single-side border on the icon target (stays centred)", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    for (const label of ["Email Queue", "Dashboard"]) {
+      const link = within(nav).getByRole("link", { name: label });
+      // border-l-2 would consume 2px of the 36px box (border-box), shifting the
+      // icon 1px right on active items only.
+      expect(link.className).not.toContain("border-l");
+      expect(link.style.borderLeftColor).toBe("");
+    }
+  });
+
+  it("treats a nested route as active for its section", () => {
+    mockPathname = "/knowledge-base/policy_123";
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    expect(
+      within(nav).getByRole("link", { name: "Knowledge Base" }).style.color
+    ).toBe("var(--accent)");
+  });
+
+  it("gives inactive items a CSS hover class, not an inline-style handler", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const inactive = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Dashboard",
+    });
+
+    expect(inactive.className).toContain("hover:bg-[var(--surface-raised)]");
+  });
+
+  it("does not mutate inline styles on mouse enter/leave (handlers removed)", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const inactive = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Dashboard",
+    });
+
+    // The old imperative handlers wrote backgroundColor onto the element; with
+    // CSS hover there is nothing inline to change.
+    expect(inactive.style.backgroundColor).toBe("");
+    fireEvent.mouseEnter(inactive);
+    expect(inactive.style.backgroundColor).toBe("");
+    fireEvent.mouseLeave(inactive);
+    expect(inactive.style.backgroundColor).toBe("");
+  });
+
+  it("keeps the active treatment intact on hover, with no hover class applied", () => {
+    mockPathname = "/queue";
+    render(<Sidebar />);
+    const active = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Email Queue",
+    });
+
+    // Active items opt out of the hover background entirely…
+    expect(active.className).not.toContain("hover:bg-");
+
+    // …and hovering must not disturb the active background/colour.
+    fireEvent.mouseEnter(active);
+    expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
+    expect(active.style.color).toBe("var(--accent)");
+    fireEvent.mouseLeave(active);
+    expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
+  });
+
+  it("keeps aria-label and drops the native title stopgap", () => {
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    for (const label of NAV_LABELS) {
+      const link = within(nav).getByRole("link", { name: label });
+      expect(link).toHaveAttribute("aria-label", label);
+      expect(link).not.toHaveAttribute("title");
+    }
+  });
+
+  // One render per case: Radix keeps a closing tooltip mounted while the next
+  // opens (skip delay), so hovering several within a single test would match
+  // more than one tooltip at a time.
+  it.each(["Dashboard", "Knowledge Base", "Audit Log"])(
+    "shows the %s label in a tooltip on hover",
+    async (label) => {
+      const user = userEvent.setup();
+      render(<Sidebar />);
+
+      await user.hover(
+        within(screen.getByRole("navigation")).getByRole("link", {
+          name: label,
+        })
+      );
+
+      await waitFor(() =>
+        expect(screen.getByRole("tooltip")).toHaveTextContent(label)
+      );
+    }
+  );
+
+  it("shows the tooltip on keyboard focus", async () => {
+    render(<Sidebar />);
+    const link = within(screen.getByRole("navigation")).getByRole("link", {
+      name: "Dashboard",
+    });
+
+    fireEvent.focus(link);
+
+    await waitFor(() =>
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Dashboard")
+    );
+  });
+
+  it("portals tooltip content outside the scrolling rail so it can't be clipped", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+    const link = within(nav).getByRole("link", { name: "Dashboard" });
+
+    await user.hover(link);
+    const tip = await screen.findByRole("tooltip");
+
+    // The overflow-y-auto container that would otherwise clip the tooltip.
+    const scroller = nav.closest(".overflow-y-auto");
+    expect(scroller).not.toBeNull();
+
+    expect(scroller!.contains(tip)).toBe(false);
+    expect(nav.contains(tip)).toBe(false);
+    expect(document.body.contains(tip)).toBe(true);
+  });
+
+  it("calls onNavigate when a nav link is clicked (mobile drawer close)", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar onNavigate={onNavigate} />);
+
+    // Swallow the anchor's default navigation — jsdom can't navigate and would
+    // log "Not implemented: navigation". The React handler still runs first.
+    const swallow = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("click", swallow);
+    screen.getByRole("link", { name: "Analytics" }).click();
+    document.removeEventListener("click", swallow);
+
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+  });
+});
