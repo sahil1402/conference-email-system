@@ -488,6 +488,39 @@ async def test_reconcile_failure_does_not_fail_send(adb, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reconcile_db_failure_recovers_and_still_sends(adb, monkeypatch):
+    """If the reconcile poisons the session (a failed DB statement) and then
+    raises, the endpoint rolls back and STILL returns SENT — the reply is already
+    posted to Zendesk — and the optimistic bucket move stands."""
+    from sqlalchemy import text
+
+    email = await _seed(adb, zendesk_status="open")
+    fake = FakeSender(
+        outcome=SendOutcome(mode="internal_note", public=False, status_set="solved")
+    )
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+
+    async def _poison(db, ticket_id, **kwargs):
+        # Leave the AsyncSession in a pending-rollback state, then raise (as a
+        # real refresh_ticket DB failure would).
+        try:
+            await db.execute(text("SELECT * FROM does_not_exist"))
+        except Exception:
+            pass
+        raise RuntimeError("boom after poisoning the session")
+
+    monkeypatch.setattr(emails_api.zendesk_adapter, "refresh_ticket", _poison)
+
+    result = await emails_api.send_email_reply(
+        str(email.id),
+        emails_api.SendRequest(public=False, target_status="solved"),
+        adb,
+    )
+    assert result["status"] == EmailStatus.SENT.value   # recovered, not a 500
+    assert result["zendesk_status"] == "solved"          # optimistic move survived
+
+
+@pytest.mark.asyncio
 async def test_non_zendesk_email_still_501(adb, monkeypatch):
     email = await emails_api.email_repo.create_email(
         adb,

@@ -687,11 +687,14 @@ class ZendeskIngestAdapter:
         if existing is None:
             return None
         email_id = str(existing.id)
+        requester_id = existing.zendesk_requester_id
 
+        # Compute the base BEFORE creating the owned client so a provider-init
+        # failure can't leak an unclosed client.
         owns_client = client is None
+        base = self._provider_obj().base_url
         if owns_client:
             client = httpx.AsyncClient(timeout=60)
-        base = self._provider_obj().base_url
         try:
             ticket_data = await self._get(
                 client, base + TICKET_PATH.format(ticket_id=ticket_id), {}, sleep
@@ -709,22 +712,29 @@ class ZendeskIngestAdapter:
                 for c in comments_data.get("comments", [])
             ]
             existing_ids = await self.email_repo.get_thread_comment_ids(db, email_id)
+            # Append only NON-requester comments (our outbound reply + agent/admin
+            # notes). A genuinely new REQUESTER comment is deliberately left
+            # unstored so the poller's follow-up path still re-drafts it — storing
+            # it here would mark it "seen" and silently skip that reprocess.
             new_messages = [
-                m for m in messages if m.get("zendesk_comment_id") not in existing_ids
+                m
+                for m in messages
+                if m.get("zendesk_comment_id") not in existing_ids
+                and m.get("author_id") != requester_id
             ]
             await self.email_repo.add_thread_messages(db, email_id, new_messages)
-            await self.email_repo.apply_zendesk_fields(
-                db,
-                email_id,
-                {
-                    "zendesk_status": ticket.get("status"),
-                    "zendesk_updated_at": _parse_dt(ticket.get("updated_at")),
-                    "last_processed_comment_id": (
-                        self._max_comment_id(messages)
-                        or existing.last_processed_comment_id
-                    ),
-                },
-            )
+
+            # Reconcile the authoritative status/timestamp. Skip a missing status
+            # so an anomalous body can't null the optimistic bucket value.
+            fields: dict = {
+                "zendesk_updated_at": _parse_dt(ticket.get("updated_at")),
+                "last_processed_comment_id": (
+                    self._max_comment_id(messages) or existing.last_processed_comment_id
+                ),
+            }
+            if ticket.get("status") is not None:
+                fields["zendesk_status"] = ticket["status"]
+            await self.email_repo.apply_zendesk_fields(db, email_id, fields)
             return {
                 "zendesk_status": ticket.get("status"),
                 "new_messages": len(new_messages),

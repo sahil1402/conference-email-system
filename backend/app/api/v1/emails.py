@@ -714,17 +714,22 @@ async def send_email_reply(
     # then best-effort re-sync THIS ticket for the authoritative status + to append
     # the outbound comment to the thread. A re-sync failure must NEVER turn a
     # successful send into an error — the reply is already posted to Zendesk.
-    if set_status is not None:
-        await email_repo.apply_zendesk_fields(
-            db, email_id, {"zendesk_status": set_status}
-        )
     try:
+        if set_status is not None:
+            await email_repo.apply_zendesk_fields(
+                db, email_id, {"zendesk_status": set_status}
+            )
         await zendesk_adapter.refresh_ticket(db, int(email.zendesk_ticket_id))
     except Exception as exc:  # noqa: BLE001 - reconcile is best-effort
         logger.warning(
-            "post-send refresh of ticket %s failed (reply was sent): %s",
+            "post-send reconcile of ticket %s failed (reply was sent): %s",
             email.zendesk_ticket_id, exc,
         )
+        # A failed DB write inside the reconcile leaves the session in a
+        # pending-rollback state; clear it so the read below (and the rest of
+        # this request) can't raise PendingRollbackError. Any already-committed
+        # optimistic status write stands, so the bucket move persists.
+        await db.rollback()
 
     updated = await email_repo.get_email_by_id(db, email_id)
     result = _email_to_dict(updated)

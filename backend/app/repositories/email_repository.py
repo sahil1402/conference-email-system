@@ -12,6 +12,7 @@ to "not found" rather than an error.
 """
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -372,10 +373,32 @@ class EmailRepository:
         pk = _coerce_id(email_id)
         if pk is None or not messages:
             return []
-        rows = [EmailThreadMessage(email_id=pk, **data) for data in messages]
+        # Idempotent: drop comments already stored so a re-fetch of the same
+        # ticket (the background poll cycle vs the post-send single-ticket
+        # reconcile) can't double-insert and trip the unique zendesk_comment_id
+        # constraint. Callers already pre-filter; this backstops that and makes
+        # the method safe to call with an unfiltered batch. (NULL comment ids —
+        # not from Zendesk — are kept; NULLs don't collide under UNIQUE.)
+        existing = await self.get_thread_comment_ids(db, email_id)
+        fresh = [
+            data
+            for data in messages
+            if data.get("zendesk_comment_id") is None
+            or data.get("zendesk_comment_id") not in existing
+        ]
+        if not fresh:
+            return []
+        rows = [EmailThreadMessage(email_id=pk, **data) for data in fresh]
         db.add_all(rows)
-        await db.commit()
-        return rows
+        try:
+            await db.commit()
+            return rows
+        except IntegrityError:
+            # Ultra-rare genuine concurrent insert of the same comment (separate
+            # DB connections committing at once). The other writer won and already
+            # stored it, so recover the session and yield nothing new.
+            await db.rollback()
+            return []
 
     async def add_processing_result(
         self, db: AsyncSession, thread_message_id: int, record: dict

@@ -202,6 +202,67 @@ async def test_refresh_no_new_comments_is_noop_on_thread(adb):
 
 
 @pytest.mark.asyncio
+async def test_refresh_skips_new_requester_comment(adb):
+    """A genuinely-new REQUESTER comment is NOT appended by the reconcile — it's
+    left unstored so the poller's follow-up path still re-drafts it. Only our
+    non-requester reply is appended."""
+    email = await _seed_ticket_email(adb, ticket_id=781, requester_id=500, status="open")
+    ticket = {"id": 781, "status": "open", "requester_id": 500,
+              "updated_at": "2026-07-16T10:00:00Z"}
+    comments = {
+        "comments": [
+            _comment(1, 500, body="original"),
+            _comment(3, 500, body="a NEW requester follow-up", created="2026-07-16T09:30:00Z"),
+            _comment(2, 900, body="our reply", created="2026-07-16T10:00:00Z"),
+        ],
+        "users": [_user(500, "end-user"), _user(900, "agent")],
+    }
+    adapter = ZendeskIngestAdapter(provider=FakeProvider())
+
+    out = await adapter.refresh_ticket(
+        adb, 781, client=RefreshFakeClient(ticket, comments), sleep=_nosleep
+    )
+
+    assert out["new_messages"] == 1  # only our reply, not the requester follow-up
+    rows = (
+        await adb.execute(
+            select(EmailThreadMessage).where(EmailThreadMessage.email_id == email.id)
+        )
+    ).scalars().all()
+    ids = {r.zendesk_comment_id for r in rows}
+    assert 2 in ids       # our reply stored
+    assert 3 not in ids   # requester follow-up deliberately left for the poller
+
+
+@pytest.mark.asyncio
+async def test_add_thread_messages_is_idempotent(adb):
+    """A duplicate zendesk_comment_id (poller vs reconcile race) does not crash:
+    the batch degrades to per-row inserts, skipping the already-present one."""
+    email = await _seed_ticket_email(adb, ticket_id=782, requester_id=500)  # seeds comment 1
+    repo = EmailRepository()
+
+    def _msg(cid, body):
+        return {
+            "zendesk_comment_id": cid, "public": False, "author_id": 900,
+            "author_role": "agent", "plain_body": body, "html_body": None,
+            "created_at": datetime(2026, 7, 16, 10, 0, 0, tzinfo=timezone.utc),
+            "via_channel": "email",
+        }
+
+    # Batch [1 (already exists), 5 (new)] → no crash; only 5 inserted.
+    added = await repo.add_thread_messages(
+        adb, str(email.id), [_msg(1, "dup"), _msg(5, "new")]
+    )
+    assert [r.zendesk_comment_id for r in added] == [5]
+    rows = (
+        await adb.execute(
+            select(EmailThreadMessage).where(EmailThreadMessage.email_id == email.id)
+        )
+    ).scalars().all()
+    assert {r.zendesk_comment_id for r in rows} == {1, 5}
+
+
+@pytest.mark.asyncio
 async def test_refresh_unknown_ticket_returns_none(adb):
     """No local row maps to the ticket id → returns None, no HTTP performed."""
     client = RefreshFakeClient({"id": 999, "status": "open"}, {"comments": [], "users": []})
