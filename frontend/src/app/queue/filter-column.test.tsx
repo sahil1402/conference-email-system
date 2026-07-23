@@ -11,7 +11,7 @@
  * covered by their own unit tests and is not repeated here.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -138,6 +138,68 @@ describe("filter column — persisted collapse state (N4a)", () => {
     renderQueue();
     expect(column()).toHaveAttribute("data-collapsed", "true");
     expect(window.localStorage.getItem(KEY)).toBe("true");
+  });
+});
+
+describe("filter column — collapse toggle button (N4b)", () => {
+  const column = () => searchBox().closest<HTMLElement>("div.w-64")!;
+
+  it("renders the toggle, labelled for the action when expanded", () => {
+    renderQueue();
+
+    const button = screen.getByRole("button", { name: "Hide filters" });
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("flips the collapse state on click", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+    expect(column()).toHaveAttribute("data-collapsed", "false");
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+
+    expect(column()).toHaveAttribute("data-collapsed", "true");
+    expect(window.localStorage.getItem("confmail.filterColumnCollapsed")).toBe(
+      "true"
+    );
+  });
+
+  it("relabels itself once collapsed, and toggles back", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+
+    const button = screen.getByRole("button", { name: "Show filters" });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(button);
+
+    expect(column()).toHaveAttribute("data-collapsed", "false");
+    expect(screen.getByRole("button", { name: "Hide filters" })).toBeInTheDocument();
+  });
+
+  it("shows the action label in a tooltip on hover", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.hover(screen.getByRole("button", { name: "Hide filters" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Hide filters")
+    );
+  });
+
+  it("still renders the filter panel in full while collapsed (N4c changes this)", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: "Hide filters" }));
+
+    expect(column()).toHaveAttribute("data-collapsed", "true");
+    expect(searchBox()).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter by assigned chair")).toBeInTheDocument();
   });
 });
 

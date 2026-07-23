@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Inbox, SearchX } from "lucide-react";
+import { Inbox, PanelLeft, SearchX } from "lucide-react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useResizableWidth } from "@/hooks/useResizableWidth";
@@ -51,10 +58,10 @@ export default function QueuePage() {
   // visible effect yet — N4b adds the toggle button, N4c the collapsed render.
   const [filterColumnCollapsed, setFilterColumnCollapsed] =
     usePersistedState<boolean>("confmail.filterColumnCollapsed", false);
-  // Consumed by the toggle button in N4b; declared here so the state and its
-  // updater live together.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const toggleFilterColumn = () => setFilterColumnCollapsed((v) => !v);
+  const filterToggleLabel = filterColumnCollapsed
+    ? "Show filters"
+    : "Hide filters";
 
   // Queue-list column: draggable + persisted width. The viewport-aware bounds
   // stop a width saved on a wide monitor from squeezing the detail pane when
@@ -160,6 +167,33 @@ export default function QueuePage() {
         className="w-64 shrink-0 overflow-y-auto"
         style={{ borderRight: "1px solid var(--border)" }}
       >
+        {/* Collapse toggle. Its own provider: the rail's lives inside Sidebar,
+            a sibling of <main>, so it isn't an ancestor of this button. */}
+        <TooltipProvider>
+          <div className="px-3 pt-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={toggleFilterColumn}
+                  aria-label={filterToggleLabel}
+                  aria-expanded={!filterColumnCollapsed}
+                  className={cn(
+                    "flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150",
+                    "hover:bg-[var(--surface-raised)]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                    "focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
+                  )}
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  <PanelLeft className="h-4 w-4" aria-hidden />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{filterToggleLabel}</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
+
         <QueueFilterPanel
           search={search}
           onSearchChange={setSearch}
