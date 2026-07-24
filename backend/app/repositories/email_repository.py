@@ -11,7 +11,7 @@ arrive as path/query strings) and coerce internally; a non-numeric id resolves
 to "not found" rather than an error.
 """
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import String, cast, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -71,7 +71,9 @@ def _queue_conditions(
     server-side: the lane lives in the ``routing`` JSON column, ``chair_id`` /
     ``unassigned`` on the ``assigned_chair_id`` FK, ``status`` on the column,
     ``source`` / ``zendesk_status`` on their columns, and ``search`` is a
-    case-insensitive match on subject OR sender. ``zendesk_status="solved"`` is
+    case-insensitive substring match on subject, sender, OR zendesk_ticket_id
+    (a leading ``#`` is stripped first, so a ``#21567`` pasted from the UI badge
+    matches the numeric ticket id). ``zendesk_status="solved"`` is
     the combined solved+closed bucket (see _SOLVED_BUCKET_*); other statuses are
     exact-match.
     """
@@ -98,9 +100,24 @@ def _queue_conditions(
         else:
             conditions.append(Email.zendesk_status == zendesk_status)
     if search:
-        pattern = f"%{search}%"
+        # Strip a single leading "#" so a chair pasting "#21567" from the ticket
+        # badge matches the numeric zendesk_ticket_id. Applied to ALL three
+        # clauses (one shared pattern): a subject/sender that starts with "#" is
+        # effectively nonexistent, and stripping only broadens their substring
+        # match (never breaks it), so it's harmless there.
+        term = search[1:] if search.startswith("#") else search
+        pattern = f"%{term}%"
         conditions.append(
-            or_(Email.subject.ilike(pattern), Email.sender.ilike(pattern))
+            or_(
+                Email.subject.ilike(pattern),
+                Email.sender.ilike(pattern),
+                # zendesk_ticket_id is a BigInteger — cast to text so partial
+                # ticket-number typing does substring matching like the others.
+                # cast(..., String).ilike() is dialect-agnostic (SQLite default +
+                # Postgres): renders CAST(... AS VARCHAR) with LIKE/ILIKE. NULL
+                # ids cast to NULL and simply don't match.
+                cast(Email.zendesk_ticket_id, String).ilike(pattern),
+            )
         )
     return conditions
 
