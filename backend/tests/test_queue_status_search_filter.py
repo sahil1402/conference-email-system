@@ -31,6 +31,10 @@ _BASE_TIME = datetime(2026, 1, 1, 12, 0, 0)
 _N_RECENT = 22   # newest page: status DRAFT_GENERATED, assigned chair, plain subject
 _N_OLD = 3       # out-of-window: status ROUTED, unassigned, distinctive subject
 _FLAG = "ZZFLAG"
+# Ticket ids for the 3 old rows. 21567/21568 share the "215" prefix; 30001 does
+# not — so a "215" search proves substring (not exact-int) matching. None of
+# these digit-strings appears in any seeded subject/sender.
+_OLD_TICKET_IDS = (21567, 21568, 30001)
 
 
 @pytest_asyncio.fixture
@@ -58,6 +62,8 @@ async def ctx():
                     routing={"lane": "human_review"},
                     assigned_chair_id=None,
                     received_at=_BASE_TIME + timedelta(minutes=i),
+                    source="zendesk",
+                    zendesk_ticket_id=_OLD_TICKET_IDS[i],
                 )
             )
         # RECENT rows fill the newest page: DRAFT_GENERATED, assigned, plain subject.
@@ -131,3 +137,53 @@ async def test_generic_page_drops_all_matches_documenting_the_bug(ctx):
     assert [e for e in body["emails"] if e["status"] == "ROUTED"] == []
     assert [e for e in body["emails"] if _FLAG in e["subject"]] == []
     assert [e for e in body["emails"] if e["assigned_chair_id"] is None] == []
+
+
+async def test_search_matches_sender_case_insensitively(ctx):
+    # "old0" is in the sender (old0@univ.edu) but NOT the subject
+    # ("ZZFLAG old email 0" has no contiguous "old0"), so this isolates SENDER
+    # matching — the case discovery flagged as previously untested.
+    lower = await _get(ctx.client, search="old0")
+    upper = await _get(ctx.client, search="OLD0")
+    assert lower["total"] == 1
+    assert upper["total"] == 1  # case-insensitive
+    assert "old0" in lower["emails"][0]["sender"]
+
+
+async def test_search_matches_full_ticket_id(ctx):
+    body = await _get(ctx.client, search="21567")
+    assert body["total"] == 1
+    assert body["emails"][0]["zendesk_ticket_id"] == 21567
+
+
+async def test_search_matches_partial_ticket_id_substring(ctx):
+    # "215" is a substring of 21567 and 21568 but not 30001 — proves the
+    # cast-to-text ILIKE does substring matching, not exact-int matching.
+    body = await _get(ctx.client, search="215")
+    assert body["total"] == 2
+    assert sorted(e["zendesk_ticket_id"] for e in body["emails"]) == [21567, 21568]
+
+
+async def test_search_ticket_id_ignores_leading_hash(ctx):
+    plain = await _get(ctx.client, search="21567")
+    hashed = await _get(ctx.client, search="#21567")
+    assert hashed["total"] == plain["total"] == 1
+    assert hashed["emails"][0]["zendesk_ticket_id"] == 21567
+
+
+async def test_combined_status_and_ticket_id_search(ctx):
+    # The ticketed rows are ROUTED; status + ticket-id compose to narrow correctly.
+    match = await _get(ctx.client, status="ROUTED", search="21567")
+    assert match["total"] == 1
+    assert match["emails"][0]["zendesk_ticket_id"] == 21567
+    # A status the ticketed row doesn't have → no match, proving composition.
+    none = await _get(ctx.client, status="DRAFT_GENERATED", search="21567")
+    assert none["total"] == 0
+
+
+async def test_recent_rows_have_null_ticket_id_and_never_error(ctx):
+    # The 22 recent rows have NULL zendesk_ticket_id; a ticket-id search must not
+    # error on them (NULL casts to NULL → excluded), and they must not match.
+    body = await _get(ctx.client, search="21567")
+    assert body["total"] == 1
+    assert all(e["zendesk_ticket_id"] == 21567 for e in body["emails"])
