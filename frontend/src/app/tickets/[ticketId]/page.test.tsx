@@ -197,10 +197,14 @@ describe("TicketPage (/tickets/[ticketId])", () => {
     renderPage("21567");
 
     const trail = await screen.findByTestId("ticket-audit-trail");
+    // The activity list is collapsed by default — the count shows in the header,
+    // but the entry detail only renders once expanded.
+    const toggle = screen.getByRole("button", { name: /Activity \(1\)/ });
+    expect(trail).not.toHaveTextContent("classified");
+    await userEvent.setup().click(toggle);
     expect(trail).toHaveTextContent("classified");
     expect(trail).toHaveTextContent("pipeline");
     expect(trail).toHaveTextContent(/2026/);
-    expect(screen.getByText(/Activity \(1\)/)).toBeInTheDocument();
   });
 
   it("shows a loading indicator while the fetch is pending (C3)", async () => {

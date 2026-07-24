@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 /** One shortcut row: the key(s) on the left, what it does on the right. */
 const SHORTCUTS: { keys: string[]; label: string }[] = [
   { keys: ["Ctrl", "Alt", "S"], label: "approve" },
-  { keys: ["Ctrl", "Alt", "X"], label: "mark solved (no reply)" },
+  { keys: ["Ctrl", "Alt", "X"], label: "mark solved" },
   { keys: ["E"], label: "edit" },
   { keys: ["C"], label: "reassign" },
   { keys: ["R"], label: "reroute" },
@@ -51,9 +51,6 @@ export function ShortcutsHintPopover({ className }: ShortcutsHintPopoverProps) {
         >
           Keyboard shortcuts
         </p>
-        <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-          Work when an email is open and you&apos;re not typing in a field.
-        </p>
 
         <ul className="mt-3 flex flex-col gap-2">
           {SHORTCUTS.map(({ keys, label }) => (
@@ -62,7 +59,7 @@ export function ShortcutsHintPopover({ className }: ShortcutsHintPopoverProps) {
               className="flex items-center justify-between gap-3 text-xs"
               style={{ color: "var(--text-secondary)" }}
             >
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex shrink-0 items-center gap-1">
                 {keys.map((k, i) => (
                   <span key={k} className="inline-flex items-center gap-1">
                     {i > 0 && <span aria-hidden>+</span>}
@@ -70,7 +67,7 @@ export function ShortcutsHintPopover({ className }: ShortcutsHintPopoverProps) {
                   </span>
                 ))}
               </span>
-              {label}
+              <span className="text-right">{label}</span>
             </li>
           ))}
         </ul>

@@ -4,6 +4,7 @@ const CONFIG: Record<
   StreamStatus,
   { color: string; label: string; pulse: boolean }
 > = {
+  connecting: { color: "#8b91a8", label: "Connecting", pulse: true },
   live: { color: "#10b981", label: "Live", pulse: true },
   reconnecting: { color: "#f59e0b", label: "Reconnecting", pulse: true },
   polling: { color: "#8b91a8", label: "Polling", pulse: false },
