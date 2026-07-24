@@ -13,6 +13,7 @@ import type {
   RerouteRequest,
   SendRequest,
   SendResponse,
+  SetStatusRequest,
 } from "@/types";
 
 /** Optional filters for the queue fetch. `lane` scopes to a routing lane
@@ -104,6 +105,20 @@ export async function sendEmail(
   const { data: result } = await apiClient.post<SendResponse>(
     `/emails/${id}/send`,
     data ?? {}
+  );
+  return result;
+}
+
+/** POST /emails/{id}/set-status — set the ticket's Zendesk status (new/open/
+ * solved) WITHOUT sending a reply. Returns the updated email plus the status
+ * metadata. Transport/guard failures surface as the normalized ApiError. */
+export async function setEmailStatus(
+  id: number,
+  status: SetStatusRequest["status"]
+): Promise<SendResponse> {
+  const { data: result } = await apiClient.post<SendResponse>(
+    `/emails/${id}/set-status`,
+    { status }
   );
   return result;
 }

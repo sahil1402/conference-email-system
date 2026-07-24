@@ -6,3 +6,4 @@ export { SourceToggle } from "./SourceToggle";
 export { ZendeskStatusBar } from "./ZendeskStatusBar";
 export { ConversationThread } from "./ConversationThread";
 export { QueueFilterPanel } from "./QueueFilterPanel";
+export { SetTicketStatusButton, type NoReplyStatus } from "./SetTicketStatusButton";

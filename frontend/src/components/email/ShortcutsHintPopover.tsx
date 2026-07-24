@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 /** One shortcut row: the key(s) on the left, what it does on the right. */
 const SHORTCUTS: { keys: string[]; label: string }[] = [
   { keys: ["Ctrl", "Alt", "S"], label: "approve" },
+  { keys: ["Ctrl", "Alt", "X"], label: "mark solved (no reply)" },
   { keys: ["E"], label: "edit" },
   { keys: ["C"], label: "reassign" },
   { keys: ["R"], label: "reroute" },

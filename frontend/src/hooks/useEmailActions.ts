@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { approveEmail, ingestEmail, reassignChair, rerouteEmail, retryEmail, sendEmail } from "@/lib/api";
+import { approveEmail, ingestEmail, reassignChair, rerouteEmail, retryEmail, sendEmail, setEmailStatus } from "@/lib/api";
 import type {
   ApiError,
   ApproveRequest,
@@ -10,6 +10,7 @@ import type {
   RerouteRequest,
   SendRequest,
   SendResponse,
+  SetStatusRequest,
 } from "@/types";
 
 /** Invalidate the queries affected by any email mutation. */
@@ -49,6 +50,19 @@ export function useSendEmail() {
   const invalidate = useInvalidateEmailQueries();
   return useMutation<SendResponse, ApiError, { id: number; data?: SendRequest }>({
     mutationFn: ({ id, data }) => sendEmail(id, data),
+    onSuccess: invalidate,
+  });
+}
+
+/** Set the ticket's Zendesk status (new/open/solved) WITHOUT sending a reply. */
+export function useSetEmailStatus() {
+  const invalidate = useInvalidateEmailQueries();
+  return useMutation<
+    SendResponse,
+    ApiError,
+    { id: number; status: SetStatusRequest["status"] }
+  >({
+    mutationFn: ({ id, status }) => setEmailStatus(id, status),
     onSuccess: invalidate,
   });
 }

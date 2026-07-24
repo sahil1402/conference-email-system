@@ -22,6 +22,7 @@ import {
   useReassignChair,
   useRetryEmail,
   useSendEmail,
+  useSetEmailStatus,
 } from "@/hooks/useEmailActions";
 import { useChairs } from "@/hooks/useChairs";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -117,6 +118,7 @@ export function EmailWorkspace({
   const { mutate: reroute, isPending: isRerouting } = useRerouteEmail();
   const { mutateAsync: reassignChairAsync, isPending: isReassigning } =
     useReassignChair();
+  const { mutate: setStatus, isPending: isSettingStatus } = useSetEmailStatus();
   const { mutate: retry } = useRetryEmail();
   const { allowAutoSend } = useAppConfig();
   const { chairs, byId: chairsById } = useChairs();
@@ -243,15 +245,15 @@ export function EmailWorkspace({
   // navigating to /queue or a hard reload mounts a fresh workspace and drops the
   // in-memory notice — the ticket is still recoverable from the list by status.
   const [failedSends, setFailedSends] = useState<
-    { id: number; ticket: number | null }[]
+    { id: number; ticket: number | null; kind: "send" | "status" }[]
   >([]);
-  const noteSendFailed = (email: {
-    id: number;
-    zendesk_ticket_id?: number | null;
-  }) =>
+  const noteSendFailed = (
+    email: { id: number; zendesk_ticket_id?: number | null },
+    kind: "send" | "status" = "send"
+  ) =>
     setFailedSends((prev) => [
       ...prev.filter((f) => f.id !== email.id),
-      { id: email.id, ticket: email.zendesk_ticket_id ?? null },
+      { id: email.id, ticket: email.zendesk_ticket_id ?? null, kind },
     ]);
   const clearSendFailed = (id: number) =>
     setFailedSends((prev) => prev.filter((f) => f.id !== id));
@@ -260,6 +262,19 @@ export function EmailWorkspace({
   // currently viewing — a selected-and-failed ticket shows the richer
   // selection-scoped banner in the detail pane instead, so don't double up.
   const unseenFailedSends = failedSends.filter((f) => f.id !== highlightId);
+
+  // Notice wording adapts to what failed: a reply send vs. a no-reply status
+  // change (mixed → the neutral "update"). The send-only singular copy is kept
+  // verbatim ("failed to send — it stays in the queue").
+  const failAllSend = unseenFailedSends.every((f) => f.kind === "send");
+  const failAllStatus = unseenFailedSends.every((f) => f.kind === "status");
+  const failNoun = failAllSend ? "reply" : failAllStatus ? "status change" : "update";
+  const failNounPlural = failAllSend
+    ? "replies"
+    : failAllStatus
+      ? "status changes"
+      : "updates";
+  const failVerb = failAllSend ? "failed to send" : "failed";
 
   // Approve-then-send partial failure, scoped to the selected email: the approve
   // succeeded (its own state/error is out of scope here) but the follow-up send
@@ -397,8 +412,8 @@ export function EmailWorkspace({
               <div className="min-w-0 flex-1">
                 <p>
                   {unseenFailedSends.length === 1
-                    ? "A reply failed to send — it stays in the queue."
-                    : `${unseenFailedSends.length} replies failed to send — they stay in the queue.`}{" "}
+                    ? `A ${failNoun} ${failVerb} — it stays in the queue.`
+                    : `${unseenFailedSends.length} ${failNounPlural} ${failVerb} — they stay in the queue.`}{" "}
                   Open to retry:
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -516,6 +531,7 @@ export function EmailWorkspace({
                 isApproving={isApproving}
                 isRerouting={isRerouting}
                 isReassigning={isReassigning}
+                isSettingStatus={isSettingStatus}
                 chairs={chairs}
                 onApprove={(finalText, targetStatus, isPublic) =>
                   // Approve first; on success, release the draft to the ticket
@@ -565,6 +581,25 @@ export function EmailWorkspace({
                     data: { rerouted_by: "chair", reason, new_lane: "faq" },
                   })
                 }
+                onSetTicketStatus={(status) => {
+                  // Set the Zendesk status with NO reply, then advance by
+                  // navigating to the neighbour once it lands — same model as
+                  // approve/send. On failure we stay (the ticket is SEND_FAILED
+                  // server-side); if the chair later opens another ticket, the
+                  // failure lights up the queue-level notice (kind "status").
+                  const current = selectedEmail;
+                  const next = neighborEmail(current.id);
+                  setStatus(
+                    { id: current.id, status },
+                    {
+                      onSuccess: () => {
+                        clearSendFailed(current.id);
+                        onOpenTicket(next?.zendesk_ticket_id ?? null);
+                      },
+                      onError: () => noteSendFailed(current, "status"),
+                    }
+                  );
+                }}
                 onReassignChair={(chairId, reason) =>
                   reassignChairAsync({
                     id: selectedEmail.id,

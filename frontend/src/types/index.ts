@@ -36,6 +36,9 @@ export type EmailStatus =
   | "DRAFT_GENERATED"
   | "APPROVED"
   | "SENT"
+  // The ticket was resolved WITHOUT a reply (chair marked it solved). Distinct
+  // from SENT — nothing went to the requester.
+  | "SOLVED"
   | "ARCHIVED"
   | "approved"
   | "rerouted";
@@ -479,6 +482,15 @@ export interface SendRequest {
   /** Zendesk ticket status to set on send; null/omitted keeps the §4 default
    * (public → "solved", internal → unchanged). */
   target_status?: "open" | "pending" | "solved" | null;
+}
+
+/** SetStatusRequest — POST /emails/{id}/set-status body: set the Zendesk status
+ * WITHOUT sending a reply (backend app/api/v1/emails.py). */
+export interface SetStatusRequest {
+  /** The Zendesk status to set. Only "solved" has a keyboard shortcut. */
+  status: "new" | "open" | "solved";
+  /** Actor recorded in the audit log (defaults to "chair" backend-side). */
+  set_by?: string;
 }
 
 /** The `send` metadata block the backend attaches to a successful /send response. */

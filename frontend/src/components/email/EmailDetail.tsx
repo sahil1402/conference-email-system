@@ -36,6 +36,7 @@ import {
 import { PolicyDetailModal } from "./PolicyDetailModal";
 import { ConversationThread } from "./ConversationThread";
 import { SendVisibilityToggle } from "./SendVisibilityToggle";
+import { SetTicketStatusButton, type NoReplyStatus } from "./SetTicketStatusButton";
 import { ZendeskLinkButton } from "./ZendeskLinkButton";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { ShortcutsHintPopover } from "./ShortcutsHintPopover";
@@ -79,6 +80,11 @@ interface EmailDetailProps {
   ) => void;
   onReroute: (reason: string) => void;
   /**
+   * Set this ticket's Zendesk status (new / open / solved) WITHOUT sending a
+   * reply. `solved` is also wired to the Ctrl+Alt+X shortcut.
+   */
+  onSetTicketStatus: (status: NoReplyStatus) => void;
+  /**
    * Reassign this email to a chair (Phase 6A). Returns a promise so the pane can
    * show inline success / error feedback scoped to this email.
    */
@@ -94,6 +100,8 @@ interface EmailDetailProps {
   isApproving: boolean;
   isRerouting: boolean;
   isReassigning: boolean;
+  /** True while a no-reply status change (set-status) is in flight. */
+  isSettingStatus?: boolean;
   /**
    * Set when the Zendesk send FAILED after this email was already approved
    * locally (approve-then-send partial failure). Null when there's no such
@@ -116,12 +124,14 @@ export function EmailDetail({
   email,
   onApprove,
   onReroute,
+  onSetTicketStatus,
   onReassignChair,
   onRetry,
   allowAutoSend,
   isApproving,
   isRerouting,
   isReassigning,
+  isSettingStatus = false,
   sendError,
   onRetrySend,
   chairs,
@@ -177,6 +187,15 @@ export function EmailDetail({
   // the chair resolves the last [CHAIR: ...] token (backend enforces the same).
   const unresolvedPlaceholders = findPlaceholders(editedDraft);
   const canApprove = canAct && unresolvedPlaceholders.length === 0;
+
+  // "Set status, no reply" (new/open/solved) applies only to a live Zendesk
+  // ticket. It's independent of canApprove — it deliberately skips the reply, so
+  // unresolved [CHAIR: …] placeholders never block it. Closed tickets are
+  // immutable (backend also guards with 409).
+  const isZendeskTicket =
+    email.source === "zendesk" && email.zendesk_ticket_id != null;
+  const isClosedTicket = (email.zendesk_status ?? "").toLowerCase() === "closed";
+  const canSetStatus = canAct && isZendeskTicket && !isClosedTicket;
 
   // Current assignment (optimistic value wins until the refetch confirms it).
   const currentChairId = reassignedTo ?? email.assigned_chair_id;
@@ -237,6 +256,27 @@ export function EmailDetail({
         return; // don't hijack typing
       }
 
+      // Ctrl+Alt+X = mark solved WITHOUT a reply. A committing action takes a
+      // modifier combo (not a bare key), matched on e.code + AltGraph-guarded
+      // like Ctrl+Alt+S. Unlike approve it sits AFTER the typing guard: marking
+      // solved is destructive, so it must NOT fire while the chair is editing
+      // the draft. Placed before the blanket modifier guard below (which would
+      // otherwise reject it). Only fires for a live Zendesk ticket.
+      if (
+        e.code === "KeyX" &&
+        e.ctrlKey &&
+        e.altKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        !e.getModifierState("AltGraph") &&
+        canSetStatus &&
+        !isSettingStatus
+      ) {
+        e.preventDefault();
+        onSetTicketStatus("solved");
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key === "e") {
@@ -258,7 +298,18 @@ export function EmailDetail({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canAct, canApprove, isApproving, editedDraft, approveStatus, replyPublic, onApprove]);
+  }, [
+    canAct,
+    canApprove,
+    isApproving,
+    editedDraft,
+    approveStatus,
+    replyPublic,
+    onApprove,
+    canSetStatus,
+    isSettingStatus,
+    onSetTicketStatus,
+  ]);
 
   return (
     <div className="flex h-full flex-col">
@@ -561,6 +612,18 @@ export function EmailDetail({
                 disabled={isApproving}
               />
 
+              {/* Resolve the ticket's Zendesk status WITHOUT a reply. Only for a
+                  live Zendesk ticket; independent of the draft/placeholders since
+                  it sends nothing. Primary = solved (Ctrl+Alt+X); dropdown =
+                  new / open / solved. */}
+              {isZendeskTicket && (
+                <SetTicketStatusButton
+                  disabled={!canSetStatus}
+                  loading={isSettingStatus}
+                  onSetStatus={onSetTicketStatus}
+                />
+              )}
+
               <button
                 type="button"
                 disabled={isReassigning}
@@ -813,6 +876,7 @@ function HighlightedDraftEditor({
       <textarea
         ref={textareaRef}
         value={value}
+        aria-label="Draft reply"
         onChange={(e) => onChange(e.target.value)}
         onClick={(e) => {
           // Click anywhere inside a [CHAIR: …] token → select the whole token,
