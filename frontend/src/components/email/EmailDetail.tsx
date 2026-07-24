@@ -203,38 +203,38 @@ export function EmailDetail({
   // when an email is open). Ctrl+Alt+S = approve, E = edit (focus draft),
   // R = reroute, C = reassign.
   //
-  // No shortcut — including Ctrl+Alt+S — fires while focus is in a text field.
-  // The combo is still checked ahead of the blanket modifier guard (which would
-  // otherwise always block it), but it no longer bypasses the typing guard.
+  // Ctrl+Alt+S fires even while typing in the draft (so the chair can approve
+  // right after an edit); the single-key shortcuts never fire in a text field.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // Never hijack typing. This runs FIRST so it covers every shortcut: on
-      // AltGr layouts AltGr == Ctrl+Alt, so letting Ctrl+Alt+S through here
-      // would approve-and-send when the chair only meant to type a character.
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) {
-        return; // don't hijack typing
-      }
-
-      // Matched on e.code (physical key) rather than e.key, so the combo
-      // survives layouts where Ctrl+Alt (AltGr) alters the produced character.
-      // Checked before the blanket modifier guard below, which would otherwise
-      // reject it outright. canApprove/!isApproving are part of the condition ON
-      // PURPOSE: when we can't act we fall through WITHOUT preventDefault, so
-      // the keystroke isn't swallowed for nothing.
+      // Ctrl+Alt+S — approve. Checked BEFORE the typing guard, so it works while
+      // the draft textarea is focused. Matched on e.code (physical key) so it's
+      // layout-independent. On AltGr layouts AltGr == Ctrl+Alt, so we ALSO
+      // require getModifierState("AltGraph") === false: a real AltGr keystroke
+      // types its character normally (no preventDefault, no approve) instead of
+      // submitting. canApprove/!isApproving are in the condition ON PURPOSE —
+      // when we can't act we fall through WITHOUT preventDefault, so the
+      // keystroke isn't swallowed for nothing.
       if (
         e.code === "KeyS" &&
         e.ctrlKey &&
         e.altKey &&
         !e.metaKey &&
         !e.shiftKey &&
+        !e.getModifierState("AltGraph") &&
         canApprove &&
         !isApproving
       ) {
         e.preventDefault();
         onApprove(editedDraft, approveStatus, replyPublic);
         return;
+      }
+
+      // Single-key shortcuts (E/R/C) never hijack typing.
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) {
+        return; // don't hijack typing
       }
 
       if (e.metaKey || e.ctrlKey || e.altKey) return;
