@@ -138,12 +138,23 @@ export function EmailDetail({
 }: EmailDetailProps) {
   const lane = email.routing?.lane ?? null;
   const draft = email.draft;
+  const draftText = draft?.draft_text ?? "";
 
   // Chair-facing notes (7F): a newline-delimited blob → structured, severity-
   // aware items. Computed here so the section can be omitted entirely when empty.
   const chairNotes = parseChairNotes(draft?.notes_for_chair);
 
-  const [editedDraft, setEditedDraft] = useState(draft?.draft_text ?? "");
+  const [editedDraft, setEditedDraft] = useState(draftText);
+
+  // Adopt the server draft whenever it CHANGES — e.g. a redraft (Retry) finished
+  // and regenerated it. draft_text only changes server-side (local edits live in
+  // editedDraft and never write back into email.draft), so this refreshes the
+  // textarea to the new draft when a redraft completes, without clobbering an
+  // in-progress edit during normal viewing (a poll returning the same text is a
+  // no-op — the dependency is the string, not the refetched object).
+  useEffect(() => {
+    setEditedDraft(draftText);
+  }, [draftText]);
   // Submit-as status + reply visibility. Persisted (localStorage) so a chosen
   // status / toggle survives switching emails (this pane remounts per email) and
   // reloads — staying put until changed again. Owned here (not inside the child
@@ -481,6 +492,7 @@ export function EmailDetail({
                 value={editedDraft}
                 onChange={setEditedDraft}
                 textareaRef={textareaRef}
+                readOnly={email.redrafting}
               />
               {unresolvedPlaceholders.length > 0 && (
                 <p
@@ -819,10 +831,12 @@ function HighlightedDraftEditor({
   value,
   onChange,
   textareaRef,
+  readOnly = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
+  readOnly?: boolean;
 }) {
   useLayoutEffect(() => {
     const ta = textareaRef.current;
@@ -877,11 +891,14 @@ function HighlightedDraftEditor({
         ref={textareaRef}
         value={value}
         aria-label="Draft reply"
+        readOnly={readOnly}
         onChange={(e) => onChange(e.target.value)}
         onClick={(e) => {
           // Click anywhere inside a [CHAIR: …] token → select the whole token,
           // so the chair can type straight over it. Only on a plain click (a
-          // collapsed caret) — never hijack a manual drag-selection.
+          // collapsed caret) — never hijack a manual drag-selection. Skipped
+          // while read-only (redrafting) — there's nothing to type over.
+          if (readOnly) return;
           const ta = e.currentTarget;
           const pos = ta.selectionStart;
           if (pos !== ta.selectionEnd) return;
@@ -897,7 +914,8 @@ function HighlightedDraftEditor({
         spellCheck
         className={cn(
           _EDITOR_CLASSES,
-          "relative resize-none overflow-hidden outline-none transition-colors focus:border-[var(--accent)]"
+          "relative resize-none overflow-hidden outline-none transition-colors focus:border-[var(--accent)]",
+          readOnly && "cursor-not-allowed opacity-70"
         )}
         style={{
           backgroundColor: "transparent",

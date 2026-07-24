@@ -244,3 +244,41 @@ describe("EmailDetail — E/R/C typing guard unchanged", () => {
     ).toBe(false);
   });
 });
+
+describe("redraft (Retry) refresh", () => {
+  it("refreshes the textarea to the regenerated draft when a redraft completes", async () => {
+    state.current = makeEmail();
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const ui = () => (
+      <QueryClientProvider client={qc}>
+        <TicketPage params={{ ticketId: "21567" }} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui());
+    await waitForDetail();
+    expect(draftTextarea().value).toBe(DRAFT_TEXT);
+
+    // Redraft completes: the poll / stream delivers the regenerated draft on the
+    // SAME email id (no remount). The textarea must adopt it, not keep the stale
+    // one.
+    state.current = makeEmail({
+      draft: { draft_text: "REGENERATED DRAFT" } as never,
+    });
+    rerender(ui());
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("REGENERATED DRAFT")).toBeInTheDocument()
+    );
+    expect(screen.queryByDisplayValue(DRAFT_TEXT)).toBeNull();
+  });
+
+  it("keeps the draft textarea read-only while redrafting", async () => {
+    state.current = makeEmail({ redrafting: true });
+    renderTicket();
+    await waitForDetail();
+
+    expect(draftTextarea()).toHaveAttribute("readonly");
+  });
+});

@@ -51,9 +51,12 @@ function ensureConnected(queryClient: QueryClient): void {
   es.onopen = () => setStatus("live");
 
   es.onmessage = () => {
-    // Any lifecycle event → refresh the queue and analytics views.
+    // Any lifecycle event → refresh the queue and analytics views, plus the
+    // currently-open ticket detail (["emailByTicket", id]) so a background change
+    // like a completed redraft shows up immediately instead of on its 15s poll.
     client?.invalidateQueries({ queryKey: ["emailQueue"] });
     client?.invalidateQueries({ queryKey: ["analytics"] });
+    client?.invalidateQueries({ queryKey: ["emailByTicket"] });
   };
 
   es.onerror = () => {
