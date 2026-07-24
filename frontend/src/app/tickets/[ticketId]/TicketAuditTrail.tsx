@@ -28,6 +28,13 @@ export function TicketAuditTrail({
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  // Latest first. Sort by timestamp descending (ISO strings compare
+  // lexicographically); entries without a timestamp fall to the end. Copy so we
+  // never mutate the prop array.
+  const ordered = [...entries].sort((a, b) =>
+    (b.timestamp ?? "").localeCompare(a.timestamp ?? "")
+  );
+
   return (
     <div
       className="shrink-0 px-6 py-3"
@@ -57,7 +64,7 @@ export function TicketAuditTrail({
             </p>
           ) : (
             <ul className="space-y-1">
-              {entries.map((entry) => (
+              {ordered.map((entry) => (
                 <li
                   key={entry.id}
                   className="flex items-baseline gap-2 text-xs"

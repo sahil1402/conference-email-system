@@ -157,19 +157,38 @@ export function EmailWorkspace({
     }
   );
 
-  const [search, setSearch] = useState("");
-  const [laneFilter, setLaneFilter] = useState<LaneFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [chairFilter, setChairFilter] = useState<string>("all");
+  // Filters are PERSISTED (localStorage), not plain state: /queue and
+  // /tickets/[id] are separate routes that each mount this workspace, so a plain
+  // useState would reset every filter the moment the chair clicks into a ticket
+  // (a new URL remounts the component). Persisting keeps them across that
+  // navigation (and reloads), matching the filter-column / list-width prefs.
+  const [search, setSearch] = usePersistedState<string>("confmail.filterSearch", "");
+  const [laneFilter, setLaneFilter] = usePersistedState<LaneFilter>(
+    "confmail.filterLane",
+    "all"
+  );
+  const [statusFilter, setStatusFilter] = usePersistedState<string>(
+    "confmail.filterStatus",
+    "all"
+  );
+  const [chairFilter, setChairFilter] = usePersistedState<string>(
+    "confmail.filterChair",
+    "all"
+  );
   // Zendesk-specific filters. `sourceFilter` self-hides when only one source
   // exists; `zendeskStatusFilter` is null when no status is selected.
-  const [sourceFilter, setSourceFilter] = useState<string>("all");
-  const [zendeskStatusFilter, setZendeskStatusFilter] = useState<string | null>(
-    null
+  const [sourceFilter, setSourceFilter] = usePersistedState<string>(
+    "confmail.filterSource",
+    "all"
   );
+  const [zendeskStatusFilter, setZendeskStatusFilter] = usePersistedState<
+    string | null
+  >("confmail.filterZendeskStatus", null);
 
   // Debounce the search box so typing doesn't fire a request per keystroke.
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Seeded from the persisted search so a restored filter takes effect on mount
+  // without a 250ms unfiltered flash.
+  const [debouncedSearch, setDebouncedSearch] = useState(() => search.trim());
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
     return () => clearTimeout(t);
