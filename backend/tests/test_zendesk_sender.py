@@ -171,3 +171,68 @@ async def test_add_tags_409_raises_conflict():
     client = FakeAsyncClient(_ok_responder(tag_status=409))
     with pytest.raises(ZendeskConflictError):
         await _sender().add_tags(client, 123, ["ai_drafted"], "2026-07-15T10:00:00Z")
+
+
+@pytest.mark.asyncio
+async def test_set_status_only_posts_status_and_no_comment():
+    client = FakeAsyncClient(_ok_responder())
+    outcome = await _sender().set_status_only(
+        ticket_id=123,
+        status="solved",
+        tags=["ai_solved_no_reply"],
+        updated_stamp="2026-07-15T09:00:00Z",
+        client=client,
+    )
+
+    ticket_call = client.ticket_calls()[0]
+    # Status-only: the ticket update carries ONLY status — never a comment.
+    assert ticket_call["json"] == {"ticket": {"status": "solved"}}
+    assert "comment" not in ticket_call["json"]["ticket"]
+
+    tag_call = client.tag_calls()[0]
+    # safe_update uses the POST-update updated_at, same as the reply path.
+    assert tag_call["json"] == {
+        "tags": ["ai_solved_no_reply"],
+        "updated_stamp": "2026-07-15T10:00:00Z",
+        "safe_update": "true",
+    }
+    assert outcome.mode == "status_only"
+    assert outcome.public is False
+    assert outcome.status_set == "solved"
+    assert outcome.tags_added == ["ai_solved_no_reply"]
+    assert outcome.tag_conflict is False
+
+
+@pytest.mark.asyncio
+async def test_set_status_only_tag_conflict_surfaced_not_overwritten():
+    client = FakeAsyncClient(_ok_responder(tag_status=409))
+    outcome = await _sender().set_status_only(
+        ticket_id=123,
+        status="solved",
+        tags=["ai_solved_no_reply"],
+        updated_stamp="2026-07-15T09:00:00Z",
+        client=client,
+    )
+    # Status already set; tag conflict surfaced; NOT retried/overwritten.
+    assert outcome.tag_conflict is True
+    assert outcome.tags_added == []
+    assert len(client.tag_calls()) == 1
+
+
+@pytest.mark.asyncio
+async def test_set_status_write_failure_raises_and_skips_tags():
+    def responder(url, _json):
+        return FakeResponse(500, {})  # status write fails
+
+    client = FakeAsyncClient(responder)
+    with pytest.raises(ZendeskSendError) as exc:
+        await _sender().set_status_only(
+            ticket_id=123,
+            status="solved",
+            tags=["ai_solved_no_reply"],
+            updated_stamp="2026-07-15T09:00:00Z",
+            client=client,
+        )
+    assert exc.value.status_code == 500
+    # A failed status write must not proceed to tag the ticket.
+    assert client.tag_calls() == []

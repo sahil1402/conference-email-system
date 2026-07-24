@@ -76,6 +76,19 @@ class SendRequest(BaseModel):
     )
 
 
+class SetStatusRequest(BaseModel):
+    """Options for setting a ticket's Zendesk status WITHOUT sending a reply."""
+
+    status: Literal["new", "open", "solved"] = Field(
+        default="solved",
+        description="The Zendesk status to set (no reply is sent). "
+        "Only 'solved' has a keyboard shortcut; 'new'/'open' are button-only.",
+    )
+    set_by: str = Field(
+        default="chair", description="Actor recorded in the audit log."
+    )
+
+
 def _text_to_html(text: str) -> str:
     """Render a plain-text draft as minimal safe HTML (preferred body per §4).
 
@@ -767,6 +780,138 @@ async def send_email_reply(
         result["warning"] = (
             "Reply sent, but the state-tag write hit a 409 (ticket changed "
             "concurrently); the tag was NOT overwritten. Re-tag or re-sync."
+        )
+    return result
+
+
+@router.post("/{email_id}/set-status")
+async def set_ticket_status_no_reply(
+    email_id: str,
+    payload: SetStatusRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Set a Zendesk ticket's status (new / open / solved) WITHOUT sending a reply.
+
+    For the "no response warranted — just set the state" case: the ticket status
+    flips and nothing goes to the requester (no comment). ``solved`` is the common
+    "resolve it" action (and the only one with a keyboard shortcut); ``new`` /
+    ``open`` re-open or reset the ticket. Unlike ``/send`` there is no reply to
+    authorize, so the send gate does not apply — but the same closed-ticket guard,
+    audit trail, and best-effort re-sync do. A transport failure marks the email
+    ``send_failed`` (re-triable), mirroring ``/send``.
+
+    Local workflow status: a no-reply ``solved`` is terminal → ``SOLVED``; ``new`` /
+    ``open`` do not resolve the email, so its workflow status is left unchanged
+    (only ``zendesk_status`` — and thus the queue bucket — moves).
+    """
+    payload = payload or SetStatusRequest()
+    set_status = payload.status
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+
+    # No outbound transport for non-Zendesk emails (same as /send).
+    if (email.source or "") != EmailSource.ZENDESK.value or not email.zendesk_ticket_id:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={"message": "Status change authorized, but no Zendesk transport "
+                    "is configured for this source; nothing changed.",
+                    "source": email.source},
+        )
+
+    # Closed tickets are immutable (§2) — never attempt a write; report clearly.
+    if (email.zendesk_status or "").lower() == "closed":
+        await audit_repo.log_action(
+            db, email_id, "status_set_blocked_closed", payload.set_by,
+            {"zendesk_ticket_id": email.zendesk_ticket_id, "requested_status": set_status},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Zendesk ticket is closed and immutable; cannot "
+                    "write. Annotate via a follow-up ticket instead.",
+                    "zendesk_status": email.zendesk_status},
+        )
+
+    tags = [f"ai_status_{set_status}"]
+    updated_stamp = _iso_z(email.zendesk_updated_at)
+
+    try:
+        outcome = await zendesk_sender.set_status_only(
+            ticket_id=int(email.zendesk_ticket_id),
+            status=set_status,
+            tags=tags,
+            updated_stamp=updated_stamp,
+        )
+    except ZendeskSendError as exc:
+        # Transport failed — record the failure locally so it never reads as
+        # done, and keep the email re-triable (mirrors /send).
+        send_meta = {
+            "state": "failed",
+            "public": False,
+            "requested_status": set_status,
+            "error": str(exc),
+            "status_code": exc.status_code,
+        }
+        failed_draft = {**(email.draft or {}), "send": send_meta}
+        await email_repo.update_email_status(
+            db, email_id, EmailStatus.SEND_FAILED.value, {"draft": failed_draft}
+        )
+        await audit_repo.log_action(
+            db, email_id, "status_set_failed", payload.set_by, send_meta
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "Zendesk status write failed; email marked "
+                    "send_failed and left re-triable.", "error": str(exc)},
+        ) from exc
+
+    # Success — record what happened (no reply). A no-reply "solved" resolves the
+    # email locally (SOLVED); "new"/"open" don't, so leave the workflow status be.
+    send_meta = {
+        "state": "status_set_no_reply",
+        "mode": outcome.mode,
+        "public": outcome.public,
+        "status_set": outcome.status_set,
+        "tags_added": outcome.tags_added,
+        "tag_conflict": outcome.tag_conflict,
+    }
+    local_status = (
+        EmailStatus.SOLVED.value if set_status == "solved" else email.status
+    )
+    new_draft = {**(email.draft or {}), "send": send_meta}
+    await email_repo.update_email_status(
+        db, email_id, local_status, {"draft": new_draft}
+    )
+    await audit_repo.log_action(
+        db, email_id, "status_set_no_reply", payload.set_by, send_meta
+    )
+
+    # Reconcile local Zendesk state so the ticket moves buckets immediately
+    # (optimistic mirror), then best-effort re-sync for the authoritative state.
+    # A re-sync failure must NEVER fail the request — the status is already set
+    # in Zendesk.
+    try:
+        await email_repo.apply_zendesk_fields(
+            db, email_id, {"zendesk_status": set_status}
+        )
+        await zendesk_adapter.refresh_ticket(db, int(email.zendesk_ticket_id))
+    except Exception as exc:  # noqa: BLE001 - reconcile is best-effort
+        logger.warning(
+            "post-status-set reconcile of ticket %s failed (status was set): %s",
+            email.zendesk_ticket_id, exc,
+        )
+        await db.rollback()
+
+    updated = await email_repo.get_email_by_id(db, email_id)
+    result = _email_to_dict(updated)
+    result["send"] = send_meta
+    if outcome.tag_conflict:
+        result["warning"] = (
+            f"Ticket set to {set_status}, but the state-tag write hit a 409 "
+            "(ticket changed concurrently); the tag was NOT overwritten. Re-sync."
         )
     return result
 

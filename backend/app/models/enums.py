@@ -32,6 +32,11 @@ class EmailStatus(str, Enum):
     DRAFT_GENERATED = "DRAFT_GENERATED"
     APPROVED = "APPROVED"
     SENT = "SENT"
+    # The ticket was resolved WITHOUT sending a reply (the chair judged no
+    # response was warranted and just closed it). Distinct from SENT — nothing
+    # went to the requester. Like SEND_FAILED below, it's a plain string in the
+    # String(32) status column, so no migration is required to add it.
+    SOLVED = "SOLVED"
     # A transport (e.g. Zendesk write-back) was attempted but failed; the draft
     # is preserved and the send is re-triable. Stored as a plain string in the
     # String(32) status column, so no migration is required to add it.

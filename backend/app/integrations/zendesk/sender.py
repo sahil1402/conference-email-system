@@ -57,7 +57,7 @@ class ZendeskConflictError(ZendeskSendError):
 class SendOutcome(BaseModel):
     """Structured result of a write-back, returned to the endpoint layer."""
 
-    mode: str = Field(..., description='"internal_note" or "public_reply".')
+    mode: str = Field(..., description='"internal_note", "public_reply", or "status_only".')
     public: bool
     status_set: str | None = None
     tags_added: list[str] = Field(default_factory=list)
@@ -115,6 +115,31 @@ class ZendeskSender:
         if resp.status_code >= 400:
             raise ZendeskSendError(
                 f"Zendesk comment write failed (HTTP {resp.status_code}).",
+                status_code=resp.status_code,
+                body=_safe_text(resp),
+            )
+        return resp.json()
+
+    async def set_status(
+        self,
+        client: httpx.AsyncClient,
+        ticket_id: int,
+        *,
+        status: str,
+    ) -> dict:
+        """Update ONLY the ticket status — no comment is posted.
+
+        Used by the "mark solved, no reply" path: the ticket is resolved without
+        sending anything to the requester. Never sets ``ticket.tags`` here (that
+        overwrites the array — §4); tags go through :meth:`add_tags`. Returns the
+        updated ticket JSON.
+        """
+        resp = await self._put(
+            client, TICKET_PATH.format(ticket_id=ticket_id), {"ticket": {"status": status}}
+        )
+        if resp.status_code >= 400:
+            raise ZendeskSendError(
+                f"Zendesk status write failed (HTTP {resp.status_code}).",
                 status_code=resp.status_code,
                 body=_safe_text(resp),
             )
@@ -193,6 +218,48 @@ class ZendeskSender:
                     outcome.tags_added = list(tags)
                 except ZendeskConflictError:
                     # Reply already sent; do NOT retry-overwrite. Surface it.
+                    outcome.tag_conflict = True
+            return outcome
+        finally:
+            if owns_client:
+                await client.aclose()
+
+    async def set_status_only(
+        self,
+        *,
+        ticket_id: int,
+        status: str,
+        tags: list[str],
+        updated_stamp: str | None,
+        client: httpx.AsyncClient | None = None,
+    ) -> SendOutcome:
+        """Resolve a ticket by status change alone — NO comment is posted.
+
+        The "mark solved, no reply" transport. Sets the status first (the primary
+        action; a failure raises :class:`ZendeskSendError` before any tag is
+        touched), then merges the state tag with ``safe_update`` against the
+        ticket's *post-update* ``updated_at``. A tag 409 is reported
+        (``tag_conflict=True``), never silently overwritten — the status is
+        already set. Returns a :class:`SendOutcome` with ``mode="status_only"``.
+        """
+        owns_client = client is None
+        if owns_client:
+            client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS)
+        try:
+            ticket = await self.set_status(client, ticket_id, status=status)
+            fresh_stamp = (ticket.get("ticket") or {}).get("updated_at") or updated_stamp
+            outcome = SendOutcome(
+                mode="status_only",
+                public=False,
+                status_set=status,
+                ticket_updated_at=fresh_stamp,
+            )
+            if tags:
+                try:
+                    await self.add_tags(client, ticket_id, tags, fresh_stamp)
+                    outcome.tags_added = list(tags)
+                except ZendeskConflictError:
+                    # Status already set; do NOT retry-overwrite. Surface it.
                     outcome.tag_conflict = True
             return outcome
         finally:
