@@ -233,15 +233,15 @@ export function EmailWorkspace({
     return emails[idx + 1] ?? emails[idx - 1] ?? null;
   };
 
-  // Failed-send tracking. Advance is navigate-on-success (see onApprove), so a
-  // send that fails keeps us on the ticket, surfacing the selection-scoped
-  // banner below. This state ALSO closes the cross-navigation case: the
-  // workspace is the same mounted component across /tickets/[id] → /tickets/[id]
-  // navigation (only the route param changes), so `failedSends` persists — once
-  // the chair opens a DIFFERENT ticket, the failure (now for a ticket other than
-  // the one in view) lights up the queue-level notice here, with a link back.
-  // The email is also marked SEND_FAILED server-side and, as the queue applies
-  // no default status filter, stays visible in the list. Residual (accepted):
+  // Failed-send tracking. Send + set-status advance OPTIMISTICALLY (see
+  // onApprove / onSetTicketStatus): we navigate to the next ticket before the
+  // Zendesk write resolves, so a background failure can't use the selection-
+  // scoped banner (we've already moved on) — it lights up the queue-level notice
+  // here instead, naming the ticket with a link back. The workspace is the same
+  // mounted component across /tickets/[id] → /tickets/[id] navigation (only the
+  // route param changes), so `failedSends` persists across the advance. The
+  // email is also marked SEND_FAILED server-side and, as the queue applies no
+  // default status filter, stays visible in the list. Residual (accepted):
   // navigating to /queue or a hard reload mounts a fresh workspace and drops the
   // in-memory notice — the ticket is still recoverable from the list by status.
   const [failedSends, setFailedSends] = useState<
@@ -534,8 +534,12 @@ export function EmailWorkspace({
                 isSettingStatus={isSettingStatus}
                 chairs={chairs}
                 onApprove={(finalText, targetStatus, isPublic) =>
-                  // Approve first; on success, release the draft to the ticket
-                  // with the chosen visibility + status.
+                  // Approve first (the local send gate — placeholders etc.); on
+                  // success, advance to the next ticket OPTIMISTICALLY and fire
+                  // the Zendesk send in the BACKGROUND. The chair never waits on
+                  // the round-trip. A failed background send surfaces in the
+                  // queue-level notice (we've already moved on) and the ticket
+                  // stays SEND_FAILED server-side / visible in the list.
                   approve(
                     {
                       id: selectedEmail.id,
@@ -547,12 +551,8 @@ export function EmailWorkspace({
                     },
                     {
                       onSuccess: () => {
-                        // Release to Zendesk, then advance by NAVIGATING to the
-                        // neighbouring ticket once the send lands. On failure we
-                        // stay on this ticket so the scoped "approved locally —
-                        // retry the send" banner is actionable. Capture the ticket
-                        // + neighbour up front (the send's refetch drops this row
-                        // from the list).
+                        // Capture ticket + neighbour before advancing (the send's
+                        // refetch drops this row from the list).
                         const current = selectedEmail;
                         const next = neighborEmail(current.id);
                         send(
@@ -564,48 +564,57 @@ export function EmailWorkspace({
                             },
                           },
                           {
-                            onSuccess: () => {
-                              clearSendFailed(current.id);
-                              onOpenTicket(next?.zendesk_ticket_id ?? null);
-                            },
+                            onSuccess: () => clearSendFailed(current.id),
                             onError: () => noteSendFailed(current),
                           }
                         );
+                        onOpenTicket(next?.zendesk_ticket_id ?? null);
                       },
                     }
                   )
                 }
-                onReroute={(reason) =>
-                  reroute({
-                    id: selectedEmail.id,
-                    data: { rerouted_by: "chair", reason, new_lane: "faq" },
-                  })
-                }
+                onReroute={(reason) => {
+                  // Rerouting dispatches the ticket to another lane → advance to
+                  // the next once it lands (local write, no Zendesk round-trip).
+                  const next = neighborEmail(selectedEmail.id);
+                  reroute(
+                    {
+                      id: selectedEmail.id,
+                      data: { rerouted_by: "chair", reason, new_lane: "faq" },
+                    },
+                    { onSuccess: () => onOpenTicket(next?.zendesk_ticket_id ?? null) }
+                  );
+                }}
                 onSetTicketStatus={(status) => {
-                  // Set the Zendesk status with NO reply, then advance by
-                  // navigating to the neighbour once it lands — same model as
-                  // approve/send. On failure we stay (the ticket is SEND_FAILED
-                  // server-side); if the chair later opens another ticket, the
-                  // failure lights up the queue-level notice (kind "status").
+                  // Optimistic: advance to the next ticket immediately and write
+                  // the status to Zendesk in the BACKGROUND (no waiting on the
+                  // round-trip). A failed write surfaces in the queue-level notice
+                  // (kind "status"); the ticket stays SEND_FAILED / in the list.
                   const current = selectedEmail;
                   const next = neighborEmail(current.id);
                   setStatus(
                     { id: current.id, status },
                     {
-                      onSuccess: () => {
-                        clearSendFailed(current.id);
-                        onOpenTicket(next?.zendesk_ticket_id ?? null);
-                      },
+                      onSuccess: () => clearSendFailed(current.id),
                       onError: () => noteSendFailed(current, "status"),
                     }
                   );
+                  onOpenTicket(next?.zendesk_ticket_id ?? null);
                 }}
-                onReassignChair={(chairId, reason) =>
-                  reassignChairAsync({
+                onReassignChair={(chairId, reason) => {
+                  // Handing the ticket to another chair → advance on success.
+                  // Still returns the promise so EmailDetail's inline reason panel
+                  // shows success/error; a rejection skips the advance and keeps
+                  // the chair on the ticket with the error.
+                  const next = neighborEmail(selectedEmail.id);
+                  return reassignChairAsync({
                     id: selectedEmail.id,
                     data: { reassigned_by: "chair", new_chair_id: chairId, reason },
-                  })
-                }
+                  }).then((result) => {
+                    onOpenTicket(next?.zendesk_ticket_id ?? null);
+                    return result;
+                  });
+                }}
                 onRetry={() => retry(selectedEmail.id)}
                 allowAutoSend={allowAutoSend}
                 sendError={sendErrorMessage}

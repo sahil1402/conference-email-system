@@ -213,7 +213,7 @@ describe("approve → send chain (on the ticket route)", () => {
     expect(state.push).not.toHaveBeenCalled(); // no advance on a failed approve
   });
 
-  it("5. send fails → stay on the ticket with the scoped banner, approve NOT rolled back, no advance", async () => {
+  it("5. optimistically advances even when the background send fails", async () => {
     state.send.mockRejectedValue({ detail: "Zendesk write failed", status: 502 });
     const user = userEvent.setup();
     renderTicket();
@@ -221,12 +221,12 @@ describe("approve → send chain (on the ticket route)", () => {
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
-    // Scoped "approved locally, retry the send" banner shows on this ticket.
-    const banner = await screen.findByText(/approved locally/i);
-    expect(banner).toBeInTheDocument();
-    // Approve fired once, was not compensated, and we did NOT navigate away.
+    // Optimistic: we advance to the neighbour the instant approve lands and run
+    // the send in the background, so a failing send does NOT block the advance —
+    // it surfaces in the queue-level notice once on another ticket (see the
+    // cross-navigation test). Approve fired once and was never rolled back.
+    await waitFor(() => expect(state.push).toHaveBeenCalledWith("/tickets/22001"));
     expect(state.approve).toHaveBeenCalledTimes(1);
-    expect(state.push).not.toHaveBeenCalled();
   });
 
   it("6. retrying the send from the banner re-sends the same payload, then advances", async () => {
@@ -288,9 +288,9 @@ describe("approve → send chain (on the ticket route)", () => {
 
     await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
-    // Send failed → we STAY on #21567 with the scoped banner; no advance.
-    await screen.findByText(/approved locally/i);
-    expect(state.push).not.toHaveBeenCalled();
+    // Optimistic advance fired immediately (we don't wait on the send); the send
+    // then fails in the background.
+    await waitFor(() => expect(state.push).toHaveBeenCalledWith("/tickets/22001"));
 
     // Chair opens a DIFFERENT ticket (#22001). The workspace persists.
     state.current = makeEmail({ id: 2, subject: "Travel grant", zendesk_ticket_id: 22001 });
@@ -307,5 +307,20 @@ describe("approve → send chain (on the ticket route)", () => {
     });
     // And the scoped "approved locally" banner is no longer shown (we're on #22001).
     expect(screen.queryByText(/approved locally/i)).toBeNull();
+  });
+
+  it("9. advances WITHOUT waiting for the send to resolve (optimistic)", async () => {
+    // A send that never settles during the test: if the advance waited on the
+    // round-trip, push would never fire. Optimism = we advance anyway, with the
+    // send still in flight.
+    state.send.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    renderTicket();
+    await waitForDetail();
+
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
+
+    await waitFor(() => expect(state.push).toHaveBeenCalledWith("/tickets/22001"));
+    expect(state.send).toHaveBeenCalledTimes(1); // fired, still pending
   });
 });

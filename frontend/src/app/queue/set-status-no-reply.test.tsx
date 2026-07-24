@@ -180,7 +180,7 @@ describe("set status, no reply (on the ticket route)", () => {
     expect(state.setStatus).not.toHaveBeenCalled();
   });
 
-  it("a failed status change stays on the ticket (no advance)", async () => {
+  it("advances optimistically even if the status write fails", async () => {
     state.setStatus.mockRejectedValue({ detail: "Zendesk write failed", status: 502 });
     const user = userEvent.setup();
     renderTicket();
@@ -188,8 +188,24 @@ describe("set status, no reply (on the ticket route)", () => {
 
     await user.click(screen.getByRole("button", { name: /mark solved · no reply/i }));
 
-    await waitFor(() => expect(state.setStatus).toHaveBeenCalledTimes(1));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(state.push).not.toHaveBeenCalled(); // stayed put on failure
+    // Optimistic: we advance immediately and write in the background, so a
+    // failing write does NOT block the advance (it surfaces in the queue notice
+    // once on another ticket).
+    await waitFor(() => expect(state.setStatus).toHaveBeenCalledWith(1, "solved"));
+    await waitFor(() => expect(state.push).toHaveBeenCalledWith("/tickets/22001"));
+  });
+
+  it("advances WITHOUT waiting for the status write to resolve (optimistic)", async () => {
+    // A write that never settles: if advance waited on it, push would never
+    // fire. Optimism = we advance anyway, with the write still in flight.
+    state.setStatus.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    renderTicket();
+    await waitForDetail();
+
+    await user.click(screen.getByRole("button", { name: /mark solved · no reply/i }));
+
+    await waitFor(() => expect(state.push).toHaveBeenCalledWith("/tickets/22001"));
+    expect(state.setStatus).toHaveBeenCalledTimes(1); // fired, still pending
   });
 });
