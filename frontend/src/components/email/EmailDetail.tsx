@@ -1135,7 +1135,7 @@ function PolicyCitations({
   let body: ReactNode;
   if (chunks && chunks.length > 0) {
     body = (
-      <div className="space-y-3 pt-1">
+      <div className="space-y-1 pt-1">
         {/* Render EVERY chunk the API returned. This used to be
             `chunks.slice(0, 3)`, written when the grounding set could only ever
             be the retriever's top-k. Manual invoke appends the chair's forced
@@ -1248,10 +1248,20 @@ function PolicyCitations({
 }
 
 /**
- * A retrieved-chunk card. The whole card is a button: clicking (or Enter/Space)
- * opens the full-detail modal (source, id, tags, full text). Content is clamped
- * to a 3-line preview here; the modal carries the complete text, so no separate
- * inline expander is needed (and nesting a button inside a button is invalid).
+ * A retrieved-chunk row — deliberately COMPACT: one line per policy.
+ *
+ * This panel used to render a tall card per chunk (title + category badge + a
+ * 3-line body preview). That markup existed for weeks but was unreachable: the
+ * API did not serialize `retrieved_chunks` until 2a, so every ticket fell
+ * through to the ID-pill fallback below. 2a populated the data and the tall
+ * cards appeared for the first time, quadrupling the panel's height. Chairs
+ * asked for the old density back.
+ *
+ * The body preview is gone (the modal has the full text, which is why the whole
+ * row is a button — and why no inline expander is added: nesting a button in a
+ * button is invalid). Titles are kept rather than reverting to raw policy ids,
+ * since that information only became available with 2a and reads far better
+ * than `policy_186`.
  */
 function CitationCard({
   chunk,
@@ -1273,41 +1283,43 @@ function CitationCard({
           ? `View policy ${chunk.title || chunk.policy_id} (added by you)`
           : `View policy ${chunk.title || chunk.policy_id}`
       }
-      className="block w-full rounded-lg border p-3 text-left outline-none transition-colors hover:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      className="flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left outline-none transition-colors hover:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       style={{
-        // A forced card is accented so it reads as chair-added at a glance;
+        // A forced row is accented so it reads as chair-added at a glance;
         // colour alone isn't the signal — the "Added by you" badge carries it
         // for anyone who can't distinguish the border.
         borderColor: isForced ? "var(--accent)" : "var(--border-subtle)",
         backgroundColor: isForced ? "var(--accent-subtle)" : "var(--surface-raised)",
       }}
     >
-      <div className="mb-1 flex items-start justify-between gap-2">
-        <span
-          className="text-sm font-semibold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {chunk.title || chunk.policy_id}
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          {isForced && (
-            <Badge variant="accent" size="sm">
-              Added by you
-            </Badge>
-          )}
-          {chunk.category && (
-            <Badge variant="neutral" size="sm">
-              {chunk.category}
-            </Badge>
-          )}
-        </span>
-      </div>
-      <p
-        className="text-xs leading-relaxed line-clamp-3"
-        style={{ color: "var(--text-secondary)" }}
+      <FileText
+        className="h-3.5 w-3.5 shrink-0"
+        style={{ color: "var(--text-muted)" }}
+        aria-hidden
+      />
+      {/* Title + category share ONE truncating line, so the category never adds
+          height — it is inline muted text, not a badge. `category` is nullable
+          (String(64), and the KB Add-Policy form sends `category.trim() || null`
+          for an empty box), so a chair-added policy legitimately may have none:
+          in that case the whole "· category" segment is omitted rather than
+          rendering "· null". */}
+      <span
+        className="min-w-0 flex-1 truncate text-xs"
+        style={{ color: "var(--text-primary)" }}
       >
-        {chunk.content}
-      </p>
+        <span className="font-medium">{chunk.title || chunk.policy_id}</span>
+        {chunk.category?.trim() && (
+          <span style={{ color: "var(--text-muted)" }}>
+            {" · "}
+            {chunk.category.trim()}
+          </span>
+        )}
+      </span>
+      {isForced && (
+        <Badge variant="accent" size="sm">
+          Added by you
+        </Badge>
+      )}
     </button>
   );
 }
