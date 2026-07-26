@@ -491,3 +491,121 @@ async def test_sweep_skips_resolved_but_sweeps_active(session, monkeypatch):
     ).scalars().all()
     assert len(resolved) == 2
     assert all(t.draft["draft_text"] == "old" for t in resolved)
+
+
+# ---------------------------------------------------------------------------
+# Forced-policy preservation across the sweep (3e)
+# ---------------------------------------------------------------------------
+# A chair's manual invoke must survive an unrelated KB edit. The sweep RE-RESOLVES
+# the key through the orchestrator's shared resolver rather than copying it, so the
+# active-status rule is re-checked every time.
+from app.api.v1.emails import _forced_policy_applied  # noqa: E402
+from app.db.models import PolicyDocument  # noqa: E402
+
+
+async def _add_policy(session, key, *, status="active"):
+    session.add(PolicyDocument(policy_key=key, title=f"T {key}", content=f"Body {key}",
+                               category="c", visibility="internal", status=status))
+    await session.commit()
+
+
+async def _row(session):
+    return (await session.execute(select(Email))).scalars().first()
+
+
+async def test_active_forced_policy_survives_the_sweep(session, monkeypatch):
+    """The forced policy is re-applied, so the gate sees NO change at all."""
+    await _add_policy(session, "int_forced")
+    session.add(_open_email(
+        retrieved_ids=["policy_101", "int_forced"], forced_policy_key="int_forced"
+    ))
+    await session.commit()
+
+    # Ranked retrieval alone returns only policy_101 — the forced one must be re-added.
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_101"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    # Re-applied ⇒ fresh set == stored set ⇒ no spurious re-draft.
+    assert stats["unaffected"] == 1
+    assert stats["redrafted"] == 0
+    row = await _row(session)
+    assert row.retrieval_context["forced_policy_key"] == "int_forced"
+    assert "int_forced" in row.retrieval_context["retrieved_ids"]
+    assert _forced_policy_applied(row) is True
+
+
+async def test_forced_policy_survives_a_genuine_redraft(session, monkeypatch):
+    """When the ranked set really moves, the forced policy still carries forward."""
+    await _add_policy(session, "int_forced")
+    session.add(_open_email(
+        retrieved_ids=["policy_101", "int_forced"], forced_policy_key="int_forced"
+    ))
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    assert stats["redrafted"] == 1
+    row = await _row(session)
+    ctx = row.retrieval_context
+    assert ctx["retrieved_ids"] == ["policy_999", "int_forced"]
+    assert ctx["forced_policy_key"] == "int_forced"
+    assert _forced_policy_applied(row) is True
+
+
+async def test_forced_policy_retired_since_forcing_is_dropped(session, monkeypatch):
+    """Item 2: the active rule falls out of reusing the shared resolver."""
+    await _add_policy(session, "int_gone", status="inactive")
+    session.add(_open_email(
+        retrieved_ids=["policy_101", "int_gone"], forced_policy_key="int_gone"
+    ))
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_101"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    # Grounding genuinely changed (the policy left) → a real re-draft.
+    assert stats["redrafted"] == 1
+    row = await _row(session)
+    ctx = row.retrieval_context
+    assert "int_gone" not in ctx["retrieved_ids"]      # NOT forced back in
+    assert ctx["forced_policy_key"] == "int_gone"      # but remembered…
+    assert _forced_policy_applied(row) is False        # …and reported as skipped
+
+
+async def test_no_forced_key_sweep_is_unchanged(session, monkeypatch):
+    """REGRESSION (item 3): the normal path keeps EXACTLY its five ctx keys."""
+    session.add(_open_email())
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_999"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    assert stats["redrafted"] == 1
+    ctx = (await _row(session)).retrieval_context
+    assert set(ctx) == {"query", "intent", "prior_intent", "retrieved_ids", "chunk_hash"}
+    assert "forced_policy_key" not in ctx
+    assert _forced_policy_applied(await _row(session)) is None
+
+
+async def test_no_forced_key_gate_still_skips_unaffected(session, monkeypatch):
+    """REGRESSION (item 4): the top-k SET gate is untouched for normal tickets."""
+    session.add(_open_email())
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever", lambda: _StubRetriever(["policy_101"])
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+    assert stats == {
+        "open": 1, "redrafted": 0, "skipped_edited": 0,
+        "skipped_no_context": 0, "skipped_contended": 0, "unaffected": 1,
+    }

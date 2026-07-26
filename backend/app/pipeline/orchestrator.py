@@ -125,6 +125,67 @@ def _append_draft_history(
     record["draft"] = new_draft
 
 
+async def resolve_forced_chunk(
+    db: AsyncSession,
+    policy_key: str,
+    already: list[RetrievedChunk],
+    policy_repo: PolicyRepository | None = None,
+) -> RetrievedChunk | None:
+    """Resolve a chair-forced policy key into an extra grounding chunk.
+
+    Module-level so the orchestrator (first draft / manual redraft) and the
+    re-evaluation sweep share ONE implementation of the forcing rule — the
+    active-status check below must never drift between those two paths.
+
+    Returns None (never raises) when the key is unknown, is not ACTIVE, or is
+    already in the retrieved set — the caller then proceeds with normal
+    retrieval only, so a bad key degrades the draft's grounding rather than
+    failing the whole redraft.
+
+    ACTIVE is required on purpose. This creates NEW grounding for a reply that
+    may be sent to a requester, so a retired or superseded policy must not be
+    forced in — the chairs withdrew that text. (``status != "active"`` also
+    covers superseded rows: ``edit_policy`` marks the old version inactive.)
+    This is the OPPOSITE of the read-time hydration in the emails API, which
+    deliberately ignores status because it reports the HISTORICAL grounding of
+    an already-generated draft rather than creating new grounding.
+
+    Visibility is deliberately NOT filtered: internal policies are part of the
+    retrieval corpus (``list_for_index`` indexes public + internal), and
+    forcing an internal chair-authored policy is the primary use case.
+    """
+    repo = policy_repo or PolicyRepository()
+    if any(c.policy_id == policy_key for c in already):
+        logger.info("Forced policy %s already retrieved; not duplicating.", policy_key)
+        return None
+    try:
+        rows = await repo.get_by_keys(db, [policy_key])
+    except Exception:  # noqa: BLE001 - a lookup failure must not kill the redraft
+        logger.exception("Forced-policy lookup failed for %s.", policy_key)
+        return None
+
+    row = rows.get(policy_key)
+    if row is None:
+        logger.warning("Forced policy %s not found; ignoring.", policy_key)
+        return None
+    if row.status != "active":
+        logger.warning(
+            "Forced policy %s is %s (not active); ignoring.", policy_key, row.status
+        )
+        return None
+
+    return RetrievedChunk(
+        policy_id=row.policy_key,
+        title=row.title or "",
+        content=row.content or "",
+        # Not a retrieval score — this chunk was never ranked. 0.0 marks it as
+        # chair-forced rather than implying "least relevant".
+        score=0.0,
+        category=row.category or "",
+        intents=list(row.intents) if getattr(row, "intents", None) else [],
+    )
+
+
 class EmailPipeline:
     """Orchestrates the full classify → retrieve → draft → route → save flow."""
 
@@ -151,56 +212,8 @@ class EmailPipeline:
     async def _force_policy_chunk(
         self, db: AsyncSession, policy_key: str, already: list[RetrievedChunk]
     ) -> RetrievedChunk | None:
-        """Resolve a chair-forced policy key into an extra grounding chunk.
-
-        Returns None (never raises) when the key is unknown, is not ACTIVE, or is
-        already in the retrieved set — the caller then proceeds with normal
-        retrieval only, so a bad key degrades the draft's grounding rather than
-        failing the whole redraft.
-
-        ACTIVE is required on purpose. This creates NEW grounding for a reply that
-        may be sent to a requester, so a retired or superseded policy must not be
-        forced in — the chairs withdrew that text. (``status != "active"`` also
-        covers superseded rows: ``edit_policy`` marks the old version inactive.)
-        This is the OPPOSITE of the read-time hydration in the emails API, which
-        deliberately ignores status because it reports the HISTORICAL grounding of
-        an already-generated draft rather than creating new grounding.
-
-        Visibility is deliberately NOT filtered: internal policies are part of the
-        retrieval corpus (``list_for_index`` indexes public + internal), and
-        forcing an internal chair-authored policy is the primary use case.
-        """
-        if any(c.policy_id == policy_key for c in already):
-            logger.info(
-                "Forced policy %s already retrieved; not duplicating.", policy_key
-            )
-            return None
-        try:
-            rows = await self.policy_repo.get_by_keys(db, [policy_key])
-        except Exception:  # noqa: BLE001 - a lookup failure must not kill the redraft
-            logger.exception("Forced-policy lookup failed for %s.", policy_key)
-            return None
-
-        row = rows.get(policy_key)
-        if row is None:
-            logger.warning("Forced policy %s not found; ignoring.", policy_key)
-            return None
-        if row.status != "active":
-            logger.warning(
-                "Forced policy %s is %s (not active); ignoring.", policy_key, row.status
-            )
-            return None
-
-        return RetrievedChunk(
-            policy_id=row.policy_key,
-            title=row.title or "",
-            content=row.content or "",
-            # Not a retrieval score — this chunk was never ranked. 0.0 marks it as
-            # chair-forced rather than implying "least relevant".
-            score=0.0,
-            category=row.category or "",
-            intents=list(row.intents) if getattr(row, "intents", None) else [],
-        )
+        """Resolve a chair-forced policy key (see :func:`resolve_forced_chunk`)."""
+        return await resolve_forced_chunk(db, policy_key, already, self.policy_repo)
 
     async def _assign_chair(
         self,
@@ -434,6 +447,14 @@ class EmailPipeline:
                 "prior_intent": prior_intent,
                 "retrieved_ids": [c.policy_id for c in retrieved_chunks],
                 "chunk_hash": grounded_chunks_hash(retrieved_chunks),
+                # The policy the chair asked to force into this draft, if any
+                # (manual invoke). Stored because it is NOT recoverable from
+                # retrieved_ids: a forced id that resolved looks identical to one
+                # that merely ranked, and a forced id that did NOT resolve leaves
+                # no trace at all. With it, "did it apply" is derived at
+                # serialization time (``forced_policy_key in retrieved_ids``)
+                # rather than stored as a second, drift-prone boolean.
+                "forced_policy_key": forced_policy_key,
             },
         }
         return _Computed(

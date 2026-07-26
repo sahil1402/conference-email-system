@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.db.database import async_session_factory
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.drafter import ResponseDrafter
+from app.pipeline.orchestrator import resolve_forced_chunk
 from app.pipeline.retriever import get_retriever, grounded_chunks_hash
 from app.pipeline.router import EmailRouter, apply_self_sufficiency_floor
 from app.repositories.audit_repository import AuditRepository
@@ -35,13 +36,25 @@ logger = logging.getLogger(__name__)
 _ACTOR = "reevaluation"
 
 
-async def _fresh_topk_ids(retriever, ctx: dict, top_k: int):
+async def _fresh_topk_ids(retriever, ctx: dict, top_k: int, db=None):
     """Re-run retrieval from a ticket's stored context; return (ids, chunks).
 
     ``prior_intent`` is replayed from the stored context so the fresh ranking
     reproduces the SAME soft intent-prior boost (B5) applied at ingest — otherwise
     an unboosted re-run could shuffle the top-k and force a spurious re-draft.
     Legacy rows lack ``prior_intent`` → "" → unboosted, matching their stored ids.
+
+    A chair-forced policy (``forced_policy_key``) is RE-APPLIED here, through the
+    same ``resolve_forced_chunk`` the orchestrator uses, so the sweep cannot
+    silently drop a manual invoke. Re-resolving rather than blindly copying the id
+    means the active-status rule is re-checked: a policy retired since it was
+    forced is correctly dropped, and that drop shows up in the gate below as a
+    genuine grounding change.
+
+    This also keeps the gate honest. The stored ids include the forced policy, so
+    a fresh run WITHOUT it would differ from the stored set on every sweep and
+    re-draft the ticket forever. ``db`` is optional purely so legacy/unit callers
+    that pass no session keep the old pure-retrieval behaviour.
     """
     query = (ctx or {}).get("query") or ""
     intent = (ctx or {}).get("intent") or ""
@@ -49,6 +62,13 @@ async def _fresh_topk_ids(retriever, ctx: dict, top_k: int):
     chunks = await retriever.retrieve(
         query, intent, top_k=top_k, prior_intent=prior_intent
     )
+
+    forced_key = (ctx or {}).get("forced_policy_key")
+    if forced_key and db is not None:
+        forced = await resolve_forced_chunk(db, forced_key, chunks)
+        if forced is not None:
+            chunks = [*chunks, forced]
+
     return [c.policy_id for c in chunks], chunks
 
 
@@ -112,7 +132,7 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
             stored_ids = set(ctx.get("retrieved_ids") or [])
             stored_hash = ctx.get("chunk_hash")
 
-            fresh_ids_list, fresh_chunks = await _fresh_topk_ids(retriever, ctx, top_k)
+            fresh_ids_list, fresh_chunks = await _fresh_topk_ids(retriever, ctx, top_k, db)
             fresh_hash = grounded_chunks_hash(fresh_chunks)
             # Two independent axes make a ticket "affected":
             #  (1) the grounded id-SET moved (a different chunk now ranks top-k), or
@@ -196,6 +216,16 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                     "retrieved_ids": item["fresh_ids_list"],
                     "chunk_hash": item["fresh_hash"],
                 }
+                # Carry a chair's manual invoke across the recompute. Added ONLY
+                # when the ticket already had one, so a normal ticket's context
+                # keeps exactly the five keys it has always had. The value is the
+                # requested key, not proof it applied — whether it survived is
+                # derived from retrieved_ids (see emails API
+                # ``_forced_policy_applied``), which is why a since-retired policy
+                # correctly reads as false here rather than being forgotten.
+                forced_key = item["ctx"].get("forced_policy_key")
+                if forced_key:
+                    new_ctx["forced_policy_key"] = forced_key
                 saved = await email_repo.save_redraft(
                     db, email_id,
                     draft=draft.model_dump(),
