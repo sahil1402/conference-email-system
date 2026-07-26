@@ -222,7 +222,9 @@ class _PlaceholderDrafter:
 
     provider = "stub"
 
-    async def draft(self, email, classification, retrieved_chunks):
+    async def draft(
+        self, email, classification, retrieved_chunks, forced_policy_key=None
+    ):
         return DraftResponse(
             draft_text="The fee is [CHAIR: confirm the registration fee].",
             placeholders=["confirm the registration fee"],

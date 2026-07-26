@@ -58,7 +58,9 @@ class _PlaceholderDrafter:
 
     provider = "stub"
 
-    async def draft(self, email_data, classification, retrieved_chunks):
+    async def draft(
+        self, email_data, classification, retrieved_chunks, forced_policy_key=None
+    ):
         return DraftResponse(
             draft_text="Thanks for reaching out. [CHAIR: confirm exact date].",
             notes_for_chair=None,
@@ -74,7 +76,9 @@ class _NotesDrafter:
 
     provider = "stub"
 
-    async def draft(self, email_data, classification, retrieved_chunks):
+    async def draft(
+        self, email_data, classification, retrieved_chunks, forced_policy_key=None
+    ):
         return DraftResponse(
             draft_text="Thanks for reaching out — here is the policy.",
             notes_for_chair="Requester's case is borderline; please double-check.",
@@ -129,7 +133,9 @@ async def test_floor_does_not_fire_on_a_self_sufficient_draft(session):
     class _CleanDrafter:
         provider = "stub"
 
-        async def draft(self, email_data, classification, retrieved_chunks):
+        async def draft(
+            self, email_data, classification, retrieved_chunks, forced_policy_key=None
+        ):
             return DraftResponse(
                 draft_text="Thanks — here is the policy answer.",
                 notes_for_chair=None,
