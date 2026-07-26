@@ -78,6 +78,18 @@ class SendRequest(BaseModel):
     )
 
 
+class RedraftRequest(BaseModel):
+    """Options for a manual re-draft (all optional — an absent body is a plain retry)."""
+
+    forced_policy_key: str | None = Field(
+        default=None,
+        description="Policy key the chair wants grounded in the new draft, in "
+        "ADDITION to normal retrieval (a guaranteed extra slot, never evicted by "
+        "re-ranking). Must be an ACTIVE policy; an unknown, retired, or superseded "
+        "key is logged and ignored rather than failing the re-draft.",
+    )
+
+
 class SetStatusRequest(BaseModel):
     """Options for setting a ticket's Zendesk status WITHOUT sending a reply."""
 
@@ -1057,13 +1069,18 @@ async def reassign_chair(
     return _email_to_dict(updated)
 
 
-async def _redraft_email_bg(email_id: str) -> None:
+async def _redraft_email_bg(
+    email_id: str, forced_policy_key: str | None = None
+) -> None:
     """Re-run the full pipeline for one email in its OWN session (retry action).
 
     Scheduled after the endpoint returns (the request's session is closed by
     then). On success the fresh draft overwrites the row and ``redrafting`` is
     cleared by ``reprocess_email``. On failure, clear the flag so the ticket is
     not stranded showing "re-drafting…".
+
+    ``forced_policy_key`` (manual invoke) is passed straight through to the
+    pipeline, which grounds on that policy in ADDITION to normal retrieval.
     """
     pipeline = EmailPipeline()
     try:
@@ -1071,8 +1088,16 @@ async def _redraft_email_bg(email_id: str) -> None:
             email = await email_repo.get_email_by_id(db, email_id)
             if email is None:
                 return
-            await pipeline.reprocess_email(db, email)
-            await audit_repo.log_action(db, email_id, "email_retried", "chair", {})
+            await pipeline.reprocess_email(
+                db, email, forced_policy_key=forced_policy_key
+            )
+            await audit_repo.log_action(
+                db,
+                email_id,
+                "email_retried",
+                "chair",
+                {"forced_policy_key": forced_policy_key} if forced_policy_key else {},
+            )
     except Exception:  # noqa: BLE001 - a failed retry must not crash the worker
         logger.exception("Retry re-draft failed for email %s; clearing flag.", email_id)
         async with async_session_factory() as db:
@@ -1083,6 +1108,7 @@ async def _redraft_email_bg(email_id: str) -> None:
 async def redraft_email(
     email_id: str,
     background_tasks: BackgroundTasks,
+    payload: RedraftRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Retry: re-run the full pipeline on this email and overwrite its draft.
@@ -1091,6 +1117,11 @@ async def redraft_email(
     exactly like a policy-change sweep), then re-classifies → re-retrieves →
     re-routes → re-drafts in the background, clearing the flag when the new draft
     lands. 404 if the email is unknown.
+
+    The body is OPTIONAL: no body (or an empty one) is the unchanged retry. A
+    ``forced_policy_key`` grounds the new draft on that policy in addition to
+    whatever retrieval ranks — see ``EmailPipeline._force_policy_chunk`` for the
+    active-only rule and the ignore-on-miss behaviour.
     """
     email = await email_repo.get_email_by_id(db, email_id)
     if email is None:
@@ -1098,8 +1129,19 @@ async def redraft_email(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Email {email_id} not found",
         )
+    forced_policy_key = payload.forced_policy_key if payload else None
     await email_repo.set_redrafting(db, email_id, True)
     # The audit write publishes an SSE event → queue/detail flip to "re-drafting…".
-    await audit_repo.log_action(db, email_id, "email_retry_started", "chair", {})
-    background_tasks.add_task(_redraft_email_bg, email_id)
-    return {"email_id": email_id, "redrafting": True}
+    await audit_repo.log_action(
+        db,
+        email_id,
+        "email_retry_started",
+        "chair",
+        {"forced_policy_key": forced_policy_key} if forced_policy_key else {},
+    )
+    background_tasks.add_task(_redraft_email_bg, email_id, forced_policy_key)
+    return {
+        "email_id": email_id,
+        "redrafting": True,
+        "forced_policy_key": forced_policy_key,
+    }
