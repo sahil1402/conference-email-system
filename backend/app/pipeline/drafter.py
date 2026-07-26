@@ -307,12 +307,36 @@ class DraftResponse(BaseModel):
     )
 
 
+# Label prefixed to the ONE policy block a chair forced into the grounding set.
+_CHAIR_SELECTED_MARKER = "[CHAIR-SELECTED — MUST ADDRESS]"
+
+# Narrow exception to the "answer only what was asked" rule below. Appended to
+# the TASK section ONLY when a marked block is actually present, so the default
+# prompt is unchanged. Deliberately scoped to the marked policy alone — it must
+# not reopen general over-answering, which the base instruction exists to stop.
+_CHAIR_SELECTED_INSTRUCTION = (
+    " One policy above is marked "
+    f"{_CHAIR_SELECTED_MARKER}: the chair has determined it applies to this "
+    "ticket, so you must directly address it in your reply even if the "
+    "requester did not ask about it. This is the only exception — do not "
+    "volunteer anything else beyond what was asked."
+)
+
+
 def _build_user_prompt(
     email: dict,
     classification,
     retrieved_chunks: list,
+    forced_policy_key: str | None = None,
 ) -> str:
-    """Assemble the grounded user prompt from all pipeline inputs."""
+    """Assemble the grounded user prompt from all pipeline inputs.
+
+    ``forced_policy_key`` names a chunk the CHAIR chose to ground on (manual
+    invoke). That block is labelled and given a narrow instruction override, so
+    the "answer only what was asked" rule cannot silently discard it. When the
+    key is None or names no present chunk, the prompt is byte-for-byte the
+    pre-manual-invoke prompt.
+    """
     sender = email.get("from") or email.get("sender") or "unknown"
     # Surface the sender's display name when the ingest provided one, so the
     # drafter can greet the requester by name (guide 1: never a placeholder).
@@ -323,9 +347,19 @@ def _build_user_prompt(
     body = email.get("body", "")
     transcript = email.get("thread_transcript")
 
+    # A forced key that matches no retrieved chunk (it failed to resolve) must
+    # leave the prompt untouched — the marker and its instruction are driven by
+    # this flag together, so they can never appear without the block they refer to.
+    has_forced = bool(forced_policy_key) and any(
+        c.policy_id == forced_policy_key for c in retrieved_chunks
+    )
+
     context_blocks = []
     for chunk in retrieved_chunks:
-        context_blocks.append(f"[{chunk.policy_id}] {chunk.title}\n{chunk.content}")
+        block = f"[{chunk.policy_id}] {chunk.title}\n{chunk.content}"
+        if has_forced and chunk.policy_id == forced_policy_key:
+            block = f"{_CHAIR_SELECTED_MARKER}\n{block}"
+        context_blocks.append(block)
     context = "\n\n".join(context_blocks) if context_blocks else "(no policy context retrieved)"
 
     if transcript:
@@ -354,6 +388,7 @@ def _build_user_prompt(
         "--- TASK ---\n"
         "Using only the policy context above for grounding, answer only the "
         "question(s) the requester raised — nothing more."
+        + (_CHAIR_SELECTED_INSTRUCTION if has_forced else "")
     )
 
 
@@ -397,13 +432,22 @@ class ResponseDrafter:
         email: dict,
         classification,
         retrieved_chunks: list,
+        forced_policy_key: str | None = None,
     ) -> DraftResponse:
-        """Generate a grounded draft via the configured provider, or fall back."""
+        """Generate a grounded draft via the configured provider, or fall back.
+
+        ``forced_policy_key`` marks one chunk as chair-selected in the prompt (see
+        ``_build_user_prompt``). Optional and defaulted, so every existing caller
+        is unaffected. The template provider ignores it — it makes no model call,
+        so there is no instruction to override.
+        """
         # The template provider makes no model call, so it skips prompt assembly.
         if self.provider == "template":
             return self._draft_template(email, classification, retrieved_chunks)
 
-        user_prompt = _build_user_prompt(email, classification, retrieved_chunks)
+        user_prompt = _build_user_prompt(
+            email, classification, retrieved_chunks, forced_policy_key
+        )
 
         if self.provider in ("anthropic", "anthropic_api"):
             return await self._draft_anthropic(user_prompt)
