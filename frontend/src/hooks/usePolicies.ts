@@ -47,14 +47,24 @@ function useInvalidateKb() {
   };
 }
 
-export function usePolicies(params?: PolicyListParams) {
+export function usePolicies(
+  params?: PolicyListParams,
+  options?: { enabled?: boolean },
+) {
+  // `enabled` defaults to true, so every existing caller is unchanged. The
+  // policy picker uses it to stay silent until the chair has typed something —
+  // without it an empty search box would fetch the entire KB on open.
+  const enabled = options?.enabled ?? true;
   const query = useQuery({
     queryKey: ["knowledgeBase", params],
     queryFn: () => listPolicies(params),
+    enabled,
   });
   return {
     policies: query.data?.policies ?? [],
-    isLoading: query.isLoading,
+    // A disabled query is "pending" forever in react-query v5; report it as not
+    // loading so callers don't render a spinner for a query that never runs.
+    isLoading: enabled && query.isLoading,
     isError: query.isError,
     refetch: query.refetch,
   };
