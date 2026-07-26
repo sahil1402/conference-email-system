@@ -1,0 +1,276 @@
+"""Manual policy invoke: ``forced_policy_key`` on POST /emails/{id}/redraft (3).
+
+The forced policy is a GUARANTEED EXTRA grounding slot — ``MAX_RETRIEVED_CHUNKS``
+still governs the ranked chunks, so a chair's pick can never be evicted by
+re-ranking. It must be ACTIVE (this creates NEW grounding for a reply that may be
+sent), and an unresolvable key degrades to normal retrieval instead of failing
+the re-draft.
+
+The no-key path is regression-critical: it must be bit-for-bit the old behaviour.
+"""
+
+import httpx
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
+import main
+from app.api.v1 import emails as emails_api
+from app.db.database import get_db
+from app.db.models import Base, Email, PolicyDocument
+from app.pipeline.orchestrator import EmailPipeline
+from app.pipeline.retriever import RetrievedChunk
+
+
+def _chunk(pid, title="T", content="C", score=1.0):
+    return RetrievedChunk(
+        policy_id=pid, title=title, content=content, score=score, category="cat"
+    )
+
+
+# Stand-in for the ranked top-k the retriever would return.
+RANKED = [_chunk("policy_186", score=0.9), _chunk("policy_172", score=0.8),
+          _chunk("policy_171", score=0.7)]
+
+
+@pytest_asyncio.fixture
+async def session_factory():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:",
+                                 connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    await engine.dispose()
+
+
+async def _seed_policy(factory, key, *, status="active", visibility="internal"):
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key=key, title=f"Title {key}",
+                             content=f"Body of {key}", category="deletion",
+                             visibility=visibility, status=status))
+        await s.commit()
+
+
+# ---------------------------------------------------------------------------
+# _force_policy_chunk — the resolution rule
+# ---------------------------------------------------------------------------
+async def test_active_policy_resolves_to_a_chunk(session_factory):
+    await _seed_policy(session_factory, "int_paper-deletion__v2")
+    p = EmailPipeline()
+    async with session_factory() as db:
+        c = await p._force_policy_chunk(db, "int_paper-deletion__v2", RANKED)
+    assert c is not None
+    assert c.policy_id == "int_paper-deletion__v2"
+    assert c.title == "Title int_paper-deletion__v2"
+    assert c.content == "Body of int_paper-deletion__v2"
+
+
+async def test_internal_visibility_is_not_filtered(session_factory):
+    """Forcing a chair-authored INTERNAL policy is the primary use case."""
+    await _seed_policy(session_factory, "int_x", visibility="internal")
+    p = EmailPipeline()
+    async with session_factory() as db:
+        assert await p._force_policy_chunk(db, "int_x", []) is not None
+
+
+@pytest.mark.parametrize("bad_status", ["inactive", "archived"])
+async def test_non_active_policy_is_refused(session_factory, bad_status):
+    """Retired/superseded policies must NOT be forced into a live draft."""
+    await _seed_policy(session_factory, "int_retired", status=bad_status)
+    p = EmailPipeline()
+    async with session_factory() as db:
+        assert await p._force_policy_chunk(db, "int_retired", []) is None
+
+
+async def test_unknown_key_is_ignored(session_factory):
+    p = EmailPipeline()
+    async with session_factory() as db:
+        assert await p._force_policy_chunk(db, "int_does_not_exist", []) is None
+
+
+async def test_already_retrieved_policy_is_not_duplicated(session_factory):
+    await _seed_policy(session_factory, "policy_186")
+    p = EmailPipeline()
+    async with session_factory() as db:
+        assert await p._force_policy_chunk(db, "policy_186", RANKED) is None
+
+
+async def test_lookup_failure_is_swallowed(session_factory, monkeypatch):
+    p = EmailPipeline()
+
+    async def explode(db, keys):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(p.policy_repo, "get_by_keys", explode)
+    async with session_factory() as db:
+        assert await p._force_policy_chunk(db, "int_x", []) is None
+
+
+# ---------------------------------------------------------------------------
+# _compute — the extra slot, and the untouched default path
+# ---------------------------------------------------------------------------
+class _StubRetriever:
+    def __init__(self):
+        self.calls = []
+
+    async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
+        self.calls.append({"query": query, "top_k": top_k})
+        return list(RANKED)
+
+
+async def _compute_with(factory, forced, seed=None, seed_status="active"):
+    if seed:
+        await _seed_policy(factory, seed, status=seed_status)
+    p = EmailPipeline()
+    p.retriever = _StubRetriever()
+    async with factory() as db:
+        c = await p._compute(
+            {"from": "a@b.com", "subject": "s", "body": "b"},
+            db,
+            forced_policy_key=forced,
+        )
+    return c, p
+
+
+async def test_no_forced_key_is_unchanged(session_factory):
+    """REGRESSION: the default path must be exactly the old behaviour."""
+    c, p = await _compute_with(session_factory, None)
+    ids = [ch.policy_id for ch in c.retrieved_chunks]
+    assert ids == ["policy_186", "policy_172", "policy_171"]
+    assert len(ids) == 3
+    # top_k still governs; nothing extra requested.
+    assert p.retriever.calls[0]["top_k"] == 3
+    assert c.record["retrieval_context"]["retrieved_ids"] == ids
+
+
+async def test_forced_key_appends_a_fourth_chunk(session_factory):
+    c, p = await _compute_with(session_factory, "int_forced", seed="int_forced")
+    ids = [ch.policy_id for ch in c.retrieved_chunks]
+    assert ids == ["policy_186", "policy_172", "policy_171", "int_forced"]
+    assert len(ids) == 4  # EXTRA slot — top-3 ranked chunks all survive
+    # The ranked retrieval call is untouched (still top_k=3, not 4).
+    assert p.retriever.calls[0]["top_k"] == 3
+
+
+async def test_forced_key_already_in_topk_is_not_duplicated(session_factory):
+    c, _ = await _compute_with(session_factory, "policy_172", seed="policy_172")
+    ids = [ch.policy_id for ch in c.retrieved_chunks]
+    assert ids == ["policy_186", "policy_172", "policy_171"]
+    assert ids.count("policy_172") == 1
+
+
+async def test_unresolvable_forced_key_degrades_to_normal_retrieval(session_factory):
+    """No 500, no empty grounding — just the ranked chunks."""
+    c, _ = await _compute_with(session_factory, "int_nope")  # never seeded
+    ids = [ch.policy_id for ch in c.retrieved_chunks]
+    assert ids == ["policy_186", "policy_172", "policy_171"]
+
+
+async def test_inactive_forced_key_degrades_to_normal_retrieval(session_factory):
+    c, _ = await _compute_with(
+        session_factory, "int_old", seed="int_old", seed_status="inactive"
+    )
+    ids = [ch.policy_id for ch in c.retrieved_chunks]
+    assert "int_old" not in ids
+    assert ids == ["policy_186", "policy_172", "policy_171"]
+
+
+async def test_retrieval_context_includes_the_forced_policy(session_factory):
+    """Persisted ids drive 2a's hydration AND the re-eval sweep's set gate."""
+    c, _ = await _compute_with(session_factory, "int_forced", seed="int_forced")
+    ctx = c.record["retrieval_context"]
+    assert ctx["retrieved_ids"] == [
+        "policy_186", "policy_172", "policy_171", "int_forced",
+    ]
+    # chunk_hash is derived from the same (forced-inclusive) chunk list.
+    assert ctx["chunk_hash"]
+
+
+async def test_forced_chunk_reaches_the_drafter(session_factory):
+    """Step 3 only guarantees CONTEXT; the prompt itself is step 4's job."""
+    await _seed_policy(session_factory, "int_forced")
+    p = EmailPipeline()
+    p.retriever = _StubRetriever()
+    seen = {}
+
+    original = p.drafter.draft
+
+    async def spy(email, classification, chunks):
+        seen["ids"] = [c.policy_id for c in chunks]
+        return await original(email, classification, chunks)
+
+    p.drafter.draft = spy
+    async with session_factory() as db:
+        await p._compute({"from": "a@b.com", "subject": "s", "body": "b"}, db,
+                         forced_policy_key="int_forced")
+    assert seen["ids"][-1] == "int_forced"
+
+
+# ---------------------------------------------------------------------------
+# Endpoint wiring
+# ---------------------------------------------------------------------------
+@pytest_asyncio.fixture
+async def client(session_factory):
+    async def _override_get_db():
+        async with session_factory() as s:
+            yield s
+
+    main.app.dependency_overrides[get_db] = _override_get_db
+    transport = ASGITransport(app=main.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c, session_factory
+    main.app.dependency_overrides.clear()
+
+
+async def _seed_email(factory):
+    async with factory() as s:
+        e = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+        s.add(e)
+        await s.commit()
+        return str(e.id)
+
+
+async def test_redraft_without_body_still_works(client, monkeypatch):
+    """REGRESSION: existing callers send NO body — must stay a valid request."""
+    c, factory = client
+    email_id = await _seed_email(factory)
+    captured = {}
+
+    async def fake_bg(eid, forced=None):
+        captured["args"] = (eid, forced)
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(f"/api/v1/emails/{email_id}/redraft")
+    assert r.status_code == 202
+    assert r.json()["redrafting"] is True
+    assert r.json()["forced_policy_key"] is None
+    assert captured["args"] == (email_id, None)
+
+
+async def test_redraft_accepts_and_forwards_forced_policy_key(client, monkeypatch):
+    c, factory = client
+    email_id = await _seed_email(factory)
+    captured = {}
+
+    async def fake_bg(eid, forced=None):
+        captured["args"] = (eid, forced)
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"forced_policy_key": "int_paper-deletion__v2"},
+    )
+    assert r.status_code == 202
+    assert r.json()["forced_policy_key"] == "int_paper-deletion__v2"
+    assert captured["args"] == (email_id, "int_paper-deletion__v2")
+
+
+async def test_redraft_unknown_email_still_404s(client):
+    c, _ = client
+    r = await c.post("/api/v1/emails/does-not-exist/redraft",
+                     json={"forced_policy_key": "int_x"})
+    assert r.status_code == 404

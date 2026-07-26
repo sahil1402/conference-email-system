@@ -59,8 +59,8 @@ async def test_public_compute_delegates_to_private_compute(session, monkeypatch)
     sentinel = object()
     seen: list[tuple] = []
 
-    async def spy_compute(email_data, db):
-        seen.append((email_data, db))
+    async def spy_compute(email_data, db, *, forced_policy_key=None):
+        seen.append((email_data, db, forced_policy_key))
         return sentinel
 
     monkeypatch.setattr(pipeline, "_compute", spy_compute)
@@ -69,7 +69,24 @@ async def test_public_compute_delegates_to_private_compute(session, monkeypatch)
     out = await pipeline.compute(email_data, session)
 
     assert out is sentinel  # returns _compute's result unchanged
-    assert seen == [(email_data, session)]  # forwards args verbatim, no mutation
+    # Forwards args verbatim, no mutation; forced_policy_key defaults to None so
+    # the seam's behaviour is unchanged for every existing caller (task 3).
+    assert seen == [(email_data, session, None)]
+
+
+async def test_public_compute_forwards_forced_policy_key(session, monkeypatch):
+    """The seam also threads a chair-forced policy key through to ``_compute``."""
+    pipeline = EmailPipeline()
+    seen: list = []
+
+    async def spy_compute(email_data, db, *, forced_policy_key=None):
+        seen.append(forced_policy_key)
+        return object()
+
+    monkeypatch.setattr(pipeline, "_compute", spy_compute)
+    await pipeline.compute({"from": "a@b.com"}, session, forced_policy_key="int_x")
+
+    assert seen == ["int_x"]
 
 
 class _PriorSpyRetriever:
