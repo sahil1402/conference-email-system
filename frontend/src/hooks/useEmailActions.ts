@@ -77,11 +77,18 @@ export function useRerouteEmail() {
   });
 }
 
-/** Retry: re-run the full pipeline on an email and overwrite its draft. */
+/** Retry: re-run the full pipeline on an email and overwrite its draft.
+ *
+ * Accepts a bare id (the plain retry, unchanged) or `{ id, forcedPolicyKey }`
+ * to additionally ground the new draft on a chair-selected policy.
+ */
 export function useRetryEmail() {
   const invalidate = useInvalidateEmailQueries();
   return useMutation({
-    mutationFn: (id: number) => retryEmail(id),
+    mutationFn: (vars: number | { id: number; forcedPolicyKey?: string }) =>
+      typeof vars === "number"
+        ? retryEmail(vars)
+        : retryEmail(vars.id, vars.forcedPolicyKey),
     onSuccess: invalidate,
   });
 }

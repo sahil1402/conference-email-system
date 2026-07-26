@@ -135,12 +135,23 @@ export async function rerouteEmail(
   return email;
 }
 
-/** POST /emails/{id}/redraft — retry: re-run the full pipeline on this email. */
+/** POST /emails/{id}/redraft — retry: re-run the full pipeline on this email.
+ *
+ * `forcedPolicyKey` (manual invoke) grounds the new draft on that policy in
+ * addition to whatever retrieval ranks. Omitted → no request body at all, which
+ * is byte-identical to the plain retry the backend has always accepted.
+ */
 export async function retryEmail(
-  id: number
-): Promise<{ email_id: string; redrafting: boolean }> {
-  const { data } = await apiClient.post<{ email_id: string; redrafting: boolean }>(
-    `/emails/${id}/redraft`
+  id: number,
+  forcedPolicyKey?: string
+): Promise<{ email_id: string; redrafting: boolean; forced_policy_key?: string | null }> {
+  const { data } = await apiClient.post<{
+    email_id: string;
+    redrafting: boolean;
+    forced_policy_key?: string | null;
+  }>(
+    `/emails/${id}/redraft`,
+    forcedPolicyKey ? { forced_policy_key: forcedPolicyKey } : undefined
   );
   return data;
 }
