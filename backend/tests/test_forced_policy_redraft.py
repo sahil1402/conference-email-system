@@ -241,7 +241,7 @@ async def test_redraft_without_body_still_works(client, monkeypatch):
     email_id = await _seed_email(factory)
     captured = {}
 
-    async def fake_bg(eid, forced=None):
+    async def fake_bg(eid, forced=None, excluded=None):
         captured["args"] = (eid, forced)
 
     monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
@@ -258,7 +258,7 @@ async def test_redraft_accepts_and_forwards_forced_policy_key(client, monkeypatc
     email_id = await _seed_email(factory)
     captured = {}
 
-    async def fake_bg(eid, forced=None):
+    async def fake_bg(eid, forced=None, excluded=None):
         captured["args"] = (eid, forced)
 
     monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
@@ -357,7 +357,7 @@ async def test_excluded_policy_ids_rejects_more_than_ten(client, monkeypatch):
     email_id = await _seed_email(factory)
     called = {"bg": False}
 
-    async def fake_bg(eid, forced=None):
+    async def fake_bg(eid, forced=None, excluded=None):
         called["bg"] = True
 
     monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
@@ -377,7 +377,7 @@ async def test_excluded_policy_ids_accepts_exactly_ten(client, monkeypatch):
     c, factory = client
     email_id = await _seed_email(factory)
 
-    async def fake_bg(eid, forced=None):
+    async def fake_bg(eid, forced=None, excluded=None):
         return None
 
     monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
@@ -394,7 +394,7 @@ async def test_excluded_policy_ids_is_optional(client, monkeypatch):
     c, factory = client
     email_id = await _seed_email(factory)
 
-    async def fake_bg(eid, forced=None):
+    async def fake_bg(eid, forced=None, excluded=None):
         return None
 
     monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
@@ -414,3 +414,106 @@ def test_excluded_policy_ids_defaults_to_none():
     assert emails_api.RedraftRequest(
         excluded_policy_ids=["policy_186"]
     ).excluded_policy_ids == ["policy_186"]
+
+
+# ---------------------------------------------------------------------------
+# excluded_policy_ids — end-to-end threading (exclusion step 2)
+# ---------------------------------------------------------------------------
+# No filter exists yet; these pin only that the value SURVIVES every hop, and
+# that the grounding set is provably unchanged until the filter lands.
+async def test_endpoint_threads_excluded_ids_to_the_background_task(client, monkeypatch):
+    c, factory = client
+    email_id = await _seed_email(factory)
+    captured = {}
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        captured["args"] = (eid, forced, excluded)
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"forced_policy_key": "int_x", "excluded_policy_ids": ["policy_186"]},
+    )
+    assert r.status_code == 202
+    assert r.json()["excluded_policy_ids"] == ["policy_186"]
+    assert captured["args"] == (email_id, "int_x", ["policy_186"])
+
+
+async def test_plain_retry_threads_none_for_both(client, monkeypatch):
+    """REGRESSION: a bodyless retry must still pass None for both knobs."""
+    c, factory = client
+    email_id = await _seed_email(factory)
+    captured = {}
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        captured["args"] = (eid, forced, excluded)
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(f"/api/v1/emails/{email_id}/redraft")
+    assert r.status_code == 202
+    assert r.json()["excluded_policy_ids"] is None
+    assert captured["args"] == (email_id, None, None)
+
+
+async def test_reprocess_email_forwards_excluded_ids_to_compute(session_factory, monkeypatch):
+    """reprocess_email → _compute is the last hop; assert the kwarg arrives."""
+    p = EmailPipeline()
+    seen = {}
+
+    class _Res:
+        record = {}
+
+    async def spy_compute(email_data, db, *, forced_policy_key=None, excluded_policy_ids=None):
+        seen["forced"] = forced_policy_key
+        seen["excluded"] = excluded_policy_ids
+        raise RuntimeError("stop after capture")
+
+    monkeypatch.setattr(p, "_compute", spy_compute)
+    email = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    email.id = 1
+
+    async with session_factory() as db:
+        with pytest.raises(RuntimeError):
+            await p.reprocess_email(
+                db, email,
+                forced_policy_key="int_x",
+                excluded_policy_ids=["policy_186", "policy_172"],
+            )
+
+    assert seen["forced"] == "int_x"
+    assert seen["excluded"] == ["policy_186", "policy_172"]
+
+
+async def test_public_compute_seam_forwards_excluded_ids(session_factory, monkeypatch):
+    p = EmailPipeline()
+    seen = {}
+
+    async def spy_compute(email_data, db, *, forced_policy_key=None, excluded_policy_ids=None):
+        seen["excluded"] = excluded_policy_ids
+        return object()
+
+    monkeypatch.setattr(p, "_compute", spy_compute)
+    async with session_factory() as db:
+        await p.compute({"from": "a@b.com"}, db, excluded_policy_ids=["policy_171"])
+    assert seen["excluded"] == ["policy_171"]
+
+
+async def test_excluded_ids_reach_the_trace_but_do_not_filter_yet(session_factory):
+    """Threaded and observable — and the grounding set is NOT yet affected."""
+    await _seed_policy(session_factory, "int_forced")
+    p = EmailPipeline()
+    p.retriever = _StubRetriever()
+    async with session_factory() as db:
+        c = await p._compute(
+            {"from": "a@b.com", "subject": "s", "body": "b"},
+            db,
+            forced_policy_key="int_forced",
+            excluded_policy_ids=["policy_186"],
+        )
+
+    ids = [ch.policy_id for ch in c.retrieved_chunks]
+    # policy_186 is excluded by the request but STILL present: no filter yet.
+    assert ids == ["policy_186", "policy_172", "policy_171", "int_forced"]
+    assert c.record["retrieval_context"]["retrieved_ids"] == ids

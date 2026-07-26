@@ -59,8 +59,10 @@ async def test_public_compute_delegates_to_private_compute(session, monkeypatch)
     sentinel = object()
     seen: list[tuple] = []
 
-    async def spy_compute(email_data, db, *, forced_policy_key=None):
-        seen.append((email_data, db, forced_policy_key))
+    async def spy_compute(
+        email_data, db, *, forced_policy_key=None, excluded_policy_ids=None
+    ):
+        seen.append((email_data, db, forced_policy_key, excluded_policy_ids))
         return sentinel
 
     monkeypatch.setattr(pipeline, "_compute", spy_compute)
@@ -71,7 +73,7 @@ async def test_public_compute_delegates_to_private_compute(session, monkeypatch)
     assert out is sentinel  # returns _compute's result unchanged
     # Forwards args verbatim, no mutation; forced_policy_key defaults to None so
     # the seam's behaviour is unchanged for every existing caller (task 3).
-    assert seen == [(email_data, session, None)]
+    assert seen == [(email_data, session, None, None)]
 
 
 async def test_public_compute_forwards_forced_policy_key(session, monkeypatch):
@@ -79,7 +81,9 @@ async def test_public_compute_forwards_forced_policy_key(session, monkeypatch):
     pipeline = EmailPipeline()
     seen: list = []
 
-    async def spy_compute(email_data, db, *, forced_policy_key=None):
+    async def spy_compute(
+        email_data, db, *, forced_policy_key=None, excluded_policy_ids=None
+    ):
         seen.append(forced_policy_key)
         return object()
 

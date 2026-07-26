@@ -1107,8 +1107,26 @@ async def reassign_chair(
     return _email_to_dict(updated)
 
 
+def _redraft_audit_extra(
+    forced_policy_key: str | None, excluded_policy_ids: list[str] | None
+) -> dict:
+    """Audit payload for a manual re-draft — only the knobs actually used.
+
+    A plain retry stays ``{}`` exactly as before, so existing audit rows and the
+    tests asserting on them are unaffected.
+    """
+    extra: dict = {}
+    if forced_policy_key:
+        extra["forced_policy_key"] = forced_policy_key
+    if excluded_policy_ids:
+        extra["excluded_policy_ids"] = excluded_policy_ids
+    return extra
+
+
 async def _redraft_email_bg(
-    email_id: str, forced_policy_key: str | None = None
+    email_id: str,
+    forced_policy_key: str | None = None,
+    excluded_policy_ids: list[str] | None = None,
 ) -> None:
     """Re-run the full pipeline for one email in its OWN session (retry action).
 
@@ -1119,6 +1137,8 @@ async def _redraft_email_bg(
 
     ``forced_policy_key`` (manual invoke) is passed straight through to the
     pipeline, which grounds on that policy in ADDITION to normal retrieval.
+    ``excluded_policy_ids`` (chair removals) likewise rides through to the
+    pipeline; the filtering itself lands in a later step.
     """
     pipeline = EmailPipeline()
     try:
@@ -1127,14 +1147,17 @@ async def _redraft_email_bg(
             if email is None:
                 return
             await pipeline.reprocess_email(
-                db, email, forced_policy_key=forced_policy_key
+                db,
+                email,
+                forced_policy_key=forced_policy_key,
+                excluded_policy_ids=excluded_policy_ids,
             )
             await audit_repo.log_action(
                 db,
                 email_id,
                 "email_retried",
                 "chair",
-                {"forced_policy_key": forced_policy_key} if forced_policy_key else {},
+                _redraft_audit_extra(forced_policy_key, excluded_policy_ids),
             )
     except Exception:  # noqa: BLE001 - a failed retry must not crash the worker
         logger.exception("Retry re-draft failed for email %s; clearing flag.", email_id)
@@ -1159,7 +1182,9 @@ async def redraft_email(
     The body is OPTIONAL: no body (or an empty one) is the unchanged retry. A
     ``forced_policy_key`` grounds the new draft on that policy in addition to
     whatever retrieval ranks — see ``EmailPipeline._force_policy_chunk`` for the
-    active-only rule and the ignore-on-miss behaviour.
+    active-only rule and the ignore-on-miss behaviour. ``excluded_policy_ids``
+    are policies the chair removed from the grounding; the value is threaded to
+    the pipeline here, and the filter that acts on it lands in a later step.
     """
     email = await email_repo.get_email_by_id(db, email_id)
     if email is None:
@@ -1168,6 +1193,7 @@ async def redraft_email(
             detail=f"Email {email_id} not found",
         )
     forced_policy_key = payload.forced_policy_key if payload else None
+    excluded_policy_ids = payload.excluded_policy_ids if payload else None
     await email_repo.set_redrafting(db, email_id, True)
     # The audit write publishes an SSE event → queue/detail flip to "re-drafting…".
     await audit_repo.log_action(
@@ -1175,11 +1201,14 @@ async def redraft_email(
         email_id,
         "email_retry_started",
         "chair",
-        {"forced_policy_key": forced_policy_key} if forced_policy_key else {},
+        _redraft_audit_extra(forced_policy_key, excluded_policy_ids),
     )
-    background_tasks.add_task(_redraft_email_bg, email_id, forced_policy_key)
+    background_tasks.add_task(
+        _redraft_email_bg, email_id, forced_policy_key, excluded_policy_ids
+    )
     return {
         "email_id": email_id,
         "redrafting": True,
         "forced_policy_key": forced_policy_key,
+        "excluded_policy_ids": excluded_policy_ids,
     }

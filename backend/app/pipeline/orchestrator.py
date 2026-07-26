@@ -258,6 +258,7 @@ class EmailPipeline:
         db: AsyncSession,
         *,
         forced_policy_key: str | None = None,
+        excluded_policy_ids: list[str] | None = None,
     ) -> _Computed:
         """Run classify → retrieve → draft → route → chair-assign (no persistence).
 
@@ -270,6 +271,11 @@ class EmailPipeline:
         EXTRA slot — ``MAX_RETRIEVED_CHUNKS`` still governs the ranked chunks, so
         the forced policy can never be evicted by re-ranking. Default ``None``
         leaves every existing caller bit-for-bit unchanged.
+
+        ``excluded_policy_ids`` are chunks the chair removed from the grounding.
+        THREADED ONLY at this step: the value reaches here and is surfaced on the
+        retriever trace, but nothing filters on it yet — that lands next. Until
+        then a caller passing exclusions gets the unchanged grounding set.
         """
         start = time.perf_counter()
         subject = email_data.get("subject", "")
@@ -377,6 +383,8 @@ class EmailPipeline:
                     "backend": settings.RETRIEVAL_BACKEND,
                     "forced_policy_key": forced_policy_key,
                     "forced_applied": forced_chunk is not None,
+                    # Threaded through and observable; no filter acts on it yet.
+                    "excluded_policy_ids": excluded_policy_ids,
                 }
 
         except Exception:
@@ -528,6 +536,7 @@ class EmailPipeline:
         db: AsyncSession,
         *,
         forced_policy_key: str | None = None,
+        excluded_policy_ids: list[str] | None = None,
     ) -> "_Computed":
         """Run classify → retrieve → draft → route WITHOUT persisting anything.
 
@@ -539,9 +548,15 @@ class EmailPipeline:
         the chair roster (best-effort) but performs no writes; the caller owns
         persistence.
 
-        ``forced_policy_key`` forwards to ``_compute`` (extra grounding slot).
+        ``forced_policy_key`` forwards to ``_compute`` (extra grounding slot), as
+        does ``excluded_policy_ids`` (chair removals; filter pending).
         """
-        return await self._compute(email_data, db, forced_policy_key=forced_policy_key)
+        return await self._compute(
+            email_data,
+            db,
+            forced_policy_key=forced_policy_key,
+            excluded_policy_ids=excluded_policy_ids,
+        )
 
     async def process_email(
         self, email_data: dict, db: AsyncSession
@@ -552,7 +567,12 @@ class EmailPipeline:
         return await self._finalize(db, str(email.id), c)
 
     async def reprocess_email(
-        self, db: AsyncSession, email, *, forced_policy_key: str | None = None
+        self,
+        db: AsyncSession,
+        email,
+        *,
+        forced_policy_key: str | None = None,
+        excluded_policy_ids: list[str] | None = None,
     ) -> PipelineResult:
         """Re-run the full pipeline for an EXISTING email and update it in place.
 
@@ -564,6 +584,7 @@ class EmailPipeline:
 
         ``forced_policy_key`` (manual invoke) adds one chair-chosen policy to the
         grounding set as an extra slot; ``None`` is the unchanged retry behaviour.
+        ``excluded_policy_ids`` rides through to ``_compute`` (filter pending).
         """
         email_data = {
             "from": email.sender,
@@ -571,7 +592,12 @@ class EmailPipeline:
             "subject": email.subject,
             "body": email.body,
         }
-        c = await self._compute(email_data, db, forced_policy_key=forced_policy_key)
+        c = await self._compute(
+            email_data,
+            db,
+            forced_policy_key=forced_policy_key,
+            excluded_policy_ids=excluded_policy_ids,
+        )
         await self.email_repo.update_email_outputs(db, str(email.id), c.record)
         return await self._finalize(db, str(email.id), c)
 

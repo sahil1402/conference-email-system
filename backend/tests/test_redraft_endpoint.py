@@ -86,21 +86,27 @@ async def test_redraft_endpoint_flags_and_schedules(client, monkeypatch):
 
     ran = {}
 
-    async def _fake_bg(email_id, forced_policy_key=None):
+    async def _fake_bg(email_id, forced_policy_key=None, excluded_policy_ids=None):
         ran["id"] = email_id
         ran["forced"] = forced_policy_key
+        ran["excluded"] = excluded_policy_ids
 
     # The real background task would hit the production DB/pipeline — isolate it.
     monkeypatch.setattr("app.api.v1.emails._redraft_email_bg", _fake_bg)
 
     resp = await c.post("/api/v1/emails/1/redraft")
     assert resp.status_code == 202
-    # forced_policy_key is additive (task 3) and null for a plain retry.
+    # forced_policy_key (task 3) and excluded_policy_ids (exclusion step 2) are
+    # both additive and null for a plain retry.
     assert resp.json() == {
-        "email_id": "1", "redrafting": True, "forced_policy_key": None,
+        "email_id": "1",
+        "redrafting": True,
+        "forced_policy_key": None,
+        "excluded_policy_ids": None,
     }
     assert ran.get("id") == "1"  # background reprocess scheduled + ran
     assert ran.get("forced") is None  # plain retry forces nothing
+    assert ran.get("excluded") is None  # …and excludes nothing
 
     async with factory() as s:
         row = (await s.execute(select(Email).where(Email.id == 1))).scalar_one()
