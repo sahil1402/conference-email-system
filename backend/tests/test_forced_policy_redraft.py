@@ -346,3 +346,71 @@ async def test_applied_is_derived_not_stored(session_factory):
     assert emails_api._forced_policy_applied(e) is True
     e.retrieval_context = {"retrieved_ids": [], "forced_policy_key": "int_x"}
     assert emails_api._forced_policy_applied(e) is False
+
+
+# ---------------------------------------------------------------------------
+# excluded_policy_ids — request-schema bound (exclusion step 1)
+# ---------------------------------------------------------------------------
+async def test_excluded_policy_ids_rejects_more_than_ten(client, monkeypatch):
+    """The cap is a malformed-input guard, so it must 422 before any work runs."""
+    c, factory = client
+    email_id = await _seed_email(factory)
+    called = {"bg": False}
+
+    async def fake_bg(eid, forced=None):
+        called["bg"] = True
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"excluded_policy_ids": [f"policy_{n}" for n in range(11)]},
+    )
+
+    assert r.status_code == 422
+    # Rejected at validation time — no redraft was scheduled.
+    assert called["bg"] is False
+
+
+async def test_excluded_policy_ids_accepts_exactly_ten(client, monkeypatch):
+    """Boundary: 10 is the documented maximum, not one below it."""
+    c, factory = client
+    email_id = await _seed_email(factory)
+
+    async def fake_bg(eid, forced=None):
+        return None
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"excluded_policy_ids": [f"policy_{n}" for n in range(10)]},
+    )
+    assert r.status_code == 202
+
+
+async def test_excluded_policy_ids_is_optional(client, monkeypatch):
+    """REGRESSION: omitting the field (and the whole body) still works."""
+    c, factory = client
+    email_id = await _seed_email(factory)
+
+    async def fake_bg(eid, forced=None):
+        return None
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    assert (await c.post(f"/api/v1/emails/{email_id}/redraft")).status_code == 202
+    assert (
+        await c.post(
+            f"/api/v1/emails/{email_id}/redraft",
+            json={"forced_policy_key": "int_x"},
+        )
+    ).status_code == 202
+
+
+def test_excluded_policy_ids_defaults_to_none():
+    """The field is additive: an empty request body leaves it unset."""
+    assert emails_api.RedraftRequest().excluded_policy_ids is None
+    assert emails_api.RedraftRequest(
+        excluded_policy_ids=["policy_186"]
+    ).excluded_policy_ids == ["policy_186"]

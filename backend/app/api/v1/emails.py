@@ -88,6 +88,15 @@ class RedraftRequest(BaseModel):
         "re-ranking). Must be an ACTIVE policy; an unknown, retired, or superseded "
         "key is logged and ignored rather than failing the re-draft.",
     )
+    excluded_policy_ids: list[str] | None = Field(
+        default=None,
+        max_length=10,
+        description="Policy ids the chair removed from this draft's grounding. "
+        "Applied as a filter to the RANKED chunks before the forced-policy slot "
+        "is appended, so the drafter simply never sees them — there is no prompt "
+        "representation of an exclusion. Capped at 10: the ranked set is bounded "
+        "by MAX_RETRIEVED_CHUNKS, so a longer list can only be malformed input.",
+    )
 
 
 class SetStatusRequest(BaseModel):
