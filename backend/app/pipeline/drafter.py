@@ -314,12 +314,24 @@ _CHAIR_SELECTED_MARKER = "[CHAIR-SELECTED — MUST ADDRESS]"
 # the TASK section ONLY when a marked block is actually present, so the default
 # prompt is unchanged. Deliberately scoped to the marked policy alone — it must
 # not reopen general over-answering, which the base instruction exists to stop.
+#
+# The wording is ADDITIVE by construction (4d). An earlier version said only
+# "you must directly address it … this is the only exception", and a real-LLM
+# check showed the model treating the marked policy as THE answer: citations
+# collapsed to the forced policy alone in 4/4 cases and the requester's actual
+# question went unanswered. Hence the explicit two-part, ordered structure and
+# the "ADDITION … never a replacement" clause — the main answer must survive.
 _CHAIR_SELECTED_INSTRUCTION = (
     " One policy above is marked "
-    f"{_CHAIR_SELECTED_MARKER}: the chair has determined it applies to this "
-    "ticket, so you must directly address it in your reply even if the "
-    "requester did not ask about it. This is the only exception — do not "
-    "volunteer anything else beyond what was asked."
+    f"{_CHAIR_SELECTED_MARKER}. Do BOTH of the following, in this order: "
+    "(1) FIRST, fully answer the question(s) the requester actually raised, "
+    "drawing on whichever policies above are relevant — write this exactly as "
+    "you would if no policy were marked; then (2) in a SEPARATE closing "
+    "paragraph, additionally address the marked policy, which the chair has "
+    "determined applies to this ticket even though the requester did not ask "
+    "about it. The marked policy is an ADDITION to your answer, never a "
+    "replacement for it — leaving out (1) is a failure. Beyond these two, do "
+    "not volunteer anything else."
 )
 
 

@@ -112,18 +112,31 @@ async def _run_one(drafter, email, policies, forced_key, label):
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", required=True)
+    ap.add_argument("--cases", default=None,
+                    help="Override the built-in CASES: 'ticket:policy_key,ticket:policy_key'. "
+                         "Lets a run target realistic (chair-plausible) pairings without "
+                         "editing this file.")
+    ap.add_argument("--skip-controls", action="store_true",
+                    help="Only run the forced cases (e.g. re-checking a wording change, "
+                         "where the no-forced controls cannot have moved).")
     args = ap.parse_args()
+
+    cases = CASES
+    if args.cases:
+        cases = [(int(t), k) for t, k in
+                 (pair.split(":") for pair in args.cases.split(","))]
 
     emails, policies = _load(args.data_dir)
     drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
 
-    total = len(CASES) + len(CONTROLS)
+    controls = [] if args.skip_controls else CONTROLS
+    total = len(cases) + len(controls)
     print(f"PROVIDER={settings.MODEL_PROVIDER} MODEL={settings.LOCAL_MODEL_NAME}")
     print(f"Making {total} REAL model calls. READ-ONLY: no DB session, no writes.\n")
 
-    for ticket, forced in CASES:
+    for ticket, forced in cases:
         await _run_one(drafter, emails[ticket], policies, forced, "FORCED")
-    for ticket in CONTROLS:
+    for ticket in controls:
         await _run_one(drafter, emails[ticket], policies, None, "CONTROL")
 
 

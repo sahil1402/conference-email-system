@@ -93,7 +93,13 @@ def test_forced_chunk_is_marked_and_instruction_added():
     assert p.count(f"{_CHAIR_SELECTED_MARKER}\n[") == 1
     # The instruction is appended to the existing task rule, not replacing it.
     assert "answer only the question(s) the requester raised — nothing more." in p
-    assert "you must directly address it in your reply" in p
+    # 4d: the instruction must demand BOTH parts. A real-LLM check showed that
+    # merely saying "address the marked policy" made the model answer ONLY that
+    # and drop the requester's question, so these clauses are load-bearing.
+    assert "Do BOTH of the following" in p
+    assert "fully answer the question(s) the requester actually raised" in p
+    assert "SEPARATE closing paragraph" in p
+    assert "ADDITION to your answer, never a replacement" in p
 
 
 def test_normal_chunks_are_formatted_exactly_as_before():
@@ -145,7 +151,8 @@ async def test_drafter_sends_the_marker_when_forced(capture_prompt):
     d, seen = capture_prompt
     await d.draft(EMAIL, CLS, [*RANKED, FORCED], "int_paper-deletion__v2")
     assert _CHAIR_SELECTED_MARKER in seen["prompt"]
-    assert "you must directly address it in your reply" in seen["prompt"]
+    assert "Do BOTH of the following" in seen["prompt"]
+    assert "ADDITION to your answer, never a replacement" in seen["prompt"]
 
 
 async def test_drafter_prompt_unchanged_when_not_forced(capture_prompt):
