@@ -386,7 +386,7 @@ class EmailPipeline:
         # --- draft (non-fatal: failure downgrades status) -----------------
         with tracer.stage("drafter", {}) as st:
             draft = await self.drafter.draft(
-                email_data, classification, retrieved_chunks
+                email_data, classification, retrieved_chunks, forced_policy_key
             )
             st.output_summary = {
                 "draft_length": len(draft.draft_text),

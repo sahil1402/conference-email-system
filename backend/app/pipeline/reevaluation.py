@@ -196,8 +196,11 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
             try:
                 classification = item["classification"]
                 fresh_chunks = item["fresh_chunks"]
+                # Re-mark the chair's forced policy so a swept re-draft keeps
+                # the same must-address instruction the original draft had.
                 draft = await drafter.draft(
-                    item["email_data"], classification, fresh_chunks
+                    item["email_data"], classification, fresh_chunks,
+                    item["ctx"].get("forced_policy_key"),
                 )
                 routing = router.route(classification, fresh_chunks, draft)
 
