@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 
-import { LoadingSpinner } from "@/components/ui";
+import { Badge, Button, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { usePolicies } from "@/hooks";
+import { usePolicies, useRetryEmail } from "@/hooks";
 import { cn } from "@/lib/utils";
-import type { PolicyDocument } from "@/types";
+import type { ApiError, PolicyDocument } from "@/types";
 
 /** Matches the queue search debounce in EmailWorkspace — same feel, same delay. */
 const DEBOUNCE_MS = 250;
@@ -15,8 +15,13 @@ const DEBOUNCE_MS = 250;
 interface PolicySelectPopoverProps {
   /** Rendered as the popover trigger (the caller owns the button's look). */
   children: React.ReactNode;
-  /** Called with the chosen policy_key. This component performs NO API writes. */
-  onSelect: (policyKey: string) => void;
+  /** Email whose draft will be re-generated with the chosen policy forced in. */
+  emailId: number;
+  /**
+   * Fired AFTER the chair approves and the redraft has been requested — NOT on
+   * mere selection. Lets the caller surface which policy is being forced.
+   */
+  onSelect?: (policyKey: string) => void;
   /** Optional extra classes on the popover panel. */
   className?: string;
 }
@@ -39,6 +44,7 @@ interface PolicySelectPopoverProps {
  */
 export function PolicySelectPopover({
   children,
+  emailId,
   onSelect,
   className,
 }: PolicySelectPopoverProps) {
@@ -46,6 +52,11 @@ export function PolicySelectPopover({
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  // The two-view state machine. `selected` non-null ⇒ the detail/confirm view.
+  // Search state above is deliberately NOT cleared when moving to detail, so
+  // "Back" restores the previous query and its (cached) results without a refetch.
+  const [selected, setSelected] = useState<PolicyDocument | null>(null);
+  const retry = useRetryEmail();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
   const listboxId = "policy-select-listbox";
@@ -80,13 +91,35 @@ export function PolicySelectPopover({
       setSearch("");
       setDebounced("");
       setActiveIndex(0);
+      setSelected(null);
+      retry.reset();
     }
+    // `retry` is a stable mutation object; depending on it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  /**
+   * Selecting a result opens the confirm step. It deliberately does NOT call the
+   * redraft endpoint or `onSelect` — nothing leaves this component until the
+   * chair approves, so browsing policies is free of side effects.
+   */
   function choose(policy: PolicyDocument | undefined) {
     if (!policy) return;
-    onSelect(policy.policy_key);
-    setOpen(false);
+    setSelected(policy);
+  }
+
+  /** The only place a write happens. */
+  function approve() {
+    if (!selected) return;
+    retry.mutate(
+      { id: emailId, forcedPolicyKey: selected.policy_key },
+      {
+        onSuccess: () => {
+          onSelect?.(selected.policy_key);
+          setOpen(false);
+        },
+      }
+    );
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -183,6 +216,107 @@ export function PolicySelectPopover({
     );
   }
 
+  // --- Detail / confirm view -------------------------------------------------
+  // Visual treatment mirrors PolicyDetailModal's body: monospace key, category
+  // Badge, and the full text with pre-wrap/break-word. Deliberately NOT clamped —
+  // this is the step where the chair decides, so they must see everything.
+  const error = retry.error as ApiError | null;
+  const detailView = selected && (
+    <div className="space-y-3">
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={() => setSelected(null)}
+          disabled={retry.isPending}
+          aria-label="Back to search"
+          className="mt-0.5 shrink-0 rounded-md p-1 transition-colors hover:bg-[var(--surface)] disabled:opacity-50"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+            {selected.policy_key}
+          </p>
+          <p className="text-xs font-semibold leading-snug"
+             style={{ color: "var(--text-primary)" }}>
+            {selected.title || selected.policy_key}
+          </p>
+        </div>
+      </div>
+
+      {selected.category && (
+        <Badge variant="neutral" size="sm">
+          {selected.category}
+        </Badge>
+      )}
+
+      <div className="max-h-56 overflow-y-auto rounded-md border p-2"
+           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface)" }}>
+        <p
+          className="text-[11px] leading-relaxed"
+          style={{
+            color: "var(--text-primary)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {selected.content}
+        </p>
+      </div>
+
+      {error && (
+        <ErrorBanner message={error.detail || "Couldn't start the re-draft."} />
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button type="button" size="sm" onClick={approve} disabled={retry.isPending}>
+          {retry.isPending ? <LoadingSpinner size="sm" /> : null}
+          {retry.isPending ? "Re-drafting…" : "Approve"}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => setSelected(null)}
+          disabled={retry.isPending}
+        >
+          Change
+        </Button>
+      </div>
+    </div>
+  );
+
+  const searchView = (
+    <>
+      <div className="mb-2 flex items-center gap-2 rounded-lg border px-2 py-1.5"
+           style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
+        <Search className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden />
+        <input
+          ref={inputRef}
+          type="text"
+          role="combobox"
+          aria-expanded={results.length > 0}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            results.length > 0
+              ? `policy-option-${results[activeIndex]?.policy_key}`
+              : undefined
+          }
+          aria-label="Search policies"
+          placeholder="Search policies…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={onKeyDown}
+          className="w-full bg-transparent text-xs outline-none"
+          style={{ color: "var(--text-primary)" }}
+        />
+      </div>
+      {body}
+    </>
+  );
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
@@ -190,36 +324,13 @@ export function PolicySelectPopover({
         align="end"
         className={cn("w-80 p-2", className)}
         // Radix would focus the panel; keep the caret in the search box instead.
+        // Only meaningful for the search view — detail has no text entry.
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           inputRef.current?.focus();
         }}
       >
-        <div className="mb-2 flex items-center gap-2 rounded-lg border px-2 py-1.5"
-             style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
-          <Search className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden />
-          <input
-            ref={inputRef}
-            type="text"
-            role="combobox"
-            aria-expanded={results.length > 0}
-            aria-controls={listboxId}
-            aria-autocomplete="list"
-            aria-activedescendant={
-              results.length > 0
-                ? `policy-option-${results[activeIndex]?.policy_key}`
-                : undefined
-            }
-            aria-label="Search policies"
-            placeholder="Search policies…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={onKeyDown}
-            className="w-full bg-transparent text-xs outline-none"
-            style={{ color: "var(--text-primary)" }}
-          />
-        </div>
-        {body}
+        {selected ? detailView : searchView}
       </PopoverContent>
     </Popover>
   );
