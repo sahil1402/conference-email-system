@@ -261,6 +261,30 @@ class ReassignChairRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
+def _forced_policy_applied(email: Email) -> bool | None:
+    """Did the chair's forced policy make it into the current draft's grounding?
+
+    DERIVED, never stored as its own column: the answer is exactly
+    ``forced_policy_key in retrieved_ids``, both of which already live in
+    ``retrieval_context``. Keeping it computed means it can never drift out of
+    sync with the grounding set it describes (same principle as hydrating
+    ``retrieved_chunks`` on read rather than duplicating chunk text).
+
+    ``None``  — no forced policy was requested for this draft (a plain redraft,
+                or any draft generated before manual invoke existed). This is the
+                unchanged default, so old rows are unaffected.
+    ``True``  — requested and present in the grounding set.
+    ``False`` — requested but skipped: unknown key, not active, or the lookup
+                failed. The chair asked for something they did not get, which is
+                the case the UI needs to surface.
+    """
+    ctx = email.retrieval_context or {}
+    key = ctx.get("forced_policy_key")
+    if not key:
+        return None
+    return key in (ctx.get("retrieved_ids") or [])
+
+
 def _email_to_dict(email: Email) -> dict:
     """Serialize an Email ORM row (including its JSON pipeline columns)."""
     return {
@@ -288,6 +312,11 @@ def _email_to_dict(email: Email) -> dict:
         "draft": email.draft,
         "redrafting": bool(email.redrafting),
         "retrieval_context": email.retrieval_context,
+        # Derived from retrieval_context (no column, no duplicated state). Sits
+        # beside `redrafting` on purpose: the frontend already refetches the email
+        # when that flag clears, so the manual-invoke outcome arrives on the very
+        # same read — no extra endpoint and no separate poll.
+        "forced_policy_applied": _forced_policy_applied(email),
         "created_at": email.created_at.isoformat() if email.created_at else None,
         "updated_at": email.updated_at.isoformat() if email.updated_at else None,
     }

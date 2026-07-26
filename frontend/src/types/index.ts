@@ -278,11 +278,22 @@ export interface Email {
    */
   redrafting?: boolean;
   /**
-   * Retrieved policy chunks. NOT currently persisted on the email row by the
-   * backend (_email_to_dict omits it) — only the ingest PipelineResult carries
-   * them. Declared optional so the review UI can render rich citations if/when
-   * the backend starts persisting them; today the UI falls back to
-   * `draft.citations` (the cited policy ids).
+   * Outcome of a chair's manual policy invoke on the CURRENT draft, derived
+   * server-side from `retrieval_context` (no stored column):
+   *   null  — none was requested (plain redraft, or a pre-manual-invoke draft)
+   *   true  — the forced policy is in the grounding set
+   *   false — it was requested but skipped (unknown key, or not active)
+   * Arrives on the same refetch that clears `redrafting`, so the review UI can
+   * confirm success or warn about a silent skip without a second request.
+   */
+  forced_policy_applied?: boolean | null;
+  /**
+   * Retrieved policy chunks that grounded this draft. Served by the email-detail
+   * endpoints (`GET /emails/{id}`, `/emails/by-ticket/{id}`), which rehydrate
+   * them from the persisted `retrieval_context.retrieved_ids`. Absent on queue
+   * rows (list responses are not hydrated — that would be an N+1), and null when
+   * the email has no retrieval context at all; the UI then falls back to
+   * `draft.citations`.
    */
   retrieved_chunks?: RetrievedChunk[] | null;
   created_at: string | null;
