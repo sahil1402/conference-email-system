@@ -124,11 +124,13 @@ describe("Policy Citations — branch 1 (hydrated retrieved_chunks)", () => {
       await screen.findByText("AAAI-27 Paper Modification Guidelines")
     ).toBeInTheDocument();
     expect(
-      screen.getByText("After the July 31 deadline nothing can be changed.")
-    ).toBeInTheDocument();
-    expect(
       screen.getByText("Abstract and Paper Submission (part 2)")
     ).toBeInTheDocument();
+    // Compact rows: the body preview is intentionally NOT rendered inline —
+    // the whole row is a button and the modal carries the full text.
+    expect(
+      screen.queryByText("After the July 31 deadline nothing can be changed.")
+    ).not.toBeInTheDocument();
 
     // Each card is a button labelled for the modal it opens.
     expect(
@@ -146,9 +148,11 @@ describe("Policy Citations — branch 1 (hydrated retrieved_chunks)", () => {
     renderTicket();
 
     expect(await screen.findByText("AAAI-27 Paper Modification Guidelines")).toBeInTheDocument();
-    // No chunk carries a score; the card must still show the category badge.
+    // No chunk carries a score; the row must still render from title alone.
     expect(HYDRATED.every((c) => c.score === undefined)).toBe(true);
-    expect(screen.getAllByText("submission").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "View policy Abstract and Paper Submission (part 2)" })
+    ).toBeInTheDocument();
   });
 
   it("wins over draft.citations when BOTH are present", async () => {
@@ -261,9 +265,10 @@ describe("Policy Citations — chair-forced chunk (manual invoke)", () => {
     expect(screen.getByText("AAAI-27 Paper Modification Guidelines")).toBeInTheDocument();
     expect(screen.getByText("Abstract and Paper Submission (part 2)")).toBeInTheDocument();
     expect(screen.getByText("Abstract and Paper Submission")).toBeInTheDocument();
+    // Four rows, one per chunk — the forced one included.
     expect(
-      screen.getByText("Withdrawal requires written confirmation.")
-    ).toBeInTheDocument();
+      screen.getAllByRole("button", { name: /^View policy / })
+    ).toHaveLength(4);
   });
 
   it("marks ONLY the forced chunk as chair-added", async () => {
@@ -315,5 +320,91 @@ describe("Policy Citations — chair-forced chunk (manual invoke)", () => {
 
     await screen.findByText("Abstract and Paper Submission (part 2)");
     expect(screen.getAllByText("Added by you")).toHaveLength(1);
+  });
+});
+
+describe("Policy Citations — inline category on the compact row", () => {
+  /** The row renders title + category inside ONE element, so assert on that. */
+  function rowFor(title: string) {
+    return screen.getByRole("button", { name: new RegExp(`^View policy ${title}`) });
+  }
+
+  it("shows the category as inline muted text after the title", async () => {
+    state.current = makeEmail({ retrieved_chunks: HYDRATED });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    expect(rowFor("AAAI-27 Paper Modification Guidelines")).toHaveTextContent(
+      "AAAI-27 Paper Modification Guidelines · submission"
+    );
+  });
+
+  it("renders the category as text, NOT as a separate badge element", async () => {
+    // A badge would add height; the whole point of 2b is that it doesn't.
+    state.current = makeEmail({ retrieved_chunks: HYDRATED });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    // The category text is a plain span inside the row's single line — the only
+    // Badge on a row is the chair-forced marker, which is absent here.
+    expect(screen.queryByText("Added by you")).not.toBeInTheDocument();
+    // Category lives INSIDE the row button (one line), not as a sibling element.
+    const row = rowFor("AAAI-27 Paper Modification Guidelines");
+    expect(row).toHaveTextContent("· submission");
+    // Title and category are the row's only content — no extra block children.
+    expect(row.textContent?.trim()).toBe(
+      "AAAI-27 Paper Modification Guidelines · submission"
+    );
+  });
+
+  it("omits the separator entirely when category is NULL (chair-added policy)", async () => {
+    // `category` is nullable and the KB Add-Policy form posts null for an empty
+    // box, so this is a supported write path — it must not render "· null".
+    state.current = makeEmail({
+      retrieved_chunks: [
+        {
+          policy_id: "int_paper-deletion__v2",
+          title: "Paper Deletion",
+          content: "Withdrawal requires written confirmation.",
+          category: null as unknown as string,
+        },
+      ],
+    });
+    renderTicket();
+
+    await screen.findByText("Paper Deletion");
+    const row = rowFor("Paper Deletion");
+    expect(row).toHaveTextContent("Paper Deletion");
+    expect(row.textContent).not.toContain("·");
+    expect(row.textContent).not.toContain("null");
+    expect(row.textContent).not.toContain("undefined");
+  });
+
+  it("omits the separator when category is an empty or whitespace string", async () => {
+    state.current = makeEmail({
+      retrieved_chunks: [
+        { policy_id: "int_a", title: "Empty Category", content: "x", category: "" },
+        { policy_id: "int_b", title: "Blank Category", content: "x", category: "   " },
+      ],
+    });
+    renderTicket();
+
+    await screen.findByText("Empty Category");
+    expect(rowFor("Empty Category").textContent).not.toContain("·");
+    expect(rowFor("Blank Category").textContent).not.toContain("·");
+  });
+
+  it("mixes categorised and uncategorised rows without affecting each other", async () => {
+    state.current = makeEmail({
+      retrieved_chunks: [
+        HYDRATED[0],
+        { policy_id: "int_x", title: "No Category Here", content: "x", category: null as unknown as string },
+      ],
+    });
+    renderTicket();
+
+    await screen.findByText("No Category Here");
+    expect(rowFor("AAAI-27 Paper Modification Guidelines")).toHaveTextContent("· submission");
+    expect(rowFor("No Category Here").textContent).not.toContain("·");
   });
 });
