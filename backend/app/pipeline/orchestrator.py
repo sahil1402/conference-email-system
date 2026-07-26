@@ -47,6 +47,7 @@ from app.pipeline.thread_transcript import build_transcript
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.chair_repository import ChairRepository
 from app.repositories.email_repository import EmailRepository
+from app.repositories.policy_repository import PolicyRepository
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,63 @@ class EmailPipeline:
         self.email_repo = EmailRepository()
         self.chair_repo = ChairRepository()
         self.audit_repo = AuditRepository()
+        # Only used to resolve a chair-forced policy key (manual invoke); the
+        # normal retrieval path never touches it.
+        self.policy_repo = PolicyRepository()
+
+    async def _force_policy_chunk(
+        self, db: AsyncSession, policy_key: str, already: list[RetrievedChunk]
+    ) -> RetrievedChunk | None:
+        """Resolve a chair-forced policy key into an extra grounding chunk.
+
+        Returns None (never raises) when the key is unknown, is not ACTIVE, or is
+        already in the retrieved set — the caller then proceeds with normal
+        retrieval only, so a bad key degrades the draft's grounding rather than
+        failing the whole redraft.
+
+        ACTIVE is required on purpose. This creates NEW grounding for a reply that
+        may be sent to a requester, so a retired or superseded policy must not be
+        forced in — the chairs withdrew that text. (``status != "active"`` also
+        covers superseded rows: ``edit_policy`` marks the old version inactive.)
+        This is the OPPOSITE of the read-time hydration in the emails API, which
+        deliberately ignores status because it reports the HISTORICAL grounding of
+        an already-generated draft rather than creating new grounding.
+
+        Visibility is deliberately NOT filtered: internal policies are part of the
+        retrieval corpus (``list_for_index`` indexes public + internal), and
+        forcing an internal chair-authored policy is the primary use case.
+        """
+        if any(c.policy_id == policy_key for c in already):
+            logger.info(
+                "Forced policy %s already retrieved; not duplicating.", policy_key
+            )
+            return None
+        try:
+            rows = await self.policy_repo.get_by_keys(db, [policy_key])
+        except Exception:  # noqa: BLE001 - a lookup failure must not kill the redraft
+            logger.exception("Forced-policy lookup failed for %s.", policy_key)
+            return None
+
+        row = rows.get(policy_key)
+        if row is None:
+            logger.warning("Forced policy %s not found; ignoring.", policy_key)
+            return None
+        if row.status != "active":
+            logger.warning(
+                "Forced policy %s is %s (not active); ignoring.", policy_key, row.status
+            )
+            return None
+
+        return RetrievedChunk(
+            policy_id=row.policy_key,
+            title=row.title or "",
+            content=row.content or "",
+            # Not a retrieval score — this chunk was never ranked. 0.0 marks it as
+            # chair-forced rather than implying "least relevant".
+            score=0.0,
+            category=row.category or "",
+            intents=list(row.intents) if getattr(row, "intents", None) else [],
+        )
 
     async def _assign_chair(
         self,
@@ -181,12 +239,24 @@ class EmailPipeline:
             logger.warning("Chair assignment failed; leaving email unassigned.", exc_info=True)
             return None
 
-    async def _compute(self, email_data: dict, db: AsyncSession) -> _Computed:
+    async def _compute(
+        self,
+        email_data: dict,
+        db: AsyncSession,
+        *,
+        forced_policy_key: str | None = None,
+    ) -> _Computed:
         """Run classify → retrieve → draft → route → chair-assign (no persistence).
 
         Shared by ``process_email`` (creates a new row) and ``reprocess_email``
         (updates an existing row). Builds the persistence ``record`` but does not
         write it; the caller decides create vs. update.
+
+        ``forced_policy_key`` is a chair-specified policy to ground on in ADDITION
+        to whatever retrieval ranked (manual invoke). It occupies a guaranteed
+        EXTRA slot — ``MAX_RETRIEVED_CHUNKS`` still governs the ranked chunks, so
+        the forced policy can never be evicted by re-ranking. Default ``None``
+        leaves every existing caller bit-for-bit unchanged.
         """
         start = time.perf_counter()
         subject = email_data.get("subject", "")
@@ -275,10 +345,25 @@ class EmailPipeline:
                     top_k=settings.MAX_RETRIEVED_CHUNKS,
                     prior_intent=prior_intent,
                 )
+                # Chair-forced policy (manual invoke): appended as a GUARANTEED
+                # EXTRA slot, after ranking, so top_k still governs the ranked
+                # chunks and the forced one can never be crowded out. No-op (and
+                # never raises) when the key is absent, unknown, inactive, or
+                # already retrieved.
+                forced_chunk = (
+                    await self._force_policy_chunk(db, forced_policy_key, retrieved_chunks)
+                    if forced_policy_key
+                    else None
+                )
+                if forced_chunk is not None:
+                    retrieved_chunks = [*retrieved_chunks, forced_chunk]
+
                 st.output_summary = {
                     "chunk_ids": [c.policy_id for c in retrieved_chunks],
                     "scores": [round(float(c.score), 4) for c in retrieved_chunks],
                     "backend": settings.RETRIEVAL_BACKEND,
+                    "forced_policy_key": forced_policy_key,
+                    "forced_applied": forced_chunk is not None,
                 }
 
         except Exception:
@@ -416,7 +501,13 @@ class EmailPipeline:
             status=c.status,
         )
 
-    async def compute(self, email_data: dict, db: AsyncSession) -> "_Computed":
+    async def compute(
+        self,
+        email_data: dict,
+        db: AsyncSession,
+        *,
+        forced_policy_key: str | None = None,
+    ) -> "_Computed":
         """Run classify → retrieve → draft → route WITHOUT persisting anything.
 
         The stable public seam over ``_compute``: callers that persist the
@@ -426,8 +517,10 @@ class EmailPipeline:
         column shapes (classification/routing/draft/retrieval_context). Reads
         the chair roster (best-effort) but performs no writes; the caller owns
         persistence.
+
+        ``forced_policy_key`` forwards to ``_compute`` (extra grounding slot).
         """
-        return await self._compute(email_data, db)
+        return await self._compute(email_data, db, forced_policy_key=forced_policy_key)
 
     async def process_email(
         self, email_data: dict, db: AsyncSession
@@ -437,7 +530,9 @@ class EmailPipeline:
         email = await self.email_repo.create_email(db, c.record)
         return await self._finalize(db, str(email.id), c)
 
-    async def reprocess_email(self, db: AsyncSession, email) -> PipelineResult:
+    async def reprocess_email(
+        self, db: AsyncSession, email, *, forced_policy_key: str | None = None
+    ) -> PipelineResult:
         """Re-run the full pipeline for an EXISTING email and update it in place.
 
         Backs the per-email "retry" action: the same classify → retrieve → draft
@@ -445,6 +540,9 @@ class EmailPipeline:
         existing row (its id, ``received_at`` and any chair-edit history stay put)
         instead of creating a new one. ``retrieval_context`` is refreshed too, and
         the transient ``redrafting`` flag is cleared as the new draft lands.
+
+        ``forced_policy_key`` (manual invoke) adds one chair-chosen policy to the
+        grounding set as an extra slot; ``None`` is the unchanged retry behaviour.
         """
         email_data = {
             "from": email.sender,
@@ -452,7 +550,7 @@ class EmailPipeline:
             "subject": email.subject,
             "body": email.body,
         }
-        c = await self._compute(email_data, db)
+        c = await self._compute(email_data, db, forced_policy_key=forced_policy_key)
         await self.email_repo.update_email_outputs(db, str(email.id), c.record)
         return await self._finalize(db, str(email.id), c)
 
