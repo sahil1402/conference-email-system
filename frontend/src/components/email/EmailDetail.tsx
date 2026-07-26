@@ -434,6 +434,7 @@ export function EmailDetail({
             citationIds={draft?.citations ?? []}
             emailId={email.id}
             forcedPolicyApplied={email.forced_policy_applied}
+            forcedPolicyKey={email.retrieval_context?.forced_policy_key}
             redrafting={email.redrafting}
           />
         </Collapsible>
@@ -1098,6 +1099,7 @@ function PolicyCitations({
   citationIds,
   emailId,
   forcedPolicyApplied,
+  forcedPolicyKey,
   redrafting,
 }: {
   chunks: RetrievedChunk[] | null;
@@ -1105,6 +1107,13 @@ function PolicyCitations({
   emailId: number;
   /** Tri-state outcome of a manual invoke on the CURRENT draft (3d). */
   forcedPolicyApplied?: boolean | null;
+  /**
+   * Which policy the chair forced, from `retrieval_context.forced_policy_key`.
+   * Used to mark that card as chair-added rather than retriever-found. Unlike
+   * the outcome banner, this is NOT session-gated: it is a durable property of
+   * the draft's grounding, so it stays visible whenever the ticket is reopened.
+   */
+  forcedPolicyKey?: string | null;
   redrafting?: boolean;
 }) {
   // The cited policy key whose full detail is open in the modal (null = closed).
@@ -1127,10 +1136,20 @@ function PolicyCitations({
   if (chunks && chunks.length > 0) {
     body = (
       <div className="space-y-3 pt-1">
-        {chunks.slice(0, 3).map((chunk) => (
+        {/* Render EVERY chunk the API returned. This used to be
+            `chunks.slice(0, 3)`, written when the grounding set could only ever
+            be the retriever's top-k. Manual invoke appends the chair's forced
+            policy as an EXTRA slot beyond top-k, so with MAX_RETRIEVED_CHUNKS=3
+            the forced card was always index 3 and always silently dropped — the
+            chair got a success confirmation and saw no change. The backend
+            already caps the ranked set (`top_k=MAX_RETRIEVED_CHUNKS`) and at
+            most one policy can be forced, so the list is bounded server-side
+            and a second cap here only hides data. */}
+        {chunks.map((chunk) => (
           <CitationCard
             key={chunk.policy_id}
             chunk={chunk}
+            isForced={chunk.policy_id === forcedPolicyKey}
             onOpen={() => setOpenPolicyKey(chunk.policy_id)}
           />
         ))}
@@ -1236,20 +1255,31 @@ function PolicyCitations({
  */
 function CitationCard({
   chunk,
+  isForced = false,
   onOpen,
 }: {
   chunk: RetrievedChunk;
+  /** True when the chair added this policy by hand rather than the retriever
+   *  finding it — surfaced so the two are never mistaken for each other. */
+  isForced?: boolean;
   onOpen: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`View policy ${chunk.title || chunk.policy_id}`}
+      aria-label={
+        isForced
+          ? `View policy ${chunk.title || chunk.policy_id} (added by you)`
+          : `View policy ${chunk.title || chunk.policy_id}`
+      }
       className="block w-full rounded-lg border p-3 text-left outline-none transition-colors hover:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       style={{
-        borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-raised)",
+        // A forced card is accented so it reads as chair-added at a glance;
+        // colour alone isn't the signal — the "Added by you" badge carries it
+        // for anyone who can't distinguish the border.
+        borderColor: isForced ? "var(--accent)" : "var(--border-subtle)",
+        backgroundColor: isForced ? "var(--accent-subtle)" : "var(--surface-raised)",
       }}
     >
       <div className="mb-1 flex items-start justify-between gap-2">
@@ -1259,11 +1289,18 @@ function CitationCard({
         >
           {chunk.title || chunk.policy_id}
         </span>
-        {chunk.category && (
-          <Badge variant="neutral" size="sm">
-            {chunk.category}
-          </Badge>
-        )}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {isForced && (
+            <Badge variant="accent" size="sm">
+              Added by you
+            </Badge>
+          )}
+          {chunk.category && (
+            <Badge variant="neutral" size="sm">
+              {chunk.category}
+            </Badge>
+          )}
+        </span>
       </div>
       <p
         className="text-xs leading-relaxed line-clamp-3"

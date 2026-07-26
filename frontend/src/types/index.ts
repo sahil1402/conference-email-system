@@ -150,6 +150,27 @@ export interface EmailThreadResponse {
   messages: EmailThreadMessage[];
 }
 
+/**
+ * `emails.retrieval_context` — the exact retriever inputs and the grounding set
+ * they produced, captured at draft time (orchestrator `_compute`). Serialized by
+ * `_email_to_dict` but previously undeclared here; the review UI reads
+ * `forced_policy_key` from it to mark which citation the chair added.
+ */
+export interface RetrievalContext {
+  query?: string;
+  intent?: string;
+  prior_intent?: string;
+  /** Rank-ordered grounding set. A chair-forced policy is appended LAST. */
+  retrieved_ids?: string[];
+  chunk_hash?: string;
+  /**
+   * The policy the chair forced into this draft, if any (manual invoke). Null /
+   * absent for a normal draft. Whether it actually applied is `Email.
+   * forced_policy_applied` — this field is only what was requested.
+   */
+  forced_policy_key?: string | null;
+}
+
 /** retriever.py::RetrievedChunk (returned inside the ingest PipelineResult). */
 export interface RetrievedChunk {
   policy_id: string;
@@ -296,6 +317,8 @@ export interface Email {
    * `draft.citations`.
    */
   retrieved_chunks?: RetrievedChunk[] | null;
+  /** Retriever inputs + grounding set captured at draft time. */
+  retrieval_context?: RetrievalContext | null;
   created_at: string | null;
   updated_at: string | null;
 }

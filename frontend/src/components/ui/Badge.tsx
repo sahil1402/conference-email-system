@@ -8,6 +8,7 @@ export type BadgeVariant =
   | "success"
   | "warning"
   | "danger"
+  | "accent"
   | "neutral";
 
 interface BadgeProps {
@@ -27,6 +28,9 @@ const VARIANT_STYLE: Record<BadgeVariant, CSSProperties> = {
   success: { color: "var(--success)", backgroundColor: "var(--success-subtle)" },
   warning: { color: "var(--warning)", backgroundColor: "var(--warning-subtle)" },
   danger: { color: "var(--danger)", backgroundColor: "var(--danger-subtle)" },
+  // Neutral-in-tone but clearly "ours": marks something the chair did, as
+  // opposed to a pipeline outcome (faq/review) or a severity (success/danger).
+  accent: { color: "var(--accent)", backgroundColor: "var(--accent-subtle)" },
   neutral: {
     color: "var(--text-secondary)",
     backgroundColor: "var(--surface-raised)",

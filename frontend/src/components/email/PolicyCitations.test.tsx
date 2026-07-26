@@ -163,7 +163,12 @@ describe("Policy Citations — branch 1 (hydrated retrieved_chunks)", () => {
     expect(screen.queryByText("policy_999")).not.toBeInTheDocument();
   });
 
-  it("caps the list at 3 cards even when more are returned", async () => {
+  it("renders EVERY chunk the API returns — no client-side cap", async () => {
+    // INVERTED from its original form, which asserted `chunks.slice(0, 3)`.
+    // That cap predated manual invoke and silently hid the chair's forced
+    // policy (always the 4th entry). The ranked set is bounded server-side by
+    // MAX_RETRIEVED_CHUNKS and at most one policy can be forced, so trusting
+    // the API's list is correct — a second cap here only loses data.
     const many: RetrievedChunk[] = [1, 2, 3, 4, 5].map((n) => ({
       policy_id: `policy_${n}`,
       title: `Policy Number ${n}`,
@@ -175,8 +180,8 @@ describe("Policy Citations — branch 1 (hydrated retrieved_chunks)", () => {
 
     expect(await screen.findByText("Policy Number 1")).toBeInTheDocument();
     expect(screen.getByText("Policy Number 3")).toBeInTheDocument();
-    expect(screen.queryByText("Policy Number 4")).not.toBeInTheDocument();
-    expect(screen.queryByText("Policy Number 5")).not.toBeInTheDocument();
+    expect(screen.getByText("Policy Number 4")).toBeInTheDocument();
+    expect(screen.getByText("Policy Number 5")).toBeInTheDocument();
   });
 });
 
@@ -221,5 +226,94 @@ describe("Policy Citations — fallback branches (must be unaffected by 2a)", ()
     expect(
       await screen.findByText("No policy citations for this email.")
     ).toBeInTheDocument();
+  });
+});
+
+describe("Policy Citations — chair-forced chunk (manual invoke)", () => {
+  const RANKED_PLUS_FORCED: RetrievedChunk[] = [
+    ...HYDRATED,
+    {
+      policy_id: "policy_171",
+      title: "Abstract and Paper Submission",
+      content: "Every submission requires both an abstract and a paper.",
+      category: "submission",
+    },
+    {
+      policy_id: "int_paper-deletion__v2",
+      title: "Paper Deletion",
+      content: "Withdrawal requires written confirmation.",
+      category: "deletion",
+    },
+  ];
+
+  it("renders the FORCED 4th chunk instead of silently dropping it", async () => {
+    // Regression: the panel used to be `chunks.slice(0, 3)`. With
+    // MAX_RETRIEVED_CHUNKS=3 the chair's forced policy is always the 4th entry,
+    // so it was invisible every single time — a success banner with no change.
+    state.current = makeEmail({
+      retrieved_chunks: RANKED_PLUS_FORCED,
+      retrieval_context: { forced_policy_key: "int_paper-deletion__v2" },
+    });
+    renderTicket();
+
+    // All four render — the three ranked AND the forced one.
+    expect(await screen.findByText("Paper Deletion")).toBeInTheDocument();
+    expect(screen.getByText("AAAI-27 Paper Modification Guidelines")).toBeInTheDocument();
+    expect(screen.getByText("Abstract and Paper Submission (part 2)")).toBeInTheDocument();
+    expect(screen.getByText("Abstract and Paper Submission")).toBeInTheDocument();
+    expect(
+      screen.getByText("Withdrawal requires written confirmation.")
+    ).toBeInTheDocument();
+  });
+
+  it("marks ONLY the forced chunk as chair-added", async () => {
+    state.current = makeEmail({
+      retrieved_chunks: RANKED_PLUS_FORCED,
+      retrieval_context: { forced_policy_key: "int_paper-deletion__v2" },
+    });
+    renderTicket();
+
+    await screen.findByText("Paper Deletion");
+    // Exactly one badge, on exactly the forced card.
+    expect(screen.getAllByText("Added by you")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "View policy Paper Deletion (added by you)" })
+    ).toBeInTheDocument();
+    // A retrieved card keeps its plain label.
+    expect(
+      screen.getByRole("button", { name: "View policy AAAI-27 Paper Modification Guidelines" })
+    ).toBeInTheDocument();
+  });
+
+  it("shows no marker when nothing was forced (normal draft)", async () => {
+    state.current = makeEmail({
+      retrieved_chunks: HYDRATED,
+      retrieval_context: { forced_policy_key: null },
+    });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    expect(screen.queryByText("Added by you")).not.toBeInTheDocument();
+  });
+
+  it("shows no marker when retrieval_context is absent entirely (legacy row)", async () => {
+    state.current = makeEmail({ retrieved_chunks: HYDRATED });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    expect(screen.queryByText("Added by you")).not.toBeInTheDocument();
+  });
+
+  it("marks the forced card even when it was ALSO in the ranked set", async () => {
+    // Task 3 skips duplicate injection, so a forced key can name a ranked chunk;
+    // there is no 4th card then, but it must still be marked as chair-added.
+    state.current = makeEmail({
+      retrieved_chunks: HYDRATED,
+      retrieval_context: { forced_policy_key: "policy_172" },
+    });
+    renderTicket();
+
+    await screen.findByText("Abstract and Paper Submission (part 2)");
+    expect(screen.getAllByText("Added by you")).toHaveLength(1);
   });
 });
