@@ -19,6 +19,7 @@ import {
   Users,
   Check,
   RefreshCw,
+  Plus,
 } from "lucide-react";
 
 import {
@@ -34,6 +35,7 @@ import {
   type SplitActionStatus,
 } from "@/components/ui";
 import { PolicyDetailModal } from "./PolicyDetailModal";
+import { PolicySelectPopover } from "./PolicySelectPopover";
 import { ConversationThread } from "./ConversationThread";
 import { SendVisibilityToggle } from "./SendVisibilityToggle";
 import { SetTicketStatusButton, type NoReplyStatus } from "./SetTicketStatusButton";
@@ -430,6 +432,7 @@ export function EmailDetail({
           <PolicyCitations
             chunks={email.retrieved_chunks ?? null}
             citationIds={draft?.citations ?? []}
+            emailId={email.id}
           />
         </Collapsible>
 
@@ -1091,9 +1094,11 @@ function ChairNoteRow({ note }: { note: ChairNote }) {
 function PolicyCitations({
   chunks,
   citationIds,
+  emailId,
 }: {
   chunks: RetrievedChunk[] | null;
   citationIds: string[];
+  emailId: number;
 }) {
   // The cited policy key whose full detail is open in the modal (null = closed).
   const [openPolicyKey, setOpenPolicyKey] = useState<string | null>(null);
@@ -1144,6 +1149,23 @@ function PolicyCitations({
 
   return (
     <>
+      {/* Manual policy invoke. Sits HERE — not inside CitationCard or the
+          Collapsible header — because both of those are themselves <button>s
+          and nesting a button inside a button is invalid HTML. Rendered above
+          every branch, including the empty state, which is exactly when a chair
+          is most likely to want to force a policy in. */}
+      <div className="flex justify-end pb-1">
+        <PolicySelectPopover emailId={emailId}>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            Add policy
+          </button>
+        </PolicySelectPopover>
+      </div>
       {body}
       <PolicyDetailModal
         policyKey={openPolicyKey}
