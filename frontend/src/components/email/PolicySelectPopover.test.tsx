@@ -351,4 +351,92 @@ describe("PolicySelectPopover", () => {
     expect(input).toHaveValue("");
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   });
+  // --- Modal shell (Radix Dialog) --------------------------------------------
+
+  it("opens as a modal dialog, centred and named", async () => {
+    const user = userEvent.setup();
+    renderPicker();
+    await open(user);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute("data-state", "open");
+    // Accessible name comes from the visually-hidden DialogTitle. (Radix does
+    // NOT set an `aria-modal` attribute — it hides outside content with
+    // aria-hidden instead — so asserting that attribute would be wrong.)
+    expect(dialog).toHaveAccessibleName("Add a policy to this draft");
+    // Centred in the viewport, and meaningfully wider than the old ~320px popover.
+    expect(dialog.className).toContain("left-1/2");
+    expect(dialog.className).toContain("top-1/2");
+    expect(dialog.className).toContain("-translate-x-1/2");
+    expect(dialog.className).toContain("-translate-y-1/2");
+    expect(dialog.className).toContain("max-w-lg"); // 512px
+    expect(dialog.className).not.toContain("w-80"); // the popover width is gone
+  });
+
+  it("renders a TRANSLUCENT backdrop over the page", async () => {
+    const user = userEvent.setup();
+    renderPicker();
+    await open(user);
+
+    const overlay = screen.getByTestId("dialog-overlay");
+    expect(overlay).toBeInTheDocument();
+    // Dimmed, not opaque — the ticket must stay visible behind it.
+    const bg = overlay.style.backgroundColor;
+    expect(bg).toMatch(/rgba\(0,\s*0,\s*0,\s*0\.6\)/);
+    expect(bg).not.toBe("rgb(0, 0, 0)");
+  });
+
+  it("clicking the backdrop closes it without any API call", async () => {
+    const user = userEvent.setup();
+    state.list.mockResolvedValue({ policies: [policy()] });
+    const onSelect = renderPicker();
+    const input = await open(user);
+    await user.type(input, "deadline");
+    await screen.findByText("Paper Modification Guidelines");
+
+    await user.click(screen.getByTestId("dialog-overlay"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(state.retry).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("Escape closes the dialog and triggers no API call", async () => {
+    const user = userEvent.setup();
+    state.list.mockResolvedValue({ policies: [policy()] });
+    const onSelect = renderPicker();
+    const input = await open(user);
+    await user.type(input, "deadline");
+    await screen.findByText("Paper Modification Guidelines");
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(state.retry).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("Escape from the DETAIL view also closes without writing", async () => {
+    const user = userEvent.setup();
+    state.list.mockResolvedValue({ policies: [policy()] });
+    renderPicker();
+    await openDetail(user);
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(state.retry).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dialog role while on the detail view", async () => {
+    const user = userEvent.setup();
+    state.list.mockResolvedValue({ policies: [policy()] });
+    renderPicker();
+    await openDetail(user);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Confirm policy");
+  });
 });
