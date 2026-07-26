@@ -197,15 +197,18 @@ async def test_forced_chunk_reaches_the_drafter(session_factory):
 
     original = p.drafter.draft
 
-    async def spy(email, classification, chunks):
+    async def spy(email, classification, chunks, forced_policy_key=None):
         seen["ids"] = [c.policy_id for c in chunks]
-        return await original(email, classification, chunks)
+        seen["forced"] = forced_policy_key
+        return await original(email, classification, chunks, forced_policy_key)
 
     p.drafter.draft = spy
     async with session_factory() as db:
         await p._compute({"from": "a@b.com", "subject": "s", "body": "b"}, db,
                          forced_policy_key="int_forced")
     assert seen["ids"][-1] == "int_forced"
+    # Task 4: the key itself is forwarded so the prompt can mark that block.
+    assert seen["forced"] == "int_forced"
 
 
 # ---------------------------------------------------------------------------
@@ -274,3 +277,72 @@ async def test_redraft_unknown_email_still_404s(client):
     r = await c.post("/api/v1/emails/does-not-exist/redraft",
                      json={"forced_policy_key": "int_x"})
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# forced_policy_applied — DERIVED outcome signal (3d)
+# ---------------------------------------------------------------------------
+async def test_applied_is_true_when_the_forced_policy_resolved(session_factory):
+    c, _ = await _compute_with(session_factory, "int_forced", seed="int_forced")
+    ctx = c.record["retrieval_context"]
+    assert ctx["forced_policy_key"] == "int_forced"
+    assert "int_forced" in ctx["retrieved_ids"]
+
+    e = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    e.retrieval_context = ctx
+    assert emails_api._forced_policy_applied(e) is True
+    assert emails_api._email_to_dict(e)["forced_policy_applied"] is True
+
+
+async def test_applied_is_false_when_the_forced_policy_was_skipped(session_factory):
+    """Requested but unresolvable — the case the chair must be warned about."""
+    c, _ = await _compute_with(session_factory, "int_nope")  # never seeded
+    ctx = c.record["retrieval_context"]
+    assert ctx["forced_policy_key"] == "int_nope"
+    assert "int_nope" not in ctx["retrieved_ids"]
+
+    e = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    e.retrieval_context = ctx
+    assert emails_api._forced_policy_applied(e) is False
+    assert emails_api._email_to_dict(e)["forced_policy_applied"] is False
+
+
+async def test_applied_is_false_for_an_inactive_forced_policy(session_factory):
+    c, _ = await _compute_with(
+        session_factory, "int_old", seed="int_old", seed_status="inactive"
+    )
+    e = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    e.retrieval_context = c.record["retrieval_context"]
+    assert emails_api._forced_policy_applied(e) is False
+
+
+async def test_applied_is_null_without_a_forced_key(session_factory):
+    """REGRESSION: a plain redraft is unchanged — no forced key, no signal."""
+    c, _ = await _compute_with(session_factory, None)
+    ctx = c.record["retrieval_context"]
+    assert ctx["forced_policy_key"] is None
+
+    e = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    e.retrieval_context = ctx
+    assert emails_api._forced_policy_applied(e) is None
+    assert emails_api._email_to_dict(e)["forced_policy_applied"] is None
+
+
+async def test_applied_is_null_for_legacy_rows():
+    """Drafts predating manual invoke (no key in ctx) and NULL-context rows."""
+    legacy = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    legacy.retrieval_context = {"query": "q", "retrieved_ids": ["policy_186"]}
+    assert emails_api._forced_policy_applied(legacy) is None
+
+    nullctx = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    nullctx.retrieval_context = None
+    assert emails_api._forced_policy_applied(nullctx) is None
+
+
+async def test_applied_is_derived_not_stored(session_factory):
+    """Editing retrieved_ids alone flips the answer — proving it is computed."""
+    e = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+    e.retrieval_context = {"retrieved_ids": ["int_x"], "forced_policy_key": "int_x"}
+    assert emails_api._forced_policy_applied(e) is True
+    e.retrieval_context = {"retrieved_ids": [], "forced_policy_key": "int_x"}
+    assert emails_api._forced_policy_applied(e) is False

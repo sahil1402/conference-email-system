@@ -368,7 +368,9 @@ class _PlaceholderDrafter:
     def __init__(self, provider=None):
         pass
 
-    async def draft(self, email_data, classification, retrieved_chunks):
+    async def draft(
+        self, email_data, classification, retrieved_chunks, forced_policy_key=None
+    ):
         return DraftResponse(
             draft_text="Thanks for reaching out. [CHAIR: confirm exact date].",
             notes_for_chair=None,
