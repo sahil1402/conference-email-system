@@ -433,6 +433,8 @@ export function EmailDetail({
             chunks={email.retrieved_chunks ?? null}
             citationIds={draft?.citations ?? []}
             emailId={email.id}
+            forcedPolicyApplied={email.forced_policy_applied}
+            redrafting={email.redrafting}
           />
         </Collapsible>
 
@@ -1095,13 +1097,31 @@ function PolicyCitations({
   chunks,
   citationIds,
   emailId,
+  forcedPolicyApplied,
+  redrafting,
 }: {
   chunks: RetrievedChunk[] | null;
   citationIds: string[];
   emailId: number;
+  /** Tri-state outcome of a manual invoke on the CURRENT draft (3d). */
+  forcedPolicyApplied?: boolean | null;
+  redrafting?: boolean;
 }) {
   // The cited policy key whose full detail is open in the modal (null = closed).
   const [openPolicyKey, setOpenPolicyKey] = useState<string | null>(null);
+
+  // The policy THIS session forced, set when the chair approves in the popover.
+  // `forced_policy_applied` is PERSISTED on the email, so rendering the outcome
+  // straight off it would re-announce a months-old invoke every time the ticket
+  // is opened. Gating on local state means the banner only ever appears for an
+  // action the chair just took — and because EmailDetail is keyed on email.id,
+  // this resets on every ticket switch, so an old ticket shows nothing.
+  const [pendingForcedKey, setPendingForcedKey] = useState<string | null>(null);
+
+  // Settled only once the re-draft has landed and the backend has reported an
+  // outcome; while `redrafting` is true the answer isn't known yet.
+  const showOutcome =
+    pendingForcedKey !== null && !redrafting && forcedPolicyApplied != null;
 
   let body: ReactNode;
   if (chunks && chunks.length > 0) {
@@ -1155,7 +1175,7 @@ function PolicyCitations({
           every branch, including the empty state, which is exactly when a chair
           is most likely to want to force a policy in. */}
       <div className="flex justify-end pb-1">
-        <PolicySelectPopover emailId={emailId}>
+        <PolicySelectPopover emailId={emailId} onSelect={setPendingForcedKey}>
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
@@ -1166,6 +1186,39 @@ function PolicyCitations({
           </button>
         </PolicySelectPopover>
       </div>
+
+      {/* Manual-invoke outcome (inline, no toast infra — same treatment as the
+          reassignment confirmation above). Sits directly over the citation list
+          because that is where the chair is already looking: they just closed
+          the popover, and this is the panel whose contents their action changed. */}
+      {showOutcome && forcedPolicyApplied === true && (
+        <div className="flex items-center gap-2 pb-2 text-xs" style={{ color: "var(--success)" }}>
+          <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            <span className="font-mono">{pendingForcedKey}</span> was added to this
+            draft&apos;s grounding.
+          </span>
+        </div>
+      )}
+      {showOutcome && forcedPolicyApplied === false && (
+        <div
+          role="alert"
+          className="mb-2 flex items-start gap-2 rounded-lg border px-2 py-1.5 text-xs"
+          style={{
+            borderColor: "var(--danger)",
+            backgroundColor: "var(--danger-subtle)",
+            color: "var(--text-primary)",
+          }}
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--danger)" }} aria-hidden />
+          <span>
+            <span className="font-mono">{pendingForcedKey}</span> couldn&apos;t be applied
+            to this draft — it may have been retired or removed. The draft was
+            re-generated without it.
+          </span>
+        </div>
+      )}
+
       {body}
       <PolicyDetailModal
         policyKey={openPolicyKey}
