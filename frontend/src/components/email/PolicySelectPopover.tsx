@@ -4,7 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 
 import { Badge, Button, ErrorBanner, LoadingSpinner } from "@/components/ui";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { usePolicies, useRetryEmail } from "@/hooks";
 import { cn } from "@/lib/utils";
 import type { ApiError, PolicyDocument } from "@/types";
@@ -13,7 +19,7 @@ import type { ApiError, PolicyDocument } from "@/types";
 const DEBOUNCE_MS = 250;
 
 interface PolicySelectPopoverProps {
-  /** Rendered as the popover trigger (the caller owns the button's look). */
+  /** Rendered as the modal trigger (the caller owns the button's look). */
   children: React.ReactNode;
   /** Email whose draft will be re-generated with the chosen policy forced in. */
   emailId: number;
@@ -22,25 +28,30 @@ interface PolicySelectPopoverProps {
    * mere selection. Lets the caller surface which policy is being forced.
    */
   onSelect?: (policyKey: string) => void;
-  /** Optional extra classes on the popover panel. */
+  /** Optional extra classes on the modal panel. */
   className?: string;
 }
 
 /**
- * Searchable policy picker in a popover — type, arrow through results, Enter to
- * pick. Purely a selector: it reads the KB and reports a `policy_key` upward;
- * redrafting/wiring lives with the caller (5b/5c).
+ * Searchable policy picker in a centred MODAL — type, arrow through results,
+ * Enter to open the confirm step, Approve to force the policy into a re-draft.
  *
- * Built on the app's Radix `popover.tsx` (precedent: ShortcutsHintPopover)
- * rather than the hand-rolled PolicyDetailModal, which is a viewer and not
- * reusable as a picker. Radix owns the outside-click/Escape dismissal and
- * focus return; the combobox semantics below are layered on top of it.
+ * Two views inside one shell: "search" (input + results) and "detail" (the full
+ * policy text + Approve/Change). The redraft fires ONLY from Approve.
  *
- * A11y follows the WAI-ARIA combobox pattern, matching how the app's other
- * Radix wrappers behave: the input keeps DOM focus at all times and the active
- * option is communicated via `aria-activedescendant`, so arrow keys never move
- * focus off the text field. Roles: input `combobox` + `aria-controls`/
- * `aria-expanded`, list `listbox`, rows `option` with `aria-selected`.
+ * Built on the app's Radix `dialog.tsx` wrapper. It began as an anchored popover
+ * but a small trigger-anchored panel was the wrong container for reading a full
+ * policy before committing to it, so it moved to a centred modal with a
+ * translucent backdrop. Radix Dialog supplies the focus trap, focus restore,
+ * Escape-to-close, backdrop-click dismissal, `aria-modal` and scroll lock — all
+ * of it native, none of it hand-rolled here.
+ *
+ * A11y: the dialog gets its accessible name from a visually-hidden DialogTitle.
+ * Inside it, the search field follows the WAI-ARIA combobox pattern — the input
+ * keeps DOM focus at all times and the active option is announced via
+ * `aria-activedescendant`, so arrow keys never move focus off the text field.
+ * Roles: input `combobox` + `aria-controls`/`aria-expanded`, list `listbox`,
+ * rows `option` with `aria-selected`.
  */
 export function PolicySelectPopover({
   children,
@@ -179,7 +190,7 @@ export function PolicySelectPopover({
         id={listboxId}
         role="listbox"
         aria-label="Matching policies"
-        className="max-h-64 space-y-1 overflow-y-auto"
+        className="max-h-[45vh] space-y-1 overflow-y-auto"
       >
         {results.map((p, i) => (
           <li
@@ -235,10 +246,10 @@ export function PolicySelectPopover({
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+          <p className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
             {selected.policy_key}
           </p>
-          <p className="text-xs font-semibold leading-snug"
+          <p className="text-sm font-semibold leading-snug"
              style={{ color: "var(--text-primary)" }}>
             {selected.title || selected.policy_key}
           </p>
@@ -251,10 +262,10 @@ export function PolicySelectPopover({
         </Badge>
       )}
 
-      <div className="max-h-56 overflow-y-auto rounded-md border p-2"
+      <div className="max-h-[50vh] flex-1 overflow-y-auto rounded-md border p-3"
            style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface)" }}>
         <p
-          className="text-[11px] leading-relaxed"
+          className="text-sm leading-relaxed"
           style={{
             color: "var(--text-primary)",
             whiteSpace: "pre-wrap",
@@ -318,20 +329,32 @@ export function PolicySelectPopover({
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className={cn("w-80 p-2", className)}
-        // Radix would focus the panel; keep the caret in the search box instead.
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent
+        // 512px (max-w-lg) — comfortably wider than the ~320px anchored popover
+        // this replaced, and a little tighter than PolicyDetailModal's 672px
+        // since this is a picker rather than a full document reader. The 85vh
+        // cap matches that modal so a long policy scrolls inside the panel
+        // instead of pushing it off-screen.
+        className={cn("flex max-h-[85vh] max-w-lg flex-col", className)}
+        // Radix focuses the panel by default; keep the caret in the search box.
         // Only meaningful for the search view — detail has no text entry.
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           inputRef.current?.focus();
         }}
       >
+        {/* Required for an accessible name on the dialog. Visually hidden: the
+            modal's own header text lives in each view. */}
+        <DialogTitle className="sr-only">
+          {selected ? "Confirm policy" : "Add a policy to this draft"}
+        </DialogTitle>
+        <DialogDescription className="sr-only">
+          Search the knowledge base and choose a policy to ground this draft on.
+        </DialogDescription>
         {selected ? detailView : searchView}
-      </PopoverContent>
-    </Popover>
+      </DialogContent>
+    </Dialog>
   );
 }
