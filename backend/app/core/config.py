@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     FAQ_CONFIDENCE_THRESHOLD: float = 0.65
     FAQ_ANSWER_CONFIDENCE_THRESHOLD: float = 0.85  # min drafter self-rated answer confidence for the FAQ lane
     # Max policy chunks the retriever returns as grounding context.
-    MAX_RETRIEVED_CHUNKS: int = 5
+    MAX_RETRIEVED_CHUNKS: int = 3
 
     # --- Active learning (Phase 5G) ---------------------------------------
     # A chair-approved/rerouted email whose router-used confidence sat within
