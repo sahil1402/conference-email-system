@@ -64,6 +64,29 @@ class PolicyRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_keys(
+        self, db: AsyncSession, keys
+    ) -> dict[str, PolicyDocument]:
+        """Bulk-fetch policies by ``policy_key``, returned as a key→row map.
+
+        Backs the email-detail hydration of ``retrieval_context.retrieved_ids``
+        into full chunks: ONE query for the whole grounding set instead of a
+        per-id round trip.
+
+        Deliberately applies NO status/visibility filter, unlike
+        ``active_keys``. This resolves a HISTORICAL fact — the policies that
+        grounded a draft when it was generated — so a since-retired or
+        since-superseded policy must still resolve to the row that was actually
+        used. Filtering on ``status == "active"`` here would silently erase
+        citations from the review UI whenever a chair retires or edits a policy.
+        """
+        if not keys:
+            return {}
+        result = await db.execute(
+            select(PolicyDocument).where(PolicyDocument.policy_key.in_(list(keys)))
+        )
+        return {row.policy_key: row for row in result.scalars().all()}
+
     async def get_policies_by_category(
         self, db: AsyncSession, category: str
     ) -> list[PolicyDocument]:

@@ -41,6 +41,7 @@ from app.pipeline.rl_router import get_rl_router
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.chair_repository import ChairRepository
 from app.repositories.email_repository import EmailRepository
+from app.repositories.policy_repository import PolicyRepository
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ router = APIRouter(prefix="/emails", tags=["emails"])
 email_repo = EmailRepository()
 audit_repo = AuditRepository()
 chair_repo = ChairRepository()
+policy_repo = PolicyRepository()
 # Module-level so tests can monkeypatch the transport without real HTTP.
 zendesk_sender = ZendeskSender()
 # Same — the post-send reconcile (single-ticket re-sync) is best-effort and
@@ -279,6 +281,69 @@ def _email_to_dict(email: Email) -> dict:
     }
 
 
+async def _email_detail_dict(db: AsyncSession, email: Email) -> dict:
+    """``_email_to_dict`` plus the hydrated grounding set (detail views only).
+
+    ``retrieved_chunks`` is NOT a stored column. The pipeline persists only
+    ``retrieval_context.retrieved_ids`` (rank-ordered), so the full chunks are
+    resolved on READ by joining those ids against ``policy_documents``. That
+    keeps a single source of truth for policy text — an edited policy's chunk
+    body is never a stale copy frozen into the email row.
+
+    Distinct from ``draft.citations`` (what the model CLAIMS it cited, often
+    empty). This is what retrieval actually grounded the draft on.
+
+    Deliberately NOT folded into ``_email_to_dict``: that serializer also runs
+    per-row over the queue page, where a lookup would be an N+1 across up to
+    ``limit`` emails. Hydration is one extra query, on single-email reads only.
+    """
+    data = _email_to_dict(email)
+    data["retrieved_chunks"] = await _hydrate_retrieved_chunks(db, email)
+    return data
+
+
+async def _hydrate_retrieved_chunks(db: AsyncSession, email: Email) -> list[dict] | None:
+    """Resolve ``retrieval_context.retrieved_ids`` into full chunk dicts.
+
+    Returns None when the email has no retrieval context (never processed, or a
+    legacy row back-filled NULL by migration ``c1d2e3f4a5b6``) — the absence of
+    a grounding set is different from an empty one, and the UI already treats
+    null as "nothing to show". Rank order follows ``retrieved_ids``.
+
+    ``score`` is intentionally OMITTED: the pipeline never persisted per-chunk
+    scores, so there is no honest value to serve for existing rows. Rank is
+    conveyed by list position instead of a fabricated number.
+
+    Best-effort — a lookup failure logs and yields None rather than 500-ing an
+    email the chair is trying to read.
+    """
+    ctx = email.retrieval_context
+    if not ctx:
+        return None
+    ids = [pid for pid in (ctx.get("retrieved_ids") or []) if pid]
+    if not ids:
+        return []
+
+    try:
+        rows = await policy_repo.get_by_keys(db, ids)
+    except Exception:  # noqa: BLE001 - never break a detail read over grounding
+        logger.exception("Failed to hydrate retrieved chunks for email %s", email.id)
+        return None
+
+    # Preserve retrieval rank; skip ids with no row (hard-deleted out of band —
+    # retire/edit are soft, so this is not reachable through the KB API today).
+    return [
+        {
+            "policy_id": row.policy_key,
+            "title": row.title or "",
+            "content": row.content or "",
+            "category": row.category or "",
+        }
+        for pid in ids
+        if (row := rows.get(pid)) is not None
+    ]
+
+
 def _audit_to_dict(entry: AuditLog) -> dict:
     return {
         "id": entry.id,
@@ -463,7 +528,7 @@ async def get_email_by_ticket(
         )
     trail = await audit_repo.get_audit_trail(db, str(email.id))
     return {
-        "email": _email_to_dict(email),
+        "email": await _email_detail_dict(db, email),
         "audit_trail": [_audit_to_dict(a) for a in trail],
     }
 
@@ -481,7 +546,7 @@ async def get_email(
         )
     trail = await audit_repo.get_audit_trail(db, email_id)
     return {
-        "email": _email_to_dict(email),
+        "email": await _email_detail_dict(db, email),
         "audit_trail": [_audit_to_dict(a) for a in trail],
     }
 

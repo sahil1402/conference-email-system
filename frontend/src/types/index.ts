@@ -155,7 +155,13 @@ export interface RetrievedChunk {
   policy_id: string;
   title: string;
   content: string;
-  score: number;
+  /**
+   * Live retrieval score. Present on the ingest `PipelineResult` (computed in
+   * the same request); ABSENT on `Email.retrieved_chunks`, which the API
+   * rehydrates from the persisted `retrieval_context.retrieved_ids` — those
+   * were never stored with per-chunk scores. Rank is list order.
+   */
+  score?: number;
   category: string;
   // [tags-dropped E007] tags: string[];
 }
