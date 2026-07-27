@@ -85,10 +85,14 @@ export function useRerouteEmail() {
 export function useRetryEmail() {
   const invalidate = useInvalidateEmailQueries();
   return useMutation({
-    mutationFn: (vars: number | { id: number; forcedPolicyKey?: string }) =>
+    mutationFn: (
+      vars:
+        | number
+        | { id: number; forcedPolicyKey?: string; excludedPolicyIds?: string[] }
+    ) =>
       typeof vars === "number"
         ? retryEmail(vars)
-        : retryEmail(vars.id, vars.forcedPolicyKey),
+        : retryEmail(vars.id, vars.forcedPolicyKey, vars.excludedPolicyIds),
     onSuccess: invalidate,
   });
 }

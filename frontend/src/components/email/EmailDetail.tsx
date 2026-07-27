@@ -20,10 +20,13 @@ import {
   Check,
   RefreshCw,
   Plus,
+  X,
+  RotateCcw,
 } from "lucide-react";
 
 import {
   Badge,
+  Button,
   ChairBadge,
   ConfidenceBar,
   DiffLegend,
@@ -52,7 +55,7 @@ import {
   statusLabel,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { usePersistedState } from "@/hooks";
+import { usePersistedState, useRetryEmail } from "@/hooks";
 import type { ApiError, Chair, Email, RetrievedChunk } from "@/types";
 
 /**
@@ -1132,6 +1135,34 @@ function PolicyCitations({
   const showOutcome =
     pendingForcedKey !== null && !redrafting && forcedPolicyApplied != null;
 
+  // Policies the chair has marked for removal but NOT yet submitted. Removal is
+  // STAGED rather than firing a re-draft per click — see the comment on the
+  // action bar below for why.
+  const [pendingRemovals, setPendingRemovals] = useState<string[]>([]);
+  const retry = useRetryEmail();
+  const retryError = retry.error as ApiError | null;
+
+  function toggleRemoval(policyId: string) {
+    setPendingRemovals((prev) =>
+      prev.includes(policyId)
+        ? prev.filter((id) => id !== policyId)
+        : [...prev, policyId]
+    );
+  }
+
+  // Mirror the backend's "never remove everything" guard client-side so the
+  // chair is stopped before the request rather than by a 409 afterwards.
+  const wouldRemoveEverything =
+    !!chunks && chunks.length > 0 && pendingRemovals.length >= chunks.length;
+
+  function submitRemovals() {
+    if (!pendingRemovals.length || wouldRemoveEverything) return;
+    retry.mutate(
+      { id: emailId, excludedPolicyIds: pendingRemovals },
+      { onSuccess: () => setPendingRemovals([]) }
+    );
+  }
+
   let body: ReactNode;
   if (chunks && chunks.length > 0) {
     body = (
@@ -1150,9 +1181,66 @@ function PolicyCitations({
             key={chunk.policy_id}
             chunk={chunk}
             isForced={chunk.policy_id === forcedPolicyKey}
+            isPendingRemoval={pendingRemovals.includes(chunk.policy_id)}
             onOpen={() => setOpenPolicyKey(chunk.policy_id)}
+            onToggleRemove={() => toggleRemoval(chunk.policy_id)}
           />
         ))}
+
+        {/* Staged removals — ONE re-draft for the whole set. Deliberately not
+            per-click: a re-draft is a full pipeline run (distiller + drafter
+            model calls), and because it is async each click would race the
+            last, every background run recomputing from the row's subject/body
+            while knowing only its OWN exclusion list — so the last writer would
+            silently drop the earlier removals. Batching also matches the Add
+            Policy dialog, where selecting stages and Approve commits. */}
+        {pendingRemovals.length > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border px-2.5 py-2"
+            style={{
+              borderColor: "var(--border)",
+              backgroundColor: "var(--surface)",
+            }}
+          >
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              {pendingRemovals.length} polic
+              {pendingRemovals.length === 1 ? "y" : "ies"} marked for removal
+            </span>
+            <span className="ml-auto flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={submitRemovals}
+                disabled={retry.isPending || wouldRemoveEverything}
+              >
+                {retry.isPending ? <LoadingSpinner size="sm" /> : null}
+                {retry.isPending ? "Re-drafting…" : "Re-draft without them"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setPendingRemovals([])}
+                disabled={retry.isPending}
+              >
+                Cancel
+              </Button>
+            </span>
+            {wouldRemoveEverything && (
+              <p className="w-full text-xs" style={{ color: "var(--danger)" }}>
+                At least one policy must remain. Un-mark one, or add a
+                replacement before removing the rest.
+              </p>
+            )}
+            {retryError && (
+              <div className="w-full">
+                <ErrorBanner
+                  message={retryError.detail || "Couldn't start the re-draft."}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   } else if (citationIds.length > 0) {
@@ -1266,15 +1354,25 @@ function PolicyCitations({
 function CitationCard({
   chunk,
   isForced = false,
+  isPendingRemoval = false,
   onOpen,
+  onToggleRemove,
 }: {
   chunk: RetrievedChunk;
   /** True when the chair added this policy by hand rather than the retriever
    *  finding it — surfaced so the two are never mistaken for each other. */
   isForced?: boolean;
+  /** Staged for removal but not yet submitted. */
+  isPendingRemoval?: boolean;
   onOpen: () => void;
+  onToggleRemove?: () => void;
 }) {
+  // The remove control is a SIBLING of the row button, not a child: the row is
+  // itself a <button> and nesting one inside another is invalid HTML (and would
+  // make the whole row un-clickable in some browsers). The wrapper only adds the
+  // flex context + `group` for hover reveal; the row markup below is unchanged.
   return (
+    <div className="group flex items-center gap-1">
     <button
       type="button"
       onClick={onOpen}
@@ -1283,7 +1381,12 @@ function CitationCard({
           ? `View policy ${chunk.title || chunk.policy_id} (added by you)`
           : `View policy ${chunk.title || chunk.policy_id}`
       }
-      className="flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left outline-none transition-colors hover:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      className={cn(
+        "flex min-w-0 flex-1 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left outline-none transition-colors hover:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+        // Staged for removal: dimmed + struck through, so the pending state is
+        // legible without the row disappearing (it is not gone until submitted).
+        isPendingRemoval && "line-through opacity-50"
+      )}
       style={{
         // A forced row is accented so it reads as chair-added at a glance;
         // colour alone isn't the signal — the "Added by you" badge carries it
@@ -1321,5 +1424,34 @@ function CitationCard({
         </Badge>
       )}
     </button>
+      {onToggleRemove && (
+        <button
+          type="button"
+          onClick={onToggleRemove}
+          aria-label={
+            isPendingRemoval
+              ? `Keep ${chunk.title || chunk.policy_id} in this draft`
+              : `Remove ${chunk.title || chunk.policy_id} from this draft`
+          }
+          // Low visual noise: hidden until the row is hovered or the control
+          // itself is keyboard-focused, and always visible once staged so the
+          // pending state is never hidden behind a hover.
+          className={cn(
+            "shrink-0 rounded p-1 transition-opacity hover:bg-[var(--surface)]",
+            "focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+            isPendingRemoval
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100"
+          )}
+          style={{ color: isPendingRemoval ? "var(--accent)" : "var(--text-muted)" }}
+        >
+          {isPendingRemoval ? (
+            <RotateCcw className="h-3.5 w-3.5" />
+          ) : (
+            <X className="h-3.5 w-3.5" />
+          )}
+        </button>
+      )}
+    </div>
   );
 }

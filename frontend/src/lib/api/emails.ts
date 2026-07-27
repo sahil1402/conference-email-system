@@ -143,15 +143,28 @@ export async function rerouteEmail(
  */
 export async function retryEmail(
   id: number,
-  forcedPolicyKey?: string
-): Promise<{ email_id: string; redrafting: boolean; forced_policy_key?: string | null }> {
+  forcedPolicyKey?: string,
+  excludedPolicyIds?: string[]
+): Promise<{
+  email_id: string;
+  redrafting: boolean;
+  forced_policy_key?: string | null;
+  excluded_policy_ids?: string[] | null;
+}> {
+  // Only send a body when something was actually asked for — omitting it keeps
+  // the plain retry byte-identical to what the backend has always accepted.
+  const body: Record<string, unknown> = {};
+  if (forcedPolicyKey) body.forced_policy_key = forcedPolicyKey;
+  if (excludedPolicyIds?.length) body.excluded_policy_ids = excludedPolicyIds;
+
   const { data } = await apiClient.post<{
     email_id: string;
     redrafting: boolean;
     forced_policy_key?: string | null;
+    excluded_policy_ids?: string[] | null;
   }>(
     `/emails/${id}/redraft`,
-    forcedPolicyKey ? { forced_policy_key: forcedPolicyKey } : undefined
+    Object.keys(body).length ? body : undefined
   );
   return data;
 }

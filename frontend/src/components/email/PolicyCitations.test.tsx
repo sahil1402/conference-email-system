@@ -15,14 +15,24 @@
  * the same harness as EmailDetail.test.tsx.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import TicketPage from "@/app/tickets/[ticketId]/page";
 import type { Email, RetrievedChunk } from "@/types";
 
-const state = vi.hoisted(() => ({ current: null as unknown, push: vi.fn() }));
+const state = vi.hoisted(() => ({
+  current: null as unknown,
+  push: vi.fn(),
+  retry: vi.fn(),
+}));
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return { ...actual, retryEmail: state.retry };
+});
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 
@@ -112,6 +122,8 @@ function renderTicket() {
 
 beforeEach(() => {
   state.push.mockReset();
+  state.retry.mockReset();
+  state.retry.mockResolvedValue({ email_id: "1", redrafting: true });
 });
 
 describe("Policy Citations — branch 1 (hydrated retrieved_chunks)", () => {
@@ -406,5 +418,141 @@ describe("Policy Citations — inline category on the compact row", () => {
     await screen.findByText("No Category Here");
     expect(rowFor("AAAI-27 Paper Modification Guidelines")).toHaveTextContent("· submission");
     expect(rowFor("No Category Here").textContent).not.toContain("·");
+  });
+});
+
+describe("Policy Citations — staged removal (exclusion step 7)", () => {
+  const THREE: RetrievedChunk[] = [
+    ...HYDRATED,
+    {
+      policy_id: "policy_171",
+      title: "Abstract and Paper Submission",
+      content: "Every submission requires an abstract.",
+      category: "submission",
+    },
+  ];
+
+  function removeBtn(title: string) {
+    return screen.getByRole("button", { name: `Remove ${title} from this draft` });
+  }
+
+  it("gives every row its own labelled remove control", async () => {
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    expect(removeBtn("AAAI-27 Paper Modification Guidelines")).toBeInTheDocument();
+    expect(removeBtn("Abstract and Paper Submission (part 2)")).toBeInTheDocument();
+    expect(removeBtn("Abstract and Paper Submission")).toBeInTheDocument();
+  });
+
+  it("the remove control is a SIBLING of the row button, never nested", async () => {
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    const remove = removeBtn("AAAI-27 Paper Modification Guidelines");
+    const row = screen.getByRole("button", {
+      name: "View policy AAAI-27 Paper Modification Guidelines",
+    });
+    // Invalid HTML (and an unclickable row) if the X lived inside the row button.
+    expect(row.contains(remove)).toBe(false);
+    expect(remove.parentElement).toBe(row.parentElement);
+  });
+
+  it("clicking remove STAGES it — no redraft fires", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    await user.click(removeBtn("AAAI-27 Paper Modification Guidelines"));
+
+    expect(screen.getByText(/1 policy marked for removal/)).toBeInTheDocument();
+    expect(state.retry).not.toHaveBeenCalled();  // ← staged, not immediate
+  });
+
+  it("batches several removals into ONE redraft", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    await user.click(removeBtn("AAAI-27 Paper Modification Guidelines"));
+    await user.click(removeBtn("Abstract and Paper Submission (part 2)"));
+    expect(screen.getByText(/2 policies marked for removal/)).toBeInTheDocument();
+    expect(state.retry).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /Re-draft without them/ }));
+
+    await waitFor(() =>
+      expect(state.retry).toHaveBeenCalledWith(1, undefined, [
+        "policy_186",
+        "policy_172",
+      ])
+    );
+    expect(state.retry).toHaveBeenCalledTimes(1);  // ONE call, not one per click
+  });
+
+  it("un-marks a staged row (toggle back)", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    await user.click(removeBtn("AAAI-27 Paper Modification Guidelines"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Keep AAAI-27 Paper Modification Guidelines in this draft",
+      })
+    );
+
+    expect(screen.queryByText(/marked for removal/)).not.toBeInTheDocument();
+    expect(state.retry).not.toHaveBeenCalled();
+  });
+
+  it("Cancel clears the staged set without redrafting", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    await user.click(removeBtn("AAAI-27 Paper Modification Guidelines"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByText(/marked for removal/)).not.toBeInTheDocument();
+    expect(state.retry).not.toHaveBeenCalled();
+  });
+
+  it("blocks removing every policy, mirroring the backend guard", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    for (const t of [
+      "AAAI-27 Paper Modification Guidelines",
+      "Abstract and Paper Submission (part 2)",
+      "Abstract and Paper Submission",
+    ]) {
+      await user.click(removeBtn(t));
+    }
+
+    expect(screen.getByText(/At least one policy must remain/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Re-draft without them/ })
+    ).toBeDisabled();
+    expect(state.retry).not.toHaveBeenCalled();
+  });
+
+  it("shows no action bar until something is staged", async () => {
+    state.current = makeEmail({ retrieved_chunks: THREE });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    expect(screen.queryByText(/marked for removal/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Re-draft without them/ })
+    ).not.toBeInTheDocument();
   });
 });

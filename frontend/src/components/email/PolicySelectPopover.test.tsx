@@ -267,7 +267,11 @@ describe("PolicySelectPopover", () => {
 
     await user.click(screen.getByRole("button", { name: "Approve" }));
 
-    await waitFor(() => expect(state.retry).toHaveBeenCalledWith(EMAIL_ID, "policy_186"));
+    // Third arg is excludedPolicyIds — undefined from the Add-Policy path, which
+    // adds a policy and never removes one.
+    await waitFor(() =>
+      expect(state.retry).toHaveBeenCalledWith(EMAIL_ID, "policy_186", undefined)
+    );
     expect(state.retry).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("policy_186"));
   });
