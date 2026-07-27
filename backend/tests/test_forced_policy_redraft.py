@@ -16,6 +16,8 @@ from httpx import ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from sqlalchemy import select
+
 import main
 from app.api.v1 import emails as emails_api
 from app.db.database import get_db
@@ -646,3 +648,139 @@ async def test_no_exclusions_is_byte_identical_and_costs_no_extra_query(
     ]
     # Exactly ONE lookup: the forced resolve. No lineage query when nothing is excluded.
     assert calls["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# "never remove everything" guard (exclusion step 4)
+# ---------------------------------------------------------------------------
+# Enforced in the ENDPOINT, before scheduling: the re-draft is async (202 +
+# background task), so after scheduling there is no response left to reject with.
+async def _seed_email_with_context(factory, retrieved_ids):
+    async with factory() as s:
+        e = Email(sender="a@b.com", subject="s", body="b", status="draft_generated")
+        e.retrieval_context = {"query": "q", "retrieved_ids": list(retrieved_ids)}
+        s.add(e)
+        await s.commit()
+        return str(e.id)
+
+
+async def test_excluding_every_current_policy_is_rejected(client, monkeypatch):
+    """Excluding all 4 → 409, and nothing is scheduled or flagged."""
+    c, factory = client
+    ids = ["policy_186", "policy_172", "policy_171", "int_forced"]
+    email_id = await _seed_email_with_context(factory, ids)
+    scheduled = {"n": 0}
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        scheduled["n"] += 1
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"excluded_policy_ids": ids},
+    )
+
+    assert r.status_code == 409
+    assert "no policy context" in r.json()["detail"]
+    # Rejected outright: no background re-draft, and the row is NOT left
+    # stranded showing "re-drafting…".
+    assert scheduled["n"] == 0
+    async with factory() as s:
+        row = (await s.execute(select(Email).where(Email.id == int(email_id)))).scalar_one()
+        assert row.redrafting is False
+
+
+async def test_excluding_three_of_four_succeeds(client, monkeypatch):
+    """Leaving one policy standing is allowed."""
+    c, factory = client
+    ids = ["policy_186", "policy_172", "policy_171", "int_forced"]
+    email_id = await _seed_email_with_context(factory, ids)
+    captured = {}
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        captured["excluded"] = excluded
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"excluded_policy_ids": ids[:3]},
+    )
+
+    assert r.status_code == 202
+    assert captured["excluded"] == ids[:3]
+
+
+async def test_excluding_everything_but_forcing_a_replacement_is_allowed(
+    client, monkeypatch
+):
+    """The swap workflow: remove all current policies, ground on a new one.
+
+    This is the case the feature exists for, so the guard must not reject it.
+    """
+    c, factory = client
+    ids = ["policy_186", "policy_172", "policy_171"]
+    email_id = await _seed_email_with_context(factory, ids)
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        return None
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"excluded_policy_ids": ids, "forced_policy_key": "int_replacement"},
+    )
+    assert r.status_code == 202
+
+
+async def test_excluding_everything_AND_the_forced_key_is_rejected(client, monkeypatch):
+    """A forced key that is itself excluded cannot rescue an empty set."""
+    c, factory = client
+    ids = ["policy_186", "policy_172"]
+    email_id = await _seed_email_with_context(factory, ids)
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        return None
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={
+            "excluded_policy_ids": [*ids, "int_x"],
+            "forced_policy_key": "int_x",
+        },
+    )
+    assert r.status_code == 409
+
+
+async def test_guard_fails_open_for_a_legacy_null_context_row(client, monkeypatch):
+    """No stored context ⇒ nothing to compare against ⇒ let it through."""
+    c, factory = client
+    email_id = await _seed_email(factory)  # retrieval_context is NULL
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        return None
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    r = await c.post(
+        f"/api/v1/emails/{email_id}/redraft",
+        json={"excluded_policy_ids": ["policy_186"]},
+    )
+    assert r.status_code == 202
+
+
+async def test_plain_retry_is_never_blocked_by_the_guard(client, monkeypatch):
+    """REGRESSION: no exclusions ⇒ the guard short-circuits, no lookup, no 409."""
+    c, factory = client
+    email_id = await _seed_email_with_context(factory, ["policy_186"])
+
+    async def fake_bg(eid, forced=None, excluded=None):
+        return None
+
+    monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
+
+    assert (await c.post(f"/api/v1/emails/{email_id}/redraft")).status_code == 202

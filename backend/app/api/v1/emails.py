@@ -36,7 +36,7 @@ from app.models.enums import EmailSource, EmailStatus
 from app.pipeline.active_learning import build_flag_events
 from app.db.models import AuditLog, Email
 from app.pipeline.drafter import find_placeholders
-from app.pipeline.orchestrator import EmailPipeline
+from app.pipeline.orchestrator import EmailPipeline, resolve_lineage_roots
 from app.pipeline.rl_router import get_rl_router
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.chair_repository import ChairRepository
@@ -1107,6 +1107,58 @@ async def reassign_chair(
     return _email_to_dict(updated)
 
 
+async def _would_empty_the_grounding(
+    db: AsyncSession,
+    email: Email,
+    excluded_policy_ids: list[str] | None,
+    forced_policy_key: str | None,
+) -> bool:
+    """Would this request strip the draft of ALL policy context?
+
+    Checked HERE rather than in the pipeline because the re-draft is async: the
+    endpoint returns 202 and the real filtering happens in a background task,
+    which has no HTTP response left to reject with. Refusing after scheduling
+    could only be a silent no-op or a stranded ticket.
+
+    It compares against the email's CURRENT ``retrieval_context.retrieved_ids``
+    — the exact cards the chair is looking at and removing from — rather than
+    dry-running retrieval. A dry run would re-issue the whole retrieval stage
+    (a distiller model call under QUERY_STRATEGY=distill, plus embeddings), and
+    being non-deterministic it could disagree with the run that follows.
+
+    A still-standing forced policy rescues an otherwise-empty set: "remove all
+    three and ground on this one instead" is the swap workflow this feature
+    exists for, and must not be rejected. Lineage roots are resolved with the
+    same helper the pipeline filter uses, so the two can never disagree about
+    what an exclusion covers.
+
+    Fails OPEN: a legacy row with no stored context has nothing to compare
+    against, so the request proceeds (the pipeline degrades safely on its own).
+    """
+    if not excluded_policy_ids:
+        return False
+    current = (email.retrieval_context or {}).get("retrieved_ids") or []
+    if not current:
+        return False
+
+    roots = await resolve_lineage_roots(
+        db,
+        list(current)
+        + list(excluded_policy_ids)
+        + ([forced_policy_key] if forced_policy_key else []),
+        policy_repo,
+    )
+    excluded_roots = {roots.get(x, x) for x in excluded_policy_ids}
+
+    if any(roots.get(i, i) not in excluded_roots for i in current):
+        return False  # something survives the removal
+    # Nothing of the current set survives — only a non-excluded forced pick saves it.
+    return not (
+        forced_policy_key
+        and roots.get(forced_policy_key, forced_policy_key) not in excluded_roots
+    )
+
+
 def _redraft_audit_extra(
     forced_policy_key: str | None, excluded_policy_ids: list[str] | None
 ) -> dict:
@@ -1194,6 +1246,19 @@ async def redraft_email(
         )
     forced_policy_key = payload.forced_policy_key if payload else None
     excluded_policy_ids = payload.excluded_policy_ids if payload else None
+
+    if await _would_empty_the_grounding(
+        db, email, excluded_policy_ids, forced_policy_key
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Removing these policies would leave the draft with no policy "
+                "context to work from. Keep at least one policy, or add a "
+                "replacement before removing the rest."
+            ),
+        )
+
     await email_repo.set_redrafting(db, email_id, True)
     # The audit write publishes an SSE event → queue/detail flip to "re-drafting…".
     await audit_repo.log_action(
