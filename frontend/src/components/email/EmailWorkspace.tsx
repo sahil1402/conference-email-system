@@ -13,6 +13,7 @@ import {
 import { useEmailQueue } from "@/hooks/useEmailQueue";
 import { useResizableWidth } from "@/hooks/useResizableWidth";
 import { usePersistedState } from "@/hooks/usePersistedState";
+import { useScrollRestoration } from "@/hooks/useScrollRestoration";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
 import { useQueueFacets } from "@/hooks/useQueueFacets";
 import type { EmailQueueParams, QueueFacetsParams } from "@/lib/api";
@@ -221,6 +222,15 @@ export function EmailWorkspace({
   }, [contextParams, sourceFilter, zendeskStatusFilter]);
   const { emails, total, isLoading, isError, refetch } =
     useEmailQueue(queueParams);
+
+  // Preserve the list's scroll position across route navigation (opening a
+  // ticket and returning remounts this workspace). Keyed by the fetch params so
+  // it restores when returning to the SAME filtered view, but resets to the top
+  // when the filters change (a new result set). Gated on the list being present
+  // so we don't restore against an empty/loading container.
+  const listReady = !isLoading && !isError && emails.length > 0;
+  const { ref: listScrollRef, onScroll: onListScroll } =
+    useScrollRestoration<HTMLDivElement>(JSON.stringify(queueParams), listReady);
 
   // Facet counts for the status bar + source toggle (dedicated aggregate).
   const { byZendeskStatus, sources } = useQueueFacets(contextParams);
@@ -465,7 +475,11 @@ export function EmailWorkspace({
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          ref={listScrollRef}
+          onScroll={onListScroll}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
               <LoadingSpinner size="lg" />
