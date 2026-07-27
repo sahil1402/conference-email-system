@@ -219,3 +219,108 @@ async def test_reactivate_ancestor_blocked_while_tip_active(client):
 
     resp = await c.patch("/api/v1/policies/policy_ln/reactivate", json={"actor": "Chair1"})
     assert resp.status_code == 409
+
+
+async def test_reactivate_clears_stale_superseded_by(client):
+    """Regression: edit -> retire the successor -> reactivate the original left
+    the row active but still pointing at its (now retired) successor, so the
+    "active, current" edit guard rejected it forever. Reactivation must clear
+    that forward pointer."""
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_90", title="t", content="v1",
+                             visibility="public", status="active"))
+        await s.commit()
+
+    edit_resp = await c.patch("/api/v1/policies/policy_90/edit", json={
+        "title": "t", "content": "v2", "actor": "Chair1"})
+    assert edit_resp.status_code == 200
+    tip_key = edit_resp.json()["policy_key"]
+    assert tip_key == "policy_90__v2"
+
+    assert (await c.patch(f"/api/v1/policies/{tip_key}/retire",
+                          json={"actor": "Chair1"})).status_code == 200
+    assert (await c.patch("/api/v1/policies/policy_90/reactivate",
+                          json={"actor": "Chair1"})).status_code == 200
+
+    async with factory() as s:
+        base = (await s.execute(select(PolicyDocument)
+                                .where(PolicyDocument.policy_key == "policy_90"))).scalar_one()
+        assert base.status == "active"
+        assert base.superseded_by is None
+
+    # The guard now permits editing: the whole point of clearing the pointer.
+    # Version 2's key is taken by the retired tip, so the collision suffix applies.
+    second_edit = await c.patch("/api/v1/policies/policy_90/edit", json={
+        "title": "t", "content": "v2-again", "actor": "Chair1"})
+    assert second_edit.status_code == 200
+    assert second_edit.json()["policy_key"] == "policy_90__v2-2"
+
+
+async def test_reactivate_preserves_supersedes_backlink(client):
+    """Reactivation clears only the FORWARD pointer. ``supersedes`` records how
+    the row was created and is what revert-edit walks back through, so it must
+    survive — proven by reverting the reactivated row afterwards."""
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_dl", title="t", content="v1",
+                             visibility="public", status="active"))
+        await s.commit()
+
+    v2_key = (await c.patch("/api/v1/policies/policy_dl/edit", json={
+        "title": "t", "content": "v2", "actor": "Chair1"})).json()["policy_key"]
+    v3_key = (await c.patch(f"/api/v1/policies/{v2_key}/edit", json={
+        "title": "t", "content": "v3", "actor": "Chair1"})).json()["policy_key"]
+    assert (v2_key, v3_key) == ("policy_dl__v2", "policy_dl__v3")
+
+    assert (await c.patch(f"/api/v1/policies/{v3_key}/retire",
+                          json={"actor": "Chair1"})).status_code == 200
+    assert (await c.patch(f"/api/v1/policies/{v2_key}/reactivate",
+                          json={"actor": "Chair1"})).status_code == 200
+
+    async with factory() as s:
+        v2 = (await s.execute(select(PolicyDocument)
+                              .where(PolicyDocument.policy_key == v2_key))).scalar_one()
+        assert v2.status == "active" and v2.superseded_by is None
+        assert v2.supersedes == "policy_dl"        # backlink kept
+        assert v2.root_key == "policy_dl" and v2.version == 2
+
+    revert = await c.post(f"/api/v1/policies/{v2_key}/revert-edit", json={"actor": "Chair1"})
+    assert revert.status_code == 200
+    assert revert.json()["policy_key"] == "policy_dl"
+
+
+async def test_reactivate_without_lineage_unchanged(client):
+    """A policy that was never edited has no forward pointer to clear —
+    reactivation behaves exactly as before."""
+    c, factory = client
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_solo", title="t", content="c",
+                             visibility="public", status="inactive"))
+        await s.commit()
+
+    resp = await c.patch("/api/v1/policies/policy_solo/reactivate", json={"actor": "Chair1"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "active"
+
+    async with factory() as s:
+        row = (await s.execute(select(PolicyDocument)
+                               .where(PolicyDocument.policy_key == "policy_solo"))).scalar_one()
+        assert row.status == "active"
+        assert row.superseded_by is None and row.supersedes is None
+        assert row.root_key is None and row.version == 1
+
+
+async def test_retire_writes_status_only(client):
+    """``retire`` is a standalone soft-delete: it must NOT fabricate a
+    ``superseded_by`` (no successor exists) or disturb lineage columns."""
+    _, factory = client
+    repo = PolicyRepository()
+    async with factory() as s:
+        s.add(PolicyDocument(policy_key="policy_ret", title="t", content="c",
+                             visibility="public", status="active"))
+        await s.commit()
+        row = await repo.retire(s, "policy_ret")
+        assert row.status == "inactive"
+        assert row.superseded_by is None and row.supersedes is None
+        assert row.root_key is None and row.version == 1
