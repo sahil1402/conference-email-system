@@ -261,11 +261,21 @@ class PolicyRepository:
         return list((await db.execute(stmt)).scalars().all())
 
     async def reactivate(self, db: AsyncSession, policy_key: str) -> PolicyDocument | None:
-        """Undo a retirement: set status='active'. Returns the row or None."""
+        """Undo a retirement: set status='active'. Returns the row or None.
+
+        Also clears ``superseded_by``: that pointer asserts a newer version
+        replaced this row, which reactivation falsifies. Left set, the row reads
+        as active in the UI but every edit is rejected by the "active, current"
+        guard -- a permanently stuck state (edit A, retire A__v2, reactivate A).
+        ``supersedes`` is deliberately kept: it records how this row was created
+        and is what revert-edit walks back through. Mirrors ``revert_edit``,
+        which already clears exactly this one pointer.
+        """
         row = await self.get_by_key(db, policy_key)
         if row is None:
             return None
         row.status = "active"
+        row.superseded_by = None
         await db.commit()
         await db.refresh(row)
         return row
