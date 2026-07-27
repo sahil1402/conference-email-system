@@ -524,24 +524,30 @@ describe("Policy Citations — staged removal (exclusion step 7)", () => {
     expect(state.retry).not.toHaveBeenCalled();
   });
 
-  it("blocks removing every policy, mirroring the backend guard", async () => {
+  it("prevents removing the LAST card at the control itself (step 8)", async () => {
+    // Enforcement moved from submit-time to the control: staging the final row
+    // is impossible, so the invalid state is never reachable.
     const user = userEvent.setup();
     state.current = makeEmail({ retrieved_chunks: THREE });
     renderTicket();
     await screen.findByText("AAAI-27 Paper Modification Guidelines");
 
-    for (const t of [
-      "AAAI-27 Paper Modification Guidelines",
-      "Abstract and Paper Submission (part 2)",
-      "Abstract and Paper Submission",
-    ]) {
-      await user.click(removeBtn(t));
-    }
+    await user.click(removeBtn("AAAI-27 Paper Modification Guidelines"));
+    await user.click(removeBtn("Abstract and Paper Submission (part 2)"));
 
-    expect(screen.getByText(/At least one policy must remain/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Re-draft without them/ })
-    ).toBeDisabled();
+    // One left standing: its control is disabled and says WHY.
+    const last = screen.getByRole("button", {
+      name: /^Cannot remove Abstract and Paper Submission — at least one policy must remain/,
+    });
+    expect(last).toBeDisabled();
+    expect(last).toHaveAttribute(
+      "title",
+      "At least one policy must remain in the draft"
+    );
+
+    await user.click(last);
+    // Still only two staged — the click did nothing.
+    expect(screen.getByText(/2 policies marked for removal/)).toBeInTheDocument();
     expect(state.retry).not.toHaveBeenCalled();
   });
 
@@ -554,5 +560,115 @@ describe("Policy Citations — staged removal (exclusion step 7)", () => {
     expect(
       screen.queryByRole("button", { name: /Re-draft without them/ })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("Policy Citations — forced/last-card safety (exclusion step 8)", () => {
+  const FORCED_CTX = { forced_policy_key: "policy_186" };
+
+  it("drops the 'Added by you' badge when that card is staged for removal", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({
+      retrieved_chunks: HYDRATED,
+      retrieval_context: FORCED_CTX,
+    });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    expect(screen.getByText("Added by you")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove AAAI-27 Paper Modification Guidelines from this draft",
+      })
+    );
+
+    // The panel must not congratulate the chair on adding a policy they are
+    // in the middle of removing.
+    expect(screen.queryByText("Added by you")).not.toBeInTheDocument();
+  });
+
+  it("restores the badge if the removal is un-staged", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({
+      retrieved_chunks: HYDRATED,
+      retrieval_context: FORCED_CTX,
+    });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove AAAI-27 Paper Modification Guidelines from this draft",
+      })
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Keep AAAI-27 Paper Modification Guidelines in this draft",
+      })
+    );
+
+    // The durable forced flag was never touched, so the badge comes back.
+    expect(screen.getByText("Added by you")).toBeInTheDocument();
+  });
+
+  it("leaves a non-forced row's removal from clearing the badge", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({
+      retrieved_chunks: HYDRATED,
+      retrieval_context: FORCED_CTX,
+    });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    // Remove the OTHER row — the forced badge is unrelated and must stay.
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove Abstract and Paper Submission (part 2) from this draft",
+      })
+    );
+    expect(screen.getByText("Added by you")).toBeInTheDocument();
+  });
+
+  it("a single-card panel cannot be emptied at all", async () => {
+    state.current = makeEmail({ retrieved_chunks: [HYDRATED[0]] });
+    renderTicket();
+
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+    const only = screen.getByRole("button", {
+      name: /^Cannot remove AAAI-27 Paper Modification Guidelines — at least one policy must remain/,
+    });
+    expect(only).toBeDisabled();
+  });
+
+  it("un-staging re-enables a previously disabled last control", async () => {
+    const user = userEvent.setup();
+    state.current = makeEmail({ retrieved_chunks: HYDRATED });
+    renderTicket();
+    await screen.findByText("AAAI-27 Paper Modification Guidelines");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove AAAI-27 Paper Modification Guidelines from this draft",
+      })
+    );
+    // Now only one remains → its control is disabled.
+    expect(
+      screen.getByRole("button", {
+        name: /^Cannot remove Abstract and Paper Submission \(part 2\)/,
+      })
+    ).toBeDisabled();
+
+    // Put the first one back → both are removable again.
+    await user.click(
+      screen.getByRole("button", {
+        name: "Keep AAAI-27 Paper Modification Guidelines in this draft",
+      })
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Remove Abstract and Paper Submission (part 2) from this draft",
+      })
+    ).toBeEnabled();
   });
 });

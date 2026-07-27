@@ -1143,15 +1143,26 @@ function PolicyCitations({
   const retryError = retry.error as ApiError | null;
 
   function toggleRemoval(policyId: string) {
+    const staging = !pendingRemovals.includes(policyId);
     setPendingRemovals((prev) =>
-      prev.includes(policyId)
-        ? prev.filter((id) => id !== policyId)
-        : [...prev, policyId]
+      staging ? [...prev, policyId] : prev.filter((id) => id !== policyId)
     );
+    // Removing the chair's OWN forced pick retires the "you added this" notice
+    // with it — otherwise the panel would congratulate them on adding a policy
+    // they are in the middle of taking out. The backend applies the same
+    // precedence (exclusion beats forcing); this only keeps the UI honest.
+    if (staging && policyId === (forcedPolicyKey ?? pendingForcedKey)) {
+      setPendingForcedKey(null);
+    }
   }
 
-  // Mirror the backend's "never remove everything" guard client-side so the
-  // chair is stopped before the request rather than by a 409 afterwards.
+  // "At least one policy must remain" — mirrored from the backend so the chair
+  // is stopped at the point of action, not by a 409 after the fact. Enforced in
+  // two places on purpose: the last remaining row's control is disabled (below),
+  // and submit is blocked as a backstop in case a stale set slips through.
+  const remainingCount = (chunks?.length ?? 0) - pendingRemovals.length;
+  const isLastRemaining = (policyId: string) =>
+    remainingCount <= 1 && !pendingRemovals.includes(policyId);
   const wouldRemoveEverything =
     !!chunks && chunks.length > 0 && pendingRemovals.length >= chunks.length;
 
@@ -1180,8 +1191,15 @@ function PolicyCitations({
           <CitationCard
             key={chunk.policy_id}
             chunk={chunk}
-            isForced={chunk.policy_id === forcedPolicyKey}
+            // Staged for removal ⇒ stop badging it as chair-added: the panel
+            // must not say "Added by you" about a row being taken out. The
+            // durable flag is untouched, so un-staging restores the badge.
+            isForced={
+              chunk.policy_id === forcedPolicyKey &&
+              !pendingRemovals.includes(chunk.policy_id)
+            }
             isPendingRemoval={pendingRemovals.includes(chunk.policy_id)}
+            isLastRemaining={isLastRemaining(chunk.policy_id)}
             onOpen={() => setOpenPolicyKey(chunk.policy_id)}
             onToggleRemove={() => toggleRemoval(chunk.policy_id)}
           />
@@ -1355,6 +1373,7 @@ function CitationCard({
   chunk,
   isForced = false,
   isPendingRemoval = false,
+  isLastRemaining = false,
   onOpen,
   onToggleRemove,
 }: {
@@ -1364,6 +1383,8 @@ function CitationCard({
   isForced?: boolean;
   /** Staged for removal but not yet submitted. */
   isPendingRemoval?: boolean;
+  /** The only policy left standing — removing it would empty the grounding. */
+  isLastRemaining?: boolean;
   onOpen: () => void;
   onToggleRemove?: () => void;
 }) {
@@ -1428,10 +1449,21 @@ function CitationCard({
         <button
           type="button"
           onClick={onToggleRemove}
+          disabled={isLastRemaining}
+          // Reason is on the control itself (native tooltip + accessible name),
+          // so it is discoverable at the moment the chair tries to click it
+          // rather than only after a rejected request.
+          title={
+            isLastRemaining
+              ? "At least one policy must remain in the draft"
+              : undefined
+          }
           aria-label={
-            isPendingRemoval
-              ? `Keep ${chunk.title || chunk.policy_id} in this draft`
-              : `Remove ${chunk.title || chunk.policy_id} from this draft`
+            isLastRemaining
+              ? `Cannot remove ${chunk.title || chunk.policy_id} — at least one policy must remain in the draft`
+              : isPendingRemoval
+                ? `Keep ${chunk.title || chunk.policy_id} in this draft`
+                : `Remove ${chunk.title || chunk.policy_id} from this draft`
           }
           // Low visual noise: hidden until the row is hovered or the control
           // itself is keyboard-focused, and always visible once staged so the
@@ -1441,7 +1473,9 @@ function CitationCard({
             "focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
             isPendingRemoval
               ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100"
+              : "opacity-0 group-hover:opacity-100",
+            // Visibly inert rather than silently unresponsive on hover.
+            isLastRemaining && "cursor-not-allowed group-hover:opacity-40"
           )}
           style={{ color: isPendingRemoval ? "var(--accent)" : "var(--text-muted)" }}
         >
