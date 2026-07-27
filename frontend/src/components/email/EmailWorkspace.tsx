@@ -395,6 +395,8 @@ export function EmailWorkspace({
             byZendeskStatus={byZendeskStatus}
             zendeskStatusFilter={zendeskStatusFilter}
             onZendeskStatusSelect={setZendeskStatusFilter}
+            total={total}
+            shownCount={emails.length}
           />
         )}
       </div>
@@ -500,14 +502,6 @@ export function EmailWorkspace({
             />
           ) : (
             <ul>
-              {emails.length < total && (
-                <li
-                  className="px-4 py-2 text-xs"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Showing {emails.length} of {total} — refine filters to narrow.
-                </li>
-              )}
               {emails.map((email) => (
                 <li
                   key={email.id}

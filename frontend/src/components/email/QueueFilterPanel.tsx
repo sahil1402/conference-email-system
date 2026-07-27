@@ -29,6 +29,21 @@ interface QueueFilterPanelProps {
   byZendeskStatus: Record<string, number>;
   zendeskStatusFilter: string | null;
   onZendeskStatusSelect: (v: string | null) => void;
+  // Result count for the CURRENT filter set. `total` is the backend's filtered
+  // total (accurate regardless of page size); `shownCount` is how many rows the
+  // loaded page holds.
+  total: number;
+  shownCount: number;
+}
+
+/** "Showing 1–100 of 874 tickets" — or, when the whole set is on one page,
+ * just "47 tickets". Range reflects the loaded page (offset is 0 until page
+ * controls land in a later step). */
+function ticketCountLabel(total: number, shownCount: number): string {
+  if (total === 0) return "No tickets";
+  const noun = total === 1 ? "ticket" : "tickets";
+  if (shownCount >= total) return `${total} ${noun}`;
+  return `Showing 1–${shownCount} of ${total} ${noun}`;
 }
 
 /**
@@ -54,6 +69,8 @@ export function QueueFilterPanel({
   byZendeskStatus,
   zendeskStatusFilter,
   onZendeskStatusSelect,
+  total,
+  shownCount,
 }: QueueFilterPanelProps) {
   // No top border: this used to sit below the nav inside the sidebar, where the
   // rule separated the two. It now owns a column whose own right border
@@ -83,6 +100,16 @@ export function QueueFilterPanel({
           onSelect={onZendeskStatusSelect}
         />
       )}
+
+      {/* Result count for the active filter — sits below the Zendesk status
+          section. Page controls will build on this in a later step. */}
+      <p
+        className="pt-1 text-xs"
+        style={{ color: "var(--text-muted)" }}
+        aria-live="polite"
+      >
+        {ticketCountLabel(total, shownCount)}
+      </p>
     </div>
   );
 }
