@@ -64,6 +64,7 @@ Typed pydantic-settings `Settings`; env → `.env`. Access: `from app.core.confi
 
 ## Database Tables (`backend/app/db/models.py`)
 Pipeline outputs (classification, routing, draft) stored as JSON columns on `emails`.
+Full ERD + JSON-column semantics (incl. `draft.history[]`, `retrieval_context`) and deprecation markers: **`docs/database-schema.md`** — hand-maintained from live introspection; **regenerate after any schema-changing migration**.
 | Table | Model | Purpose |
 |---|---|---|
 | emails | Email | Incoming email/ticket + lifecycle (status, classification/routing/draft JSON; `assigned_chair_id` FK→chairs; Zendesk fields `source`, `zendesk_ticket_id` [unique], `zendesk_requester_id`, `zendesk_status`, `zendesk_created_at`, `zendesk_updated_at`, `last_processed_comment_id`) |
