@@ -262,13 +262,19 @@ export function EmailWorkspace({
   }, [page, pageCount, setPage]);
 
   // Preserve the list's scroll position across route navigation (opening a
-  // ticket and returning remounts this workspace). Keyed by the fetch params so
-  // it restores when returning to the SAME filtered view, but resets to the top
-  // when the filters change (a new result set). Gated on the list being present
-  // so we don't restore against an empty/loading container.
+  // ticket remounts this workspace) AND across paging. The key is the filter set
+  // PLUS the page, BY DESIGN — each page keeps its OWN remembered scroll:
+  //  - clicking to a new page lands at the TOP of that fresh page (its key has
+  //    no stored scroll yet), not halfway down where the previous page was;
+  //  - returning to a page (via the ticket round-trip OR the page buttons)
+  //    restores where you left it;
+  //  - a FILTER change is a new result set → new key → resets to the top (and
+  //    page also resets to 1 above).
+  // Gated on the list being present so we don't restore against an empty list.
   const listReady = !isLoading && !isError && emails.length > 0;
+  const scrollKey = `${filterKey}|page=${page}`;
   const { ref: listScrollRef, onScroll: onListScroll } =
-    useScrollRestoration<HTMLDivElement>(JSON.stringify(queueParams), listReady);
+    useScrollRestoration<HTMLDivElement>(scrollKey, listReady);
 
   // Facet counts for the status bar + source toggle (dedicated aggregate).
   const { byZendeskStatus, sources } = useQueueFacets(contextParams);
