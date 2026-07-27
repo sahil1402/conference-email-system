@@ -537,6 +537,18 @@ class EmailPipeline:
                 # serialization time (``forced_policy_key in retrieved_ids``)
                 # rather than stored as a second, drift-prone boolean.
                 "forced_policy_key": forced_policy_key,
+                # Policies the chair removed from this draft. Stored for the same
+                # reason as forced_policy_key — it is NOT recoverable from
+                # retrieved_ids, where an excluded policy is indistinguishable
+                # from one retrieval simply never ranked. The RAW ids the chair
+                # sent are kept, not their resolved lineage roots: roots are
+                # re-derived from live rows at apply time, which is exactly what
+                # lets an exclusion keep matching after the policy is edited into
+                # a new key. Normalized to None so an empty list and "none sent"
+                # persist identically.
+                "excluded_policy_ids": (
+                    list(excluded_policy_ids) if excluded_policy_ids else None
+                ),
             },
         }
         return _Computed(

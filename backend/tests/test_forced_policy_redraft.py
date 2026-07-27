@@ -784,3 +784,66 @@ async def test_plain_retry_is_never_blocked_by_the_guard(client, monkeypatch):
     monkeypatch.setattr(emails_api, "_redraft_email_bg", fake_bg)
 
     assert (await c.post(f"/api/v1/emails/{email_id}/redraft")).status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# Persistence of the exclusion choice (exclusion step 5)
+# ---------------------------------------------------------------------------
+async def test_excluded_ids_are_persisted_in_retrieval_context(session_factory):
+    _, c = await _compute_excluding(session_factory, excluded=["policy_186"])
+    ctx = c.record["retrieval_context"]
+    assert ctx["excluded_policy_ids"] == ["policy_186"]
+    # …and the filtered result is stored alongside, so the two agree.
+    assert "policy_186" not in ctx["retrieved_ids"]
+
+
+async def test_raw_ids_are_persisted_not_resolved_roots(session_factory):
+    """Store what the chair sent. Roots are re-derived from LIVE rows at apply
+    time — that is what keeps an exclusion matching after the policy is edited
+    into a new key, so freezing a root here would defeat the point."""
+    async with session_factory() as s:
+        s.add(PolicyDocument(policy_key="int_base", title="v1", content="c",
+                             category="c", visibility="internal", status="inactive",
+                             superseded_by="int_base__v2", version=1))
+        s.add(PolicyDocument(policy_key="int_base__v2", title="v2", content="c",
+                             category="c", visibility="internal", status="active",
+                             supersedes="int_base", root_key="int_base", version=2))
+        await s.commit()
+
+    class _R:
+        async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
+            return [_chunk("int_base__v2"), _chunk("policy_186")]
+
+    p = EmailPipeline()
+    p.retriever = _R()
+    async with session_factory() as db:
+        c = await p._compute(
+            {"from": "a@b.com", "subject": "s", "body": "b"},
+            db,
+            excluded_policy_ids=["int_base__v2"],  # chair excluded the NEW key
+        )
+
+    # Persisted verbatim — not rewritten to the lineage root "int_base".
+    assert c.record["retrieval_context"]["excluded_policy_ids"] == ["int_base__v2"]
+
+
+async def test_no_exclusions_persists_none_not_empty_list(session_factory):
+    """REGRESSION: a normal draft stores None, so the shape never varies."""
+    c, _ = await _compute_with(session_factory, None)
+    assert c.record["retrieval_context"]["excluded_policy_ids"] is None
+
+
+async def test_empty_exclusion_list_persists_as_none(session_factory):
+    """[] and "none sent" must persist identically."""
+    _, c = await _compute_excluding(session_factory, excluded=[])
+    assert c.record["retrieval_context"]["excluded_policy_ids"] is None
+
+
+async def test_exclusions_persist_alongside_a_forced_key(session_factory):
+    _, c = await _compute_excluding(
+        session_factory, excluded=["policy_186"], forced="int_forced", seed="int_forced"
+    )
+    ctx = c.record["retrieval_context"]
+    assert ctx["excluded_policy_ids"] == ["policy_186"]
+    assert ctx["forced_policy_key"] == "int_forced"
+    assert ctx["retrieved_ids"] == ["policy_172", "policy_171", "int_forced"]
