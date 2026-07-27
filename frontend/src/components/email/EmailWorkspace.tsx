@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, Inbox, PanelLeft, SearchX, X } from "lucide-react";
 
 import {
@@ -196,6 +196,31 @@ export function EmailWorkspace({
     return () => clearTimeout(t);
   }, [search]);
 
+  // Current page (1-based), persisted so it survives opening a ticket and
+  // returning. `offset` is derived; the fetch pages server-side.
+  const [page, setPage] = usePersistedState<number>("confmail.queuePage", 1);
+
+  // Reset to page 1 when the FILTER SET changes (a new result set) — but NOT on
+  // mount (the ref is seeded to the current key), so a persisted page is honored
+  // when returning to the same filtered view.
+  const filterKey = JSON.stringify([
+    laneFilter,
+    statusFilter,
+    debouncedSearch,
+    chairFilter,
+    sourceFilter,
+    zendeskStatusFilter,
+  ]);
+  const prevFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (prevFilterKey.current !== filterKey) {
+      prevFilterKey.current = filterKey;
+      setPage(1);
+    }
+  }, [filterKey, setPage]);
+
+  const offset = (page - 1) * QUEUE_PAGE_SIZE;
+
   // Every filter (lane / status / search / chair / unassigned) is applied
   // SERVER-SIDE, so `emails` is the full matching set and `total` its true count
   // — not a client-side slice of a capped 20-row page (the bug that made lane /
@@ -216,13 +241,25 @@ export function EmailWorkspace({
   }, [laneFilter, statusFilter, debouncedSearch, chairFilter]);
 
   const queueParams = useMemo<EmailQueueParams>(() => {
-    const params: EmailQueueParams = { ...contextParams, limit: QUEUE_PAGE_SIZE };
+    const params: EmailQueueParams = {
+      ...contextParams,
+      limit: QUEUE_PAGE_SIZE,
+      offset,
+    };
     if (sourceFilter !== "all") params.source = sourceFilter;
     if (zendeskStatusFilter) params.zendesk_status = zendeskStatusFilter;
     return params;
-  }, [contextParams, sourceFilter, zendeskStatusFilter]);
+  }, [contextParams, sourceFilter, zendeskStatusFilter, offset]);
   const { emails, total, isLoading, isError, refetch } =
     useEmailQueue(queueParams);
+
+  const pageCount = Math.max(1, Math.ceil(total / QUEUE_PAGE_SIZE));
+  // Clamp a persisted/stale page that now exceeds the current filtered set's
+  // page count (e.g. returning to a filter that shrank). Stable: re-clamps once,
+  // then page === pageCount.
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount, setPage]);
 
   // Preserve the list's scroll position across route navigation (opening a
   // ticket and returning remounts this workspace). Keyed by the fetch params so
@@ -397,6 +434,10 @@ export function EmailWorkspace({
             onZendeskStatusSelect={setZendeskStatusFilter}
             total={total}
             shownCount={emails.length}
+            rangeStart={offset + 1}
+            page={page}
+            pageCount={pageCount}
+            onPageChange={setPage}
           />
         )}
       </div>

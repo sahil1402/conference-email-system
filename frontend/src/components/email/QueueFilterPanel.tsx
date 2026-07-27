@@ -5,6 +5,7 @@ import type { Chair } from "@/types";
 import { EmailFilters } from "./EmailFilters";
 import { SourceToggle } from "./SourceToggle";
 import { ZendeskStatusBar } from "./ZendeskStatusBar";
+import { Pagination } from "./Pagination";
 
 type LaneFilter = "all" | "faq" | "human_review";
 type StatusFilter = "all" | "PENDING" | "DRAFT_GENERATED" | "APPROVED";
@@ -29,21 +30,30 @@ interface QueueFilterPanelProps {
   byZendeskStatus: Record<string, number>;
   zendeskStatusFilter: string | null;
   onZendeskStatusSelect: (v: string | null) => void;
-  // Result count for the CURRENT filter set. `total` is the backend's filtered
-  // total (accurate regardless of page size); `shownCount` is how many rows the
-  // loaded page holds.
+  // Result count + pagination for the CURRENT filter set. `total` is the
+  // backend's filtered total (accurate regardless of page size); `shownCount` is
+  // how many rows the loaded page holds; `rangeStart` is the 1-based index of
+  // the first row on this page (offset + 1).
   total: number;
   shownCount: number;
+  rangeStart: number;
+  page: number;
+  pageCount: number;
+  onPageChange: (page: number) => void;
 }
 
-/** "Showing 1–100 of 874 tickets" — or, when the whole set is on one page,
- * just "47 tickets". Range reflects the loaded page (offset is 0 until page
- * controls land in a later step). */
-function ticketCountLabel(total: number, shownCount: number): string {
+/** "Showing 101–200 of 874 tickets" — or, when the whole set is on one page,
+ * just "47 tickets". `rangeStart` is the 1-based index of the first row shown. */
+function ticketCountLabel(
+  total: number,
+  shownCount: number,
+  rangeStart: number
+): string {
   if (total === 0) return "No tickets";
   const noun = total === 1 ? "ticket" : "tickets";
   if (shownCount >= total) return `${total} ${noun}`;
-  return `Showing 1–${shownCount} of ${total} ${noun}`;
+  const rangeEnd = rangeStart + shownCount - 1;
+  return `Showing ${rangeStart}–${rangeEnd} of ${total} ${noun}`;
 }
 
 /**
@@ -71,6 +81,10 @@ export function QueueFilterPanel({
   onZendeskStatusSelect,
   total,
   shownCount,
+  rangeStart,
+  page,
+  pageCount,
+  onPageChange,
 }: QueueFilterPanelProps) {
   // No top border: this used to sit below the nav inside the sidebar, where the
   // rule separated the two. It now owns a column whose own right border
@@ -101,15 +115,22 @@ export function QueueFilterPanel({
         />
       )}
 
-      {/* Result count for the active filter — sits below the Zendesk status
-          section. Page controls will build on this in a later step. */}
-      <p
-        className="pt-1 text-xs"
-        style={{ color: "var(--text-muted)" }}
-        aria-live="polite"
-      >
-        {ticketCountLabel(total, shownCount)}
-      </p>
+      {/* Result count + page controls for the active filter — below the Zendesk
+          status section. */}
+      <div className="space-y-2 pt-1">
+        <p
+          className="text-xs"
+          style={{ color: "var(--text-muted)" }}
+          aria-live="polite"
+        >
+          {ticketCountLabel(total, shownCount, rangeStart)}
+        </p>
+        <Pagination
+          page={page}
+          pageCount={pageCount}
+          onPageChange={onPageChange}
+        />
+      </div>
     </div>
   );
 }
