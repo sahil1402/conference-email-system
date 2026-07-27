@@ -187,3 +187,62 @@ async def test_recent_rows_have_null_ticket_id_and_never_error(ctx):
     body = await _get(ctx.client, search="21567")
     assert body["total"] == 1
     assert all(e["zendesk_ticket_id"] == 21567 for e in body["emails"])
+
+
+# --- Pagination (limit/offset) on top of an active filter -------------------
+# offset/limit is the canonical pagination; a page-based UI maps page N →
+# offset=(N-1)*limit and page count = ceil(total/limit). These prove the slice
+# and the total are BOTH scoped to the active filter, at any offset.
+
+
+async def test_pagination_slices_a_filtered_set_with_accurate_total(ctx):
+    # DRAFT_GENERATED = the RECENT set (_N_RECENT = 22). Page it 10 at a time.
+    p1 = await _get(ctx.client, status="DRAFT_GENERATED", limit=10, offset=0)
+    p2 = await _get(ctx.client, status="DRAFT_GENERATED", limit=10, offset=10)
+    p3 = await _get(ctx.client, status="DRAFT_GENERATED", limit=10, offset=20)
+
+    # total is the filtered set size on EVERY page — independent of limit/offset.
+    assert p1["total"] == p2["total"] == p3["total"] == _N_RECENT
+
+    # Slice sizes: 10 + 10 + 2 = 22.
+    assert len(p1["emails"]) == 10
+    assert len(p2["emails"]) == 10
+    assert len(p3["emails"]) == _N_RECENT - 20
+
+    # The filter applies to every page, not just the first.
+    for page in (p1, p2, p3):
+        assert all(e["status"] == "DRAFT_GENERATED" for e in page["emails"])
+
+    # Pages are disjoint and together cover the whole filtered set exactly once.
+    ids = [e["id"] for e in p1["emails"] + p2["emails"] + p3["emails"]]
+    assert len(ids) == _N_RECENT
+    assert len(set(ids)) == _N_RECENT  # no row repeated across pages
+    full = await _get(ctx.client, status="DRAFT_GENERATED", limit=100, offset=0)
+    assert set(ids) == {e["id"] for e in full["emails"]}
+
+
+async def test_pagination_total_reflects_filtered_set_not_whole_table(ctx):
+    # ROUTED = the 3-row OLD set. Even paging 1 at a time, total stays 3 — the
+    # filtered size (page count = ceil(3/1) = 3), NOT the 25-row table.
+    first = await _get(ctx.client, status="ROUTED", limit=1, offset=0)
+    assert first["total"] == _N_OLD  # not _N_OLD + _N_RECENT
+    assert len(first["emails"]) == 1
+
+    last = await _get(ctx.client, status="ROUTED", limit=1, offset=_N_OLD - 1)
+    assert len(last["emails"]) == 1
+
+    # Past the last page: empty slice, but the total is unchanged.
+    past_end = await _get(ctx.client, status="ROUTED", limit=1, offset=_N_OLD)
+    assert past_end["emails"] == []
+    assert past_end["total"] == _N_OLD
+
+
+async def test_pagination_composes_with_search(ctx):
+    # search=_FLAG matches the 3 OLD rows; page them 2 at a time.
+    p1 = await _get(ctx.client, search=_FLAG, limit=2, offset=0)
+    p2 = await _get(ctx.client, search=_FLAG, limit=2, offset=2)
+    assert p1["total"] == p2["total"] == _N_OLD  # 3
+    assert len(p1["emails"]) == 2
+    assert len(p2["emails"]) == 1
+    ids = {e["id"] for e in p1["emails"] + p2["emails"]}
+    assert len(ids) == _N_OLD  # disjoint, covers the filtered set
