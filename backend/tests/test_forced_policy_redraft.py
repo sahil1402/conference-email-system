@@ -500,8 +500,8 @@ async def test_public_compute_seam_forwards_excluded_ids(session_factory, monkey
     assert seen["excluded"] == ["policy_171"]
 
 
-async def test_excluded_ids_reach_the_trace_but_do_not_filter_yet(session_factory):
-    """Threaded and observable — and the grounding set is NOT yet affected."""
+async def test_excluded_chunk_is_dropped_from_the_grounding(session_factory):
+    """INVERTED from step 2's "no filter yet" pin — the filter now acts."""
     await _seed_policy(session_factory, "int_forced")
     p = EmailPipeline()
     p.retriever = _StubRetriever()
@@ -514,6 +514,135 @@ async def test_excluded_ids_reach_the_trace_but_do_not_filter_yet(session_factor
         )
 
     ids = [ch.policy_id for ch in c.retrieved_chunks]
-    # policy_186 is excluded by the request but STILL present: no filter yet.
-    assert ids == ["policy_186", "policy_172", "policy_171", "int_forced"]
+    assert "policy_186" not in ids
+    assert ids == ["policy_172", "policy_171", "int_forced"]
+    # Persisted context reflects the filtered set (drives hydration + the sweep).
     assert c.record["retrieval_context"]["retrieved_ids"] == ids
+
+
+# ---------------------------------------------------------------------------
+# Exclusion filter + forced/excluded conflict (exclusion step 3)
+# ---------------------------------------------------------------------------
+async def _compute_excluding(factory, excluded, forced=None, seed=None):
+    if seed:
+        await _seed_policy(factory, seed)
+    p = EmailPipeline()
+    p.retriever = _StubRetriever()
+    async with factory() as db:
+        c = await p._compute(
+            {"from": "a@b.com", "subject": "s", "body": "b"},
+            db,
+            forced_policy_key=forced,
+            excluded_policy_ids=excluded,
+        )
+    return [ch.policy_id for ch in c.retrieved_chunks], c
+
+
+async def test_forced_key_that_is_also_excluded_is_not_appended(session_factory):
+    """THE conflict case: exclusion wins, the forced chunk must NOT appear.
+
+    Without the guard the ordering would silently undo the removal — the forced
+    key is filtered out of the ranked set, then resolved and appended right back.
+    """
+    ids, c = await _compute_excluding(
+        session_factory,
+        excluded=["int_forced"],
+        forced="int_forced",
+        seed="int_forced",   # active, so it WOULD resolve if not blocked
+    )
+
+    assert "int_forced" not in ids
+    assert ids == ["policy_186", "policy_172", "policy_171"]
+    assert c.record["retrieval_context"]["retrieved_ids"] == ids
+
+
+async def test_forced_key_also_excluded_when_it_is_a_ranked_chunk(session_factory):
+    """Same conflict, but the forced key is one of the ranked chunks."""
+    ids, _ = await _compute_excluding(
+        session_factory, excluded=["policy_172"], forced="policy_172", seed="policy_172"
+    )
+    assert "policy_172" not in ids
+    assert ids == ["policy_186", "policy_171"]
+
+
+async def test_excluding_by_an_older_lineage_key_still_drops_the_new_version(
+    session_factory,
+):
+    """Root matching: excluding `int_base` also removes its `__v2` successor.
+
+    An exact-key exclusion would go stale here — exactly the case the KB-edit
+    sweep triggers — and the removed policy would reappear under its new key.
+    """
+    async with session_factory() as s:
+        s.add(PolicyDocument(policy_key="int_base", title="v1", content="c",
+                             category="c", visibility="internal", status="inactive",
+                             superseded_by="int_base__v2", version=1))
+        s.add(PolicyDocument(policy_key="int_base__v2", title="v2", content="c",
+                             category="c", visibility="internal", status="active",
+                             supersedes="int_base", root_key="int_base", version=2))
+        await s.commit()
+
+    class _R:
+        async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
+            return [_chunk("int_base__v2"), _chunk("policy_186")]
+
+    p = EmailPipeline()
+    p.retriever = _R()
+    async with session_factory() as db:
+        c = await p._compute(
+            {"from": "a@b.com", "subject": "s", "body": "b"},
+            db,
+            excluded_policy_ids=["int_base"],  # the OLD key
+        )
+
+    ids = [ch.policy_id for ch in c.retrieved_chunks]
+    assert "int_base__v2" not in ids   # dropped via its lineage root
+    assert ids == ["policy_186"]
+
+
+async def test_unknown_excluded_id_is_a_no_op(session_factory):
+    """A key with no row maps to itself — it must not widen the exclusion."""
+    ids, _ = await _compute_excluding(session_factory, excluded=["int_does_not_exist"])
+    assert ids == ["policy_186", "policy_172", "policy_171"]
+
+
+async def test_excluding_every_chunk_yields_empty_grounding(session_factory):
+    """Degrades safely: no crash, empty grounding (drafter emits its no-context
+    branch and the router's floor forces human_review)."""
+    ids, c = await _compute_excluding(
+        session_factory, excluded=["policy_186", "policy_172", "policy_171"]
+    )
+    assert ids == []
+    assert c.record["retrieval_context"]["retrieved_ids"] == []
+
+
+async def test_no_exclusions_is_byte_identical_and_costs_no_extra_query(
+    session_factory, monkeypatch
+):
+    """REGRESSION: the default path must not even touch the policy repo."""
+    await _seed_policy(session_factory, "int_forced")
+    p = EmailPipeline()
+    p.retriever = _StubRetriever()
+
+    calls = {"n": 0}
+    original = p.policy_repo.get_by_keys
+
+    async def counting(db, keys):
+        calls["n"] += 1
+        return await original(db, keys)
+
+    monkeypatch.setattr(p.policy_repo, "get_by_keys", counting)
+
+    async with session_factory() as db:
+        c = await p._compute(
+            {"from": "a@b.com", "subject": "s", "body": "b"},
+            db,
+            forced_policy_key="int_forced",
+            excluded_policy_ids=None,
+        )
+
+    assert [ch.policy_id for ch in c.retrieved_chunks] == [
+        "policy_186", "policy_172", "policy_171", "int_forced",
+    ]
+    # Exactly ONE lookup: the forced resolve. No lineage query when nothing is excluded.
+    assert calls["n"] == 1

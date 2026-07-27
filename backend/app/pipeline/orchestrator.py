@@ -125,6 +125,40 @@ def _append_draft_history(
     record["draft"] = new_draft
 
 
+async def resolve_lineage_roots(
+    db: AsyncSession,
+    keys,
+    policy_repo: PolicyRepository | None = None,
+) -> dict[str, str]:
+    """Map each policy key to its LINEAGE ROOT (``key -> root``).
+
+    Exclusions are matched on the root, not the literal ``policy_key``, because
+    ``edit_policy`` mints a brand-new key for an edited policy
+    (``{root}__v{n+1}``) and retires the old row. Keyed on the exact string, an
+    exclusion would go stale the moment someone edits that policy — and the
+    KB-edit sweep is precisely when that happens, so the chunk the chair removed
+    would quietly reappear. Rooting the comparison makes "I removed this policy"
+    survive its next revision.
+
+    A key with no row maps to ITSELF, so an unknown/hard-deleted id still
+    matches itself and never silently widens the exclusion. Best-effort: a
+    lookup failure logs and yields an empty map, which degrades to "nothing
+    excluded" rather than failing the re-draft.
+    """
+    repo = policy_repo or PolicyRepository()
+    wanted = [k for k in dict.fromkeys(keys) if k]  # de-dup, drop falsy, keep order
+    if not wanted:
+        return {}
+    try:
+        rows = await repo.get_by_keys(db, wanted)
+    except Exception:  # noqa: BLE001 - never fail a re-draft over exclusion metadata
+        logger.exception("Lineage-root lookup failed for %s; treating as no-op.", wanted)
+        return {}
+    return {
+        key: (repo._root_of(rows[key]) if key in rows else key) for key in wanted
+    }
+
+
 async def resolve_forced_chunk(
     db: AsyncSession,
     policy_key: str,
@@ -273,9 +307,11 @@ class EmailPipeline:
         leaves every existing caller bit-for-bit unchanged.
 
         ``excluded_policy_ids`` are chunks the chair removed from the grounding.
-        THREADED ONLY at this step: the value reaches here and is surfaced on the
-        retriever trace, but nothing filters on it yet — that lands next. Until
-        then a caller passing exclusions gets the unchanged grounding set.
+        They are dropped from the RANKED set before the forced slot is applied,
+        matched on LINEAGE ROOT so a removal survives the policy being edited into
+        a new key. If the forced key is itself excluded, exclusion wins and no
+        forced chunk is appended. Excluded chunks never reach the drafter, so
+        there is no prompt representation of a removal.
         """
         start = time.perf_counter()
         subject = email_data.get("subject", "")
@@ -364,6 +400,44 @@ class EmailPipeline:
                     top_k=settings.MAX_RETRIEVED_CHUNKS,
                     prior_intent=prior_intent,
                 )
+                # Chair removals: drop excluded chunks from the RANKED set before
+                # the forced slot is considered. Matched on lineage root, so an
+                # exclusion survives the excluded policy being edited into a new
+                # key (see resolve_lineage_roots). Entirely skipped — not one
+                # extra query — when the chair excluded nothing, so the default
+                # path stays byte-identical.
+                excluded_roots: set[str] = set()
+                roots: dict[str, str] = {}
+                if excluded_policy_ids:
+                    roots = await resolve_lineage_roots(
+                        db,
+                        [c.policy_id for c in retrieved_chunks]
+                        + list(excluded_policy_ids)
+                        + ([forced_policy_key] if forced_policy_key else []),
+                        self.policy_repo,
+                    )
+                    excluded_roots = {
+                        roots.get(x, x) for x in excluded_policy_ids
+                    }
+                    retrieved_chunks = [
+                        c
+                        for c in retrieved_chunks
+                        if roots.get(c.policy_id, c.policy_id) not in excluded_roots
+                    ]
+
+                # Exclusion beats forcing. Without this the append would silently
+                # undo the removal: the chair's own pick, filtered out above,
+                # would be resolved and put straight back — a contradictory
+                # request resolved by accident of ordering rather than by rule.
+                forced_excluded = bool(forced_policy_key) and (
+                    roots.get(forced_policy_key, forced_policy_key) in excluded_roots
+                )
+                if forced_excluded:
+                    logger.info(
+                        "Forced policy %s is also excluded; exclusion wins.",
+                        forced_policy_key,
+                    )
+
                 # Chair-forced policy (manual invoke): appended as a GUARANTEED
                 # EXTRA slot, after ranking, so top_k still governs the ranked
                 # chunks and the forced one can never be crowded out. No-op (and
@@ -371,7 +445,7 @@ class EmailPipeline:
                 # already retrieved.
                 forced_chunk = (
                     await self._force_policy_chunk(db, forced_policy_key, retrieved_chunks)
-                    if forced_policy_key
+                    if forced_policy_key and not forced_excluded
                     else None
                 )
                 if forced_chunk is not None:
@@ -383,8 +457,8 @@ class EmailPipeline:
                     "backend": settings.RETRIEVAL_BACKEND,
                     "forced_policy_key": forced_policy_key,
                     "forced_applied": forced_chunk is not None,
-                    # Threaded through and observable; no filter acts on it yet.
                     "excluded_policy_ids": excluded_policy_ids,
+                    "forced_excluded": forced_excluded,
                 }
 
         except Exception:
