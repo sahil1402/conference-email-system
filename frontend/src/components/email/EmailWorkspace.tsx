@@ -16,6 +16,7 @@ import { usePersistedState } from "@/hooks/usePersistedState";
 import { useScrollRestoration } from "@/hooks/useScrollRestoration";
 import { useEmailQueueStream } from "@/hooks/useEmailQueueStream";
 import { useQueueFacets } from "@/hooks/useQueueFacets";
+import { QUEUE_PAGE_SIZE } from "@/lib/api";
 import type { EmailQueueParams, QueueFacetsParams } from "@/lib/api";
 import {
   useApproveEmail,
@@ -215,7 +216,7 @@ export function EmailWorkspace({
   }, [laneFilter, statusFilter, debouncedSearch, chairFilter]);
 
   const queueParams = useMemo<EmailQueueParams>(() => {
-    const params: EmailQueueParams = { ...contextParams, limit: 200 };
+    const params: EmailQueueParams = { ...contextParams, limit: QUEUE_PAGE_SIZE };
     if (sourceFilter !== "all") params.source = sourceFilter;
     if (zendeskStatusFilter) params.zendesk_status = zendeskStatusFilter;
     return params;

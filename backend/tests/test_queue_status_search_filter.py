@@ -246,3 +246,23 @@ async def test_pagination_composes_with_search(ctx):
     assert len(p2["emails"]) == 1
     ids = {e["id"] for e in p1["emails"] + p2["emails"]}
     assert len(ids) == _N_OLD  # disjoint, covers the filtered set
+
+
+async def test_pagination_rejects_out_of_range_params(ctx):
+    # limit is bounded 1..200 and offset >= 0 — FastAPI 422s rather than silently
+    # clamping, so a caller can't request an unbounded page or a negative offset.
+    assert (
+        await ctx.client.get("/api/v1/emails/queue", params={"limit": 201})
+    ).status_code == 422
+    assert (
+        await ctx.client.get("/api/v1/emails/queue", params={"limit": 0})
+    ).status_code == 422
+    assert (
+        await ctx.client.get("/api/v1/emails/queue", params={"offset": -1})
+    ).status_code == 422
+
+
+async def test_pagination_accepts_boundary_params(ctx):
+    for params in ({"limit": 1}, {"limit": 200}, {"offset": 0}):
+        resp = await ctx.client.get("/api/v1/emails/queue", params=params)
+        assert resp.status_code == 200, params

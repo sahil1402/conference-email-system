@@ -38,6 +38,13 @@ export interface EmailQueueParams {
   offset?: number;
 }
 
+/**
+ * Queue page size. Single source of truth for how many rows one page fetches;
+ * pagination derives `offset = pageIndex * QUEUE_PAGE_SIZE` and the page count
+ * from `total`. Kept ≤ the backend's `limit` cap (le=200).
+ */
+export const QUEUE_PAGE_SIZE = 100;
+
 /** Context filters for the facets aggregate — the queue params minus the facet
  * dimensions (source / zendesk_status) and pagination, so the bar/toggle counts
  * stay stable while a status/source is selected. */

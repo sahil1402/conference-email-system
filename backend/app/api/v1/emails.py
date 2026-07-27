@@ -17,7 +17,15 @@ import bleach
 from datetime import timezone
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -440,8 +448,8 @@ async def get_queue(
     unassigned: bool = False,
     source: str | None = None,
     zendesk_status: str | None = None,
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return the email queue, filtered server-side by any combination of
@@ -451,6 +459,10 @@ async def get_queue(
     scoped caller gets an accurate total independent of ``limit``/``offset`` and
     the returned rows are the full server-side slice — callers never filter or
     count a truncated page client-side.
+
+    ``limit`` is bounded 1..200 and ``offset`` >= 0 (FastAPI returns 422 for
+    out-of-range values), so no caller can request an unbounded page or a
+    negative offset.
     """
     kwargs = dict(
         lane=lane,
