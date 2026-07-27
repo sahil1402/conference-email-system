@@ -25,7 +25,7 @@ from app.core.config import settings
 from app.db.database import async_session_factory
 from app.pipeline.classifier import ClassificationResult
 from app.pipeline.drafter import ResponseDrafter
-from app.pipeline.orchestrator import resolve_forced_chunk
+from app.pipeline.orchestrator import resolve_forced_chunk, resolve_lineage_roots
 from app.pipeline.retriever import get_retriever, grounded_chunks_hash
 from app.pipeline.router import EmailRouter, apply_self_sufficiency_floor
 from app.repositories.audit_repository import AuditRepository
@@ -51,10 +51,22 @@ async def _fresh_topk_ids(retriever, ctx: dict, top_k: int, db=None):
     forced is correctly dropped, and that drop shows up in the gate below as a
     genuine grounding change.
 
-    This also keeps the gate honest. The stored ids include the forced policy, so
-    a fresh run WITHOUT it would differ from the stored set on every sweep and
-    re-draft the ticket forever. ``db`` is optional purely so legacy/unit callers
-    that pass no session keep the old pure-retrieval behaviour.
+    Chair EXCLUSIONS (``excluded_policy_ids``) are likewise re-applied, matched on
+    LINEAGE ROOT rather than the literal key. This matters most here of all: the
+    sweep is triggered BY a KB edit, and ``edit_policy`` mints a new key for an
+    edited policy (``int_foo`` → ``int_foo__v2``). An exact-key exclusion would go
+    stale on exactly the event that runs this code, and the chunk the chair
+    removed would quietly reappear under its new name.
+
+    Order mirrors ``EmailPipeline._compute`` exactly — filter, then force, with
+    exclusion beating a conflicting forced key — so a swept re-draft and a manual
+    one can never disagree about the same stored context.
+
+    This also keeps the gate honest. The stored ids reflect both the forced policy
+    and the removals, so a fresh run applying neither would differ from the stored
+    set on every sweep and re-draft the ticket forever. ``db`` is optional purely
+    so legacy/unit callers that pass no session keep the old pure-retrieval
+    behaviour.
     """
     query = (ctx or {}).get("query") or ""
     intent = (ctx or {}).get("intent") or ""
@@ -64,7 +76,28 @@ async def _fresh_topk_ids(retriever, ctx: dict, top_k: int, db=None):
     )
 
     forced_key = (ctx or {}).get("forced_policy_key")
-    if forced_key and db is not None:
+    excluded_ids = (ctx or {}).get("excluded_policy_ids") or []
+
+    excluded_roots: set[str] = set()
+    roots: dict[str, str] = {}
+    if excluded_ids and db is not None:
+        roots = await resolve_lineage_roots(
+            db,
+            [c.policy_id for c in chunks]
+            + list(excluded_ids)
+            + ([forced_key] if forced_key else []),
+        )
+        excluded_roots = {roots.get(x, x) for x in excluded_ids}
+        chunks = [
+            c
+            for c in chunks
+            if roots.get(c.policy_id, c.policy_id) not in excluded_roots
+        ]
+
+    forced_excluded = bool(forced_key) and (
+        roots.get(forced_key, forced_key) in excluded_roots
+    )
+    if forced_key and db is not None and not forced_excluded:
         forced = await resolve_forced_chunk(db, forced_key, chunks)
         if forced is not None:
             chunks = [*chunks, forced]
@@ -229,6 +262,13 @@ async def reevaluate_open_tickets(session_factory=async_session_factory) -> dict
                 forced_key = item["ctx"].get("forced_policy_key")
                 if forced_key:
                     new_ctx["forced_policy_key"] = forced_key
+                # Same carry-forward for chair removals — added ONLY when the
+                # ticket had some, so a normal ticket's context keeps exactly the
+                # five keys it has always had. Dropping these would silently undo
+                # the chair's curation on the next KB edit.
+                excluded_ids = item["ctx"].get("excluded_policy_ids")
+                if excluded_ids:
+                    new_ctx["excluded_policy_ids"] = excluded_ids
                 saved = await email_repo.save_redraft(
                     db, email_id,
                     draft=draft.model_dump(),

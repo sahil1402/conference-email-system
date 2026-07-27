@@ -611,3 +611,105 @@ async def test_no_forced_key_gate_still_skips_unaffected(session, monkeypatch):
         "open": 1, "redrafted": 0, "skipped_edited": 0,
         "skipped_no_context": 0, "skipped_contended": 0, "unaffected": 1,
     }
+
+
+# ---------------------------------------------------------------------------
+# Chair exclusions survive the KB-edit sweep (exclusion step 6)
+# ---------------------------------------------------------------------------
+# The sweep is triggered BY a KB edit, and edit_policy mints a new key
+# (int_foo -> int_foo__v2). Matching exclusions on the literal key would go stale
+# on precisely that event, so they are matched on lineage ROOT.
+async def test_exclusion_survives_the_policy_being_edited_to_a_new_version(
+    session, monkeypatch
+):
+    """THE case: chair excludes int_foo → it is edited to int_foo__v2 → sweep →
+    the new version must STILL be excluded."""
+    # The lineage, exactly as edit_policy leaves it.
+    session.add(PolicyDocument(policy_key="int_foo", title="v1", content="c",
+                               category="c", visibility="internal", status="inactive",
+                               superseded_by="int_foo__v2", version=1))
+    session.add(PolicyDocument(policy_key="int_foo__v2", title="v2", content="c",
+                               category="c", visibility="internal", status="active",
+                               supersedes="int_foo", root_key="int_foo", version=2))
+    # Ticket excluded the OLD key, and its stored grounding reflects that.
+    session.add(_open_email(
+        retrieved_ids=["policy_101"],
+        excluded_policy_ids=["int_foo"],
+    ))
+    await session.commit()
+
+    # Post-edit retrieval now surfaces the NEW key alongside the untouched one.
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever",
+        lambda: _StubRetriever(["policy_101", "int_foo__v2"]),
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    row = (await session.execute(select(Email))).scalars().first()
+    ids = row.retrieval_context["retrieved_ids"]
+    # The edited version is still excluded — it did NOT sneak back under its new key.
+    assert "int_foo__v2" not in ids
+    assert ids == ["policy_101"]
+    # Re-applied ⇒ the set is unchanged ⇒ no spurious re-draft.
+    assert stats["unaffected"] == 1
+    assert stats["redrafted"] == 0
+    # …and the exclusion is carried forward for the next sweep.
+    assert row.retrieval_context["excluded_policy_ids"] == ["int_foo"]
+
+
+async def test_exclusion_carries_forward_through_a_genuine_redraft(session, monkeypatch):
+    """When the ranked set really moves, the removal still rides along."""
+    session.add(_open_email(
+        retrieved_ids=["policy_101"], excluded_policy_ids=["policy_999"]
+    ))
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever",
+        lambda: _StubRetriever(["policy_777", "policy_999"]),
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    assert stats["redrafted"] == 1
+    ctx = (await session.execute(select(Email))).scalars().first().retrieval_context
+    assert "policy_999" not in ctx["retrieved_ids"]   # still filtered
+    assert ctx["retrieved_ids"] == ["policy_777"]
+    assert ctx["excluded_policy_ids"] == ["policy_999"]
+
+
+async def test_sweep_exclusion_beats_a_conflicting_forced_key(session, monkeypatch):
+    """Same precedence rule as _compute: exclusion wins, no forced append."""
+    session.add(PolicyDocument(policy_key="int_both", title="t", content="c",
+                               category="c", visibility="internal", status="active"))
+    session.add(_open_email(
+        retrieved_ids=["policy_101"],
+        forced_policy_key="int_both",
+        excluded_policy_ids=["int_both"],
+    ))
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever",
+        lambda: _StubRetriever(["policy_101"]),
+    )
+    await reevaluate_open_tickets(session_factory=_factory(session))
+
+    ctx = (await session.execute(select(Email))).scalars().first().retrieval_context
+    assert "int_both" not in ctx["retrieved_ids"]
+
+
+async def test_no_exclusions_sweep_keeps_exactly_the_five_ctx_keys(session, monkeypatch):
+    """REGRESSION: a normal ticket's stored context must not grow a new key."""
+    session.add(_open_email())
+    await session.commit()
+
+    monkeypatch.setattr(
+        "app.pipeline.reevaluation.get_retriever",
+        lambda: _StubRetriever(["policy_999"]),
+    )
+    stats = await reevaluate_open_tickets(session_factory=_factory(session))
+
+    assert stats["redrafted"] == 1
+    ctx = (await session.execute(select(Email))).scalars().first().retrieval_context
+    assert set(ctx) == {"query", "intent", "prior_intent", "retrieved_ids", "chunk_hash"}
+    assert "excluded_policy_ids" not in ctx
