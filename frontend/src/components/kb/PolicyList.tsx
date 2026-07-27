@@ -100,6 +100,21 @@ function PolicyRow({
   onEditDone: () => void;
 }) {
   const isActive = policy.status === "active";
+  // "Active but superseded": a forward pointer to a newer version survives on an
+  // active row (historically, reactivating a policy whose successor had been
+  // retired). The backend's edit guard requires active AND current, so such a
+  // row looks healthy but every edit 409s. Surface it instead of letting the
+  // chair hit the raw error.
+  const supersededBy = isActive ? policy.superseded_by : null;
+  const isSuperseded = Boolean(supersededBy);
+  // The successor's title if it happens to be in the current view (it may be
+  // filtered out — e.g. it was retired and the filter is "active"); else its key.
+  const successorLabel = supersededBy
+    ? resolvePolicy(supersededBy)?.title ?? supersededBy
+    : null;
+  const supersededNote = `Replaced by a newer version${
+    successorLabel ? ` — ${successorLabel}` : ""
+  }. Edit that version instead.`;
 
   return (
     <li
@@ -129,12 +144,18 @@ function PolicyRow({
           >
             {policy.visibility}
           </Badge>
-          <Badge
-            variant={policy.status === "active" ? "success" : "neutral"}
-            size="sm"
-          >
-            {policy.status}
-          </Badge>
+          {isSuperseded ? (
+            <Badge variant="warning" size="sm">
+              superseded
+            </Badge>
+          ) : (
+            <Badge
+              variant={policy.status === "active" ? "success" : "neutral"}
+              size="sm"
+            >
+              {policy.status}
+            </Badge>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isActive ? (
@@ -144,7 +165,11 @@ function PolicyRow({
                 variant="secondary"
                 size="sm"
                 onClick={onEdit}
-                disabled={isPending || isEditing}
+                disabled={isPending || isEditing || isSuperseded}
+                title={isSuperseded ? supersededNote : undefined}
+                aria-describedby={
+                  isSuperseded ? `superseded-${policy.policy_key}` : undefined
+                }
               >
                 Edit
               </Button>
@@ -170,6 +195,16 @@ function PolicyRow({
           )}
         </div>
       </div>
+
+      {isSuperseded && (
+        <p
+          id={`superseded-${policy.policy_key}`}
+          className="mt-2 text-xs"
+          style={{ color: "var(--warning)" }}
+        >
+          {supersededNote}
+        </p>
+      )}
 
       {isEditing ? (
         <div className="mt-3">
