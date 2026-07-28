@@ -255,11 +255,20 @@ export function EmailWorkspace({
 
   const pageCount = Math.max(1, Math.ceil(total / QUEUE_PAGE_SIZE));
   // Clamp a persisted/stale page that now exceeds the current filtered set's
-  // page count (e.g. returning to a filter that shrank). Stable: re-clamps once,
-  // then page === pageCount.
+  // page count (e.g. tickets resolved out from under you on the poll, leaving
+  // fewer pages than before). Stable: re-clamps once, then page === pageCount.
+  //
+  // Gated on a REAL count having arrived. `total` is 0 in three situations —
+  // set genuinely empty, not loaded yet (cold cache: a hard reload, where
+  // placeholderData has nothing to fall back to), and last fetch failed — and
+  // `Math.max(1, …)` turns all of them into pageCount 1. Clamping on that reads
+  // "we don't know yet" as "there is only one page" and resets the user to
+  // page 1. A genuinely empty set needs no clamp anyway: Pagination renders
+  // nothing at pageCount <= 1, so there is no stale control to correct.
+  const hasCount = total > 0;
   useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount, setPage]);
+    if (hasCount && page > pageCount) setPage(pageCount);
+  }, [hasCount, page, pageCount, setPage]);
 
   // Preserve the list's scroll position across route navigation (opening a
   // ticket remounts this workspace) AND across paging. The key is the filter set

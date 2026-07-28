@@ -147,11 +147,12 @@ describe("clamp must NOT fire on a page whose data has not arrived", () => {
   });
 });
 
-describe("EVIDENCE — windows placeholderData does not cover", () => {
-  it("MOUNT with a persisted page: no previous data exists to keep", async () => {
-    // A hard reload while on page 5. React Query's cache is empty, so there is
-    // nothing for placeholderData to fall back to and total is 0 on the first
-    // render — exactly the input the clamp misreads as "1 page".
+describe("clamp must NOT fire when the count is simply unknown", () => {
+  it("a persisted page survives a COLD-CACHE mount (hard reload)", async () => {
+    // Second defect, distinct from the click bug: on a hard reload React
+    // Query's cache is empty, so placeholderData has nothing to fall back to
+    // and total is 0 on the first render — which the ungated clamp read as
+    // "1 page" and used to reset page 5 → 1, re-fetching offset 0.
     window.localStorage.setItem("confmail.queuePage", "5");
     const pending = deferred<QueueResult>();
     let call = 0;
@@ -166,18 +167,18 @@ describe("EVIDENCE — windows placeholderData does not cover", () => {
     renderQueue();
     await waitFor(() => expect(api.getEmailQueue).toHaveBeenCalled());
     pending.resolve({ emails: makeEmails(5, 400), total: LARGE_TOTAL });
-    await screen.findByRole("button", { name: "Page 2" });
+    // On page 5 of 18 the controls read "1 … 4 5 6 … 18" — no "Page 2" exists
+    // here, which is itself the point: a reset to page 1 would have rendered it.
+    await screen.findByRole("button", { name: "Page 5" });
 
+    // Page 5 is honored and STAYS honored: one fetch, at its offset. A trailing
+    // offset-0 call would mean the clamp had reset the page.
     const offsets = api.getEmailQueue.mock.calls.map((c) => c[0]?.offset);
-    console.log(
-      `[evidence] persisted page 5, cold cache → offsets requested: ${JSON.stringify(offsets)}, active page after load: ${activePage()}`
-    );
-    // Recorded, not asserted as desired — documents current behavior for the
-    // clamp decision. A trailing offset 0 means the clamp reset the page.
-    expect(offsets[0]).toBe(4 * QUEUE_PAGE_SIZE);
+    expect(offsets).toEqual([4 * QUEUE_PAGE_SIZE]);
+    expect(activePage()).toBe(5);
   });
 
-  it("ERROR: a failed page fetch drops total to 0", async () => {
+  it("a FAILED page fetch leaves the user where they are", async () => {
     const user = userEvent.setup();
     api.getEmailQueue.mockResolvedValue({ emails: makeEmails(5), total: LARGE_TOTAL });
     renderQueue();
@@ -188,12 +189,47 @@ describe("EVIDENCE — windows placeholderData does not cover", () => {
 
     // Let the rejection settle and any follow-on effect run.
     await new Promise((r) => setTimeout(r, 100));
+
+    // No offset-0 re-fetch after the failed page-2 fetch: the error is surfaced
+    // without also yanking the user back to page 1 (total 0 here means "the
+    // fetch failed", not "there is one page").
     const offsets = api.getEmailQueue.mock.calls.map((c) => c[0]?.offset);
-    console.log(
-      `[evidence] errored page-2 fetch → offsets requested: ${JSON.stringify(offsets)}, active page: ${activePage()}`
+    expect(offsets).toEqual([0, QUEUE_PAGE_SIZE]);
+  });
+});
+
+describe("clamp must STILL fire when the set genuinely shrinks", () => {
+  it("clamps to the last real page when the count drops below the current page", async () => {
+    // The case the effect exists for: sitting on a late page when the result
+    // set shrinks under you (tickets resolved out of the filter on the 15s
+    // poll). Simulated at mount — a persisted page 5 against a set that now
+    // holds only 150 rows (2 pages) — which is the same input the effect sees.
+    window.localStorage.setItem("confmail.queuePage", "5");
+    api.getEmailQueue.mockResolvedValue({ emails: makeEmails(5), total: 150 });
+
+    renderQueue();
+
+    // Page 5 no longer exists → clamp to the last real page, not to page 1.
+    await waitFor(() => expect(activePage()).toBe(2));
+    await waitFor(() =>
+      expect(api.getEmailQueue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: QUEUE_PAGE_SIZE })
+      )
     );
-    // Recorded, not asserted as desired. A trailing offset 0 after the failed
-    // page-2 fetch means the clamp reset the page on top of the error.
-    expect(offsets.slice(0, 2)).toEqual([0, QUEUE_PAGE_SIZE]);
+    expect(screen.queryByRole("button", { name: "Page 5" })).toBeNull();
+  });
+
+  it("clamps down to page 1 when the set shrinks to a single page", async () => {
+    window.localStorage.setItem("confmail.queuePage", "5");
+    api.getEmailQueue.mockResolvedValue({ emails: makeEmails(3), total: 3 });
+
+    renderQueue();
+
+    // One page → the controls hide entirely, so assert via the fetch offset.
+    await waitFor(() =>
+      expect(api.getEmailQueue).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 0 })
+      )
+    );
   });
 });

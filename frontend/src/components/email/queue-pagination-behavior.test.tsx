@@ -4,6 +4,15 @@
  *  2. Each page keeps its own remembered scroll position (page IS part of the
  *     scroll-restoration key) — a new page opens at the top, returning to a page
  *     restores where you left it.
+ *
+ * SCOPE LIMIT — read before adding pagination coverage here. This file mocks
+ * useEmailQueue to return a CONSTANT total regardless of params, so `total` is
+ * never absent. The real hook returns no data at all for a key it has not
+ * fetched yet, and that transient window (total 0 → pageCount 1 → the clamp
+ * resets the page) was a live bug this file could not see. Anything that
+ * depends on data ARRIVING — loading windows, the clamp, cold-cache mounts,
+ * fetch errors — belongs in queue-pagination-clamp.test.tsx, which mocks only
+ * the network layer and drives the real hook.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";

@@ -2,6 +2,11 @@
  * Clicking a page number fetches that page — i.e. it drives the queue query's
  * `offset` (offset = (page - 1) * QUEUE_PAGE_SIZE), captured off the real
  * useEmailQueue call the workspace makes.
+ *
+ * SCOPE LIMIT: the hook is mocked with a constant total, so this file proves
+ * the params PLUMBING only — never what happens while a page's data is still
+ * in flight. Timing-dependent pagination behavior lives in
+ * queue-pagination-clamp.test.tsx, which drives the real hook.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
