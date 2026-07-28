@@ -64,7 +64,9 @@ export function Pagination({ page, pageCount, onPageChange }: PaginationProps) {
   return (
     <nav
       aria-label="Pagination"
-      className="flex flex-wrap items-center gap-1"
+      // Centered to line up under the centered "Showing X–Y of Z" count it sits
+      // beneath in the filter column (its only consumer).
+      className="flex flex-wrap items-center justify-center gap-1"
     >
       <button
         type="button"

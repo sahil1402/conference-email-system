@@ -137,7 +137,9 @@ describe("filter column — placement", () => {
 
   it("has no stray top border on the panel (the column's own border separates it)", () => {
     renderQueue();
-    const panel = searchBox().closest<HTMLElement>("div.space-y-4");
+    // Selected structurally (the panel is the column's own child), not by a
+    // spacing class — those change with layout work; this relationship doesn't.
+    const panel = searchBox().closest<HTMLElement>("[data-collapsed] > div");
 
     expect(panel).not.toBeNull();
     expect(panel!.style.borderTop).toBe("");

@@ -383,7 +383,10 @@ export function EmailWorkspace({
       <div
         data-collapsed={filterColumnCollapsed}
         className={cn(
-          "shrink-0 overflow-y-auto overflow-x-hidden transition-[width] duration-200",
+          // flex-col so the panel can claim the leftover height and anchor its
+          // count/pagination footer to the BOTTOM of this column (the column is
+          // already full-height: a stretched item of the fixed-height row above).
+          "flex shrink-0 flex-col overflow-y-auto overflow-x-hidden transition-[width] duration-200",
           // Collapsed: 36px button + px-2 either side = 52px, the same rhythm
           // as the nav rail. overflow-x-hidden stops the panel (which mounts at
           // full width) from flashing a scrollbar while the width animates.

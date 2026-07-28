@@ -109,3 +109,53 @@ describe("queue count text (relocated to the filter sidebar)", () => {
     expect(within(filterColumn()).getByText("No tickets")).toBeInTheDocument();
   });
 });
+
+/**
+ * The count text is centered and pinned to the BOTTOM of the filter column.
+ *
+ * Asserted on classes deliberately: the pin is a three-link chain spanning two
+ * components (column `flex-col` → panel `flex-1` → footer `mt-auto`), and jsdom
+ * computes no layout, so nothing else can catch a broken link. Unlike an
+ * incidental spacing class, these ARE the mechanism.
+ */
+describe("count text placement (centered, bottom-anchored)", () => {
+  it("centers the text and anchors its block to the bottom of the column", () => {
+    q.emails = makeEmails(3);
+    q.total = 874;
+    renderQueue();
+
+    const text = within(filterColumn()).getByText("Showing 1–3 of 874 tickets");
+    expect(text).toHaveClass("text-center");
+
+    // The footer block absorbs the column's free space.
+    const footer = text.parentElement!;
+    expect(footer).toHaveClass("mt-auto");
+
+    // …which only works if its ancestors form the flex chain.
+    const panel = footer.parentElement!;
+    expect(panel.className).toMatch(/\bflex\b/);
+    expect(panel.className).toMatch(/\bflex-col\b/);
+    expect(panel.className).toMatch(/\bflex-1\b/);
+
+    const column = filterColumn();
+    expect(column.className).toMatch(/\bflex\b/);
+    expect(column.className).toMatch(/\bflex-col\b/);
+  });
+
+  it("keeps the pagination controls in the same block, below the text", () => {
+    q.emails = makeEmails(3);
+    q.total = 874;
+    renderQueue();
+
+    const text = within(filterColumn()).getByText("Showing 1–3 of 874 tickets");
+    const footer = text.parentElement!;
+    const nav = within(footer).getByRole("navigation", { name: "Pagination" });
+
+    // Same flow block, nav after the text — no overlap, spacing owned by the
+    // block's own space-y rather than by the pin.
+    expect(footer).toContainElement(nav);
+    expect(
+      text.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+});

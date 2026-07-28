@@ -90,7 +90,11 @@ export function QueueFilterPanel({
   // rule separated the two. It now owns a column whose own right border
   // provides the separation, so a top rule would just be a stray line.
   return (
-    <div className="space-y-4 px-3 py-4">
+    // `flex-1` claims the column's leftover height so the footer below can be
+    // pushed to the bottom; `gap-4` replaces the old `space-y-4` because that
+    // utility sets margin-top on each child, which would collide with the
+    // footer's `mt-auto`. Same 16px rhythm, no margin conflict.
+    <div className="flex flex-1 flex-col gap-4 px-3 py-4">
       <EmailFilters
         search={search}
         onSearchChange={onSearchChange}
@@ -115,11 +119,15 @@ export function QueueFilterPanel({
         />
       )}
 
-      {/* Result count + page controls for the active filter — below the Zendesk
-          status section. */}
-      <div className="space-y-2 pt-1">
+      {/* Result count + page controls for the active filter. `mt-auto` pins this
+          to the BOTTOM of the column so it sits in a constant place regardless
+          of how many filter rows render above it. When the filters overflow the
+          column there is no free space to absorb, so `mt-auto` collapses to 0
+          and this simply follows the content into the scroll — it never overlaps
+          and is never stuck to the viewport. */}
+      <div className="mt-auto space-y-2 pt-1">
         <p
-          className="text-xs"
+          className="text-center text-xs"
           style={{ color: "var(--text-muted)" }}
           aria-live="polite"
         >
