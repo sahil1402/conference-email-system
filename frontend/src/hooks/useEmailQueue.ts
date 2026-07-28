@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { getEmailQueue, type EmailQueueParams } from "@/lib/api";
 
@@ -13,6 +13,13 @@ export function useEmailQueue(params?: EmailQueueParams) {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: params ? ["emailQueue", params] : ["emailQueue"],
     queryFn: () => getEmailQueue(params),
+    // Keep the PREVIOUS page's result on screen while a new page/filter is in
+    // flight. Without this, `data` is undefined for a key with no cache entry,
+    // so `total` fell back to 0 for one render — and a 0 total reads as
+    // "1 page", which made the stale-page clamp in EmailWorkspace bounce a
+    // freshly-clicked (uncached) page number back to page 1. It also kept the
+    // "Showing X-Y of Z" text and empty states honest mid-transition.
+    placeholderData: keepPreviousData,
     refetchInterval: 15_000,
   });
 
