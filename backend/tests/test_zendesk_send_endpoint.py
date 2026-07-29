@@ -52,7 +52,12 @@ def reconcile_calls(monkeypatch):
     return calls
 
 
-async def _seed(adb, *, status="approved", zendesk_status="open", ticket_id=123, routing=None):
+async def _seed(adb, *, status="approved", zendesk_status="open", ticket_id=123, routing=None, is_edited=False):
+    draft = {"draft_text": "Dear author, the deadline is in the CFP."}
+    if is_edited:
+        # Mirror what the approve endpoint stores when the chair changed the text.
+        draft["is_edited"] = True
+        draft["original_draft_text"] = "Dear author, the ORIGINAL AI-drafted text."
     payload = {
         "sender": "author@university.edu",
         "subject": "Deadline question",
@@ -62,7 +67,7 @@ async def _seed(adb, *, status="approved", zendesk_status="open", ticket_id=123,
         "zendesk_ticket_id": ticket_id,
         "zendesk_status": zendesk_status,
         "zendesk_updated_at": datetime(2026, 7, 15, 9, 0, tzinfo=timezone.utc),
-        "draft": {"draft_text": "Dear author, the deadline is in the CFP."},
+        "draft": draft,
     }
     # Routing lane matters only for the FAQ-lane auto-send path (send gate).
     if routing is not None:
@@ -540,3 +545,50 @@ async def test_non_zendesk_email_still_501(adb, monkeypatch):
         await emails_api.send_email_reply(str(email.id), emails_api.SendRequest(), adb)
     assert exc.value.status_code == 501
     assert fake.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Tag semantics (option A): ai_auto_replied ONLY when the AI draft reached the
+# requester UNTOUCHED (public AND not edited). A human-edited reply, or ANY
+# internal note, is ai_drafted. (Approved drafts may go public without the flag,
+# so these exercise the tag axis without touching ALLOW_AUTO_SEND.)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_public_unedited_reply_tagged_ai_auto_replied(adb, monkeypatch):
+    email = await _seed(adb, is_edited=False)  # approved, verbatim AI draft
+    fake = FakeSender(outcome=SendOutcome(mode="public_reply", public=True, status_set="solved"))
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    await emails_api.send_email_reply(str(email.id), emails_api.SendRequest(public=True), adb)
+    assert fake.calls[0]["public"] is True
+    assert fake.calls[0]["tags"] == ["ai_auto_replied"]
+
+
+@pytest.mark.asyncio
+async def test_public_edited_reply_tagged_ai_drafted(adb, monkeypatch):
+    email = await _seed(adb, is_edited=True)  # approved, chair edited the draft
+    fake = FakeSender(outcome=SendOutcome(mode="public_reply", public=True, status_set="solved"))
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    await emails_api.send_email_reply(str(email.id), emails_api.SendRequest(public=True), adb)
+    # Edited → not a verbatim auto-reply, even though it went public.
+    assert fake.calls[0]["public"] is True
+    assert fake.calls[0]["tags"] == ["ai_drafted"]
+
+
+@pytest.mark.asyncio
+async def test_internal_note_unedited_tagged_ai_drafted(adb, monkeypatch):
+    email = await _seed(adb, is_edited=False)
+    fake = FakeSender(outcome=SendOutcome(mode="internal_note", public=False))
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    await emails_api.send_email_reply(str(email.id), emails_api.SendRequest(public=False), adb)
+    # Internal note is never a reply to the requester → ai_drafted regardless.
+    assert fake.calls[0]["public"] is False
+    assert fake.calls[0]["tags"] == ["ai_drafted"]
+
+
+@pytest.mark.asyncio
+async def test_internal_note_edited_tagged_ai_drafted(adb, monkeypatch):
+    email = await _seed(adb, is_edited=True)
+    fake = FakeSender(outcome=SendOutcome(mode="internal_note", public=False))
+    monkeypatch.setattr(emails_api, "zendesk_sender", fake)
+    await emails_api.send_email_reply(str(email.id), emails_api.SendRequest(public=False), adb)
+    assert fake.calls[0]["tags"] == ["ai_drafted"]

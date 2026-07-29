@@ -825,7 +825,15 @@ async def send_email_reply(
     set_status = payload.target_status if payload.target_status is not None else (
         "solved" if want_public else None
     )
-    tags = ["ai_auto_replied"] if want_public else ["ai_drafted"]
+    # Tag by the AI draft's fate, not merely by visibility: ``ai_auto_replied``
+    # ONLY when the AI's words reached the requester UNTOUCHED — a public reply
+    # the chair did not edit. A human-edited reply, or ANY internal note (never
+    # sent to the requester), is ``ai_drafted``. ``is_edited`` is set by the
+    # approve endpoint when the chair's final text differs from the AI draft;
+    # automatic sanitization (e.g. the [Sender name] fill) is part of the AI
+    # draft and so is not counted as an edit.
+    is_edited = bool((email.draft or {}).get("is_edited"))
+    tags = ["ai_auto_replied"] if (want_public and not is_edited) else ["ai_drafted"]
     updated_stamp = _iso_z(email.zendesk_updated_at)
 
     try:
