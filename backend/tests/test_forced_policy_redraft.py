@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 import main
 from app.api.v1 import emails as emails_api
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import Base, Email, PolicyDocument
 from app.pipeline.orchestrator import EmailPipeline
@@ -142,8 +143,8 @@ async def test_no_forced_key_is_unchanged(session_factory):
     ids = [ch.policy_id for ch in c.retrieved_chunks]
     assert ids == ["policy_186", "policy_172", "policy_171"]
     assert len(ids) == 3
-    # top_k still governs; nothing extra requested.
-    assert p.retriever.calls[0]["top_k"] == 3
+    # top_k still governs; nothing extra requested (uses the configured default).
+    assert p.retriever.calls[0]["top_k"] == settings.MAX_RETRIEVED_CHUNKS
     assert c.record["retrieval_context"]["retrieved_ids"] == ids
 
 
@@ -151,9 +152,10 @@ async def test_forced_key_appends_a_fourth_chunk(session_factory):
     c, p = await _compute_with(session_factory, "int_forced", seed="int_forced")
     ids = [ch.policy_id for ch in c.retrieved_chunks]
     assert ids == ["policy_186", "policy_172", "policy_171", "int_forced"]
-    assert len(ids) == 4  # EXTRA slot — top-3 ranked chunks all survive
-    # The ranked retrieval call is untouched (still top_k=3, not 4).
-    assert p.retriever.calls[0]["top_k"] == 3
+    assert len(ids) == 4  # EXTRA slot — the ranked chunks all survive
+    # The ranked retrieval call is untouched: it requests the configured top_k,
+    # and the forced policy is appended as an EXTRA slot (never top_k + 1).
+    assert p.retriever.calls[0]["top_k"] == settings.MAX_RETRIEVED_CHUNKS
 
 
 async def test_forced_key_already_in_topk_is_not_duplicated(session_factory):
