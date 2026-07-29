@@ -375,9 +375,12 @@ async def test_style_guide_appended_to_system_prompt(tmp_path, monkeypatch):
     monkeypatch.setattr(drafter_module.settings, "STYLE_GUIDE_PATH", str(guide))
     await _draft_with(ResponseDrafter(provider="local"))
     system = _system_content()
-    # Grounding rules stay first; the guide is appended after them.
-    assert system.startswith(drafter_module._SYSTEM_PROMPT)
+    # The AoE clock line leads; grounding rules follow, guide appended after them.
+    assert drafter_module._SYSTEM_PROMPT in system
     assert "Always use institutional we." in system
+    assert system.index(drafter_module._SYSTEM_PROMPT) < system.index(
+        "Always use institutional we."
+    )
 
 
 async def test_missing_style_guide_is_ignored(monkeypatch):
@@ -386,16 +389,16 @@ async def test_missing_style_guide_is_ignored(monkeypatch):
         drafter_module.settings, "STYLE_GUIDE_PATH", "/nonexistent/guide.md"
     )
     result = await _draft_with(ResponseDrafter(provider="local"))
-    # No exception, no guide — the base prompt is used unchanged.
+    # No exception, no guide — the base prompt is used unchanged (below the clock).
     assert result.draft_text.strip() != ""
-    assert _system_content() == drafter_module._SYSTEM_PROMPT
+    assert _system_content().endswith(drafter_module._SYSTEM_PROMPT)
 
 
 async def test_no_style_guide_by_default(monkeypatch):
     monkeypatch.setattr(drafter_module.httpx, "AsyncClient", _CapturingClient)
     monkeypatch.setattr(drafter_module.settings, "STYLE_GUIDE_PATH", None)
     await _draft_with(ResponseDrafter(provider="local"))
-    assert _system_content() == drafter_module._SYSTEM_PROMPT
+    assert _system_content().endswith(drafter_module._SYSTEM_PROMPT)
 
 
 class _ParamSwapClient(_OkClient):

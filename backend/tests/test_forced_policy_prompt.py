@@ -137,7 +137,7 @@ def capture_prompt(monkeypatch):
     seen = {}
     d = ResponseDrafter(provider="local")
 
-    async def fake_local(self, user_prompt):
+    async def fake_local(self, user_prompt, now_aoe=None):
         seen["prompt"] = user_prompt
         from app.pipeline.drafter import DraftResponse
         return DraftResponse(draft_text="ok", citations=[], model_used="stub",
@@ -158,5 +158,8 @@ async def test_drafter_sends_the_marker_when_forced(capture_prompt):
 async def test_drafter_prompt_unchanged_when_not_forced(capture_prompt):
     d, seen = capture_prompt
     await d.draft(EMAIL, CLS, RANKED)
-    assert seen["prompt"] == BASELINE_PROMPT
+    # draft() prepends the AoE current-time block; below it the prompt is the
+    # byte-identical baseline (the no-forced-policy contract still holds).
+    assert seen["prompt"].startswith("--- CURRENT TIME ---\n")
+    assert seen["prompt"].endswith(BASELINE_PROMPT)
     assert _CHAIR_SELECTED_MARKER not in seen["prompt"]

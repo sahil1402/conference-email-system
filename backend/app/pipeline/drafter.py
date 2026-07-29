@@ -18,6 +18,7 @@ stays swappable and so design docs/source carry no fixed model name.
 
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -256,16 +257,35 @@ def _load_style_guide() -> str | None:
     return text
 
 
-def _system_prompt() -> str:
+# Anywhere-on-Earth is a fixed UTC-12 offset (no DST). The model has no clock,
+# so the drafter states "now" in AoE — the same frame AAAI deadlines use.
+_AOE_OFFSET = timedelta(hours=12)
+
+
+def _now_aoe_label(now_utc: datetime | None = None) -> str:
+    """Current wall-clock time expressed in Anywhere-on-Earth (UTC-12)."""
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (now_utc - _AOE_OFFSET).strftime("%Y-%m-%d %H:%M") + " AoE (UTC-12)"
+
+
+def _system_prompt(now_aoe: str | None = None) -> str:
     """Base grounding rules, plus the style guide when one is configured.
 
     The guide is appended AFTER the grounding rules — it carries an explicit
-    subordination clause, and the rules above always take precedence.
+    subordination clause, and the rules above always take precedence. When
+    ``now_aoe`` is given it leads the prompt as the authoritative current time.
     """
     guide = _load_style_guide()
-    if not guide:
-        return _SYSTEM_PROMPT
-    return f"{_SYSTEM_PROMPT}\n\n--- REPLY STYLE & INSTRUCTION GUIDE ---\n{guide}"
+    base = _SYSTEM_PROMPT if not guide else (
+        f"{_SYSTEM_PROMPT}\n\n--- REPLY STYLE & INSTRUCTION GUIDE ---\n{guide}"
+    )
+    if not now_aoe:
+        return base
+    clock = (
+        f"The current date and time is {now_aoe}. This is the ACTUAL current "
+        "date and time — treat it as authoritative fact.\n\n"
+    )
+    return clock + base
 
 
 class DraftResponse(BaseModel):
@@ -340,6 +360,7 @@ def _build_user_prompt(
     classification,
     retrieved_chunks: list,
     forced_policy_key: str | None = None,
+    now_aoe: str | None = None,
 ) -> str:
     """Assemble the grounded user prompt from all pipeline inputs.
 
@@ -348,6 +369,9 @@ def _build_user_prompt(
     the "answer only what was asked" rule cannot silently discard it. When the
     key is None or names no present chunk, the prompt is byte-for-byte the
     pre-manual-invoke prompt.
+
+    ``now_aoe`` prepends the authoritative current time (Anywhere-on-Earth).
+    When None the prompt is byte-for-byte the pre-clock prompt.
     """
     sender = email.get("from") or email.get("sender") or "unknown"
     # Surface the sender's display name when the ingest provided one, so the
@@ -391,7 +415,16 @@ def _build_user_prompt(
             f"Body: {body}\n\n"
         )
 
+    time_block = (
+        "--- CURRENT TIME ---\n"
+        f"{now_aoe}\n"
+        "This is the ACTUAL current date and time — treat it as authoritative fact.\n\n"
+        if now_aoe
+        else ""
+    )
+
     return (
+        f"{time_block}"
         f"{email_block}"
         "--- CLASSIFICATION ---\n"
         f"Intent: {classification.intent} (confidence: {classification.confidence:.2f})\n\n"
@@ -457,14 +490,17 @@ class ResponseDrafter:
         if self.provider == "template":
             return self._draft_template(email, classification, retrieved_chunks)
 
+        # The model has no clock; state the current time (AoE) once and give it
+        # to both the system and user prompts as the authoritative "now".
+        now_aoe = _now_aoe_label()
         user_prompt = _build_user_prompt(
-            email, classification, retrieved_chunks, forced_policy_key
+            email, classification, retrieved_chunks, forced_policy_key, now_aoe=now_aoe
         )
 
         if self.provider in ("anthropic", "anthropic_api"):
-            return await self._draft_anthropic(user_prompt)
+            return await self._draft_anthropic(user_prompt, now_aoe)
         if self.provider == "local":
-            return await self._draft_local(user_prompt)
+            return await self._draft_local(user_prompt, now_aoe)
         # "fallback" or any unrecognized value.
         return _fallback("Draft unavailable — model provider set to fallback.")
 
@@ -481,7 +517,9 @@ class ResponseDrafter:
 
         return TemplateDrafter().draft(email, classification.intent, retrieved_chunks)
 
-    async def _draft_anthropic(self, user_prompt: str) -> DraftResponse:
+    async def _draft_anthropic(
+        self, user_prompt: str, now_aoe: str | None = None
+    ) -> DraftResponse:
         """Draft via the hosted Anthropic API, falling back on missing key/error."""
         api_key = settings.ANTHROPIC_API_KEY
 
@@ -498,7 +536,7 @@ class ResponseDrafter:
             message = await client.messages.create(
                 model=settings.DRAFT_MODEL,
                 max_tokens=settings.DRAFTER_MAX_TOKENS,
-                system=_system_prompt(),
+                system=_system_prompt(now_aoe),
                 messages=[{"role": "user", "content": user_prompt}],
             )
 
@@ -528,7 +566,9 @@ class ResponseDrafter:
                 {"error": str(exc), "error_type": type(exc).__name__},
             )
 
-    async def _draft_local(self, user_prompt: str) -> DraftResponse:
+    async def _draft_local(
+        self, user_prompt: str, now_aoe: str | None = None
+    ) -> DraftResponse:
         """Draft via an OpenAI-compatible local endpoint (e.g. Ollama).
 
         POSTs to ``{LOCAL_MODEL_BASE_URL}/chat/completions`` with the same
@@ -541,7 +581,7 @@ class ResponseDrafter:
         payload = {
             "model": settings.LOCAL_MODEL_NAME,
             "messages": [
-                {"role": "system", "content": _system_prompt()},
+                {"role": "system", "content": _system_prompt(now_aoe)},
                 {"role": "user", "content": user_prompt},
             ],
             "max_tokens": settings.DRAFTER_MAX_TOKENS,
