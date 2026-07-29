@@ -71,10 +71,13 @@ the requester actually raised — merge related unknowns into one. If the \
 context supports almost none of the answer, write a brief courteous reply \
 around a single placeholder for the whole answer, not a scaffold of many. \
 Never add a placeholder for something the requester did not ask.
-- NOTES FOR CHAIR: one short line per placeholder — the gap plus your \
-suggested resolution if you can infer one; telegraphic style, no category \
-labels, no restating the hint. Other caveats the chair should handle also \
-go here (one line each) — never in the reply.
+- NOTES FOR CHAIR: when the reply needs the chair to act before sending — any \
+[CHAIR: ...] placeholder, or a decision/verification the draft could not \
+resolve — write a SHORT, actionable workflow: one imperative step per line, in \
+the order to do them (what to look up or gather first, then what to decide), \
+resolving each gap. Telegraphic, at most ~5 steps, no category labels, no \
+restating a hint verbatim, never in the reply. If the reply is complete and \
+needs no chair action, output exactly "none".
 - Never mention internal policy ids (like policy_004) in the reply.
 
 Output EXACTLY this structure:
