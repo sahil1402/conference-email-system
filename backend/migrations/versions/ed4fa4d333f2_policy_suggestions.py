@@ -35,8 +35,8 @@ def upgrade() -> None:
         sa.Column("reviewed_by", sa.String(), nullable=True),
         sa.Column("reviewed_reason", sa.Text(), nullable=True),
         sa.Column("resulting_policy_key", sa.String(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
     op.create_index("ix_policy_suggestions_source_email_id", "policy_suggestions", ["source_email_id"])
     op.create_index("ix_policy_suggestions_status", "policy_suggestions", ["status"])
