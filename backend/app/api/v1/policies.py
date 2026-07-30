@@ -12,9 +12,16 @@ Mounted under ``/api/v1`` → paths are ``/api/v1/policies*``.
   (the override similarity-assist). Every mutation writes a ``policy_audit_logs``
   entry and rebuilds the retriever index so the live KB reflects the change with
   no restart.
+- CEL suggestion review: ``GET /policies/suggestions`` (list, filterable by
+  ``status``), ``GET /policies/suggestions/count`` (pending badge count),
+  ``PATCH /policies/suggestions/{id}/reject``, and
+  ``PATCH /policies/suggestions/{id}/accept`` (links ``resulting_policy_key``
+  only — it does NOT create the policy; the frontend calls ``POST /policies``
+  first, then this).
 
-Route order matters: the static ``GET ""`` and ``GET /audit`` are declared BEFORE
-``GET /{policy_key}`` so ``/policies/audit`` is not captured as a path param.
+Route order matters: the static ``GET ""``, ``GET /audit``, and the
+``GET/PATCH /suggestions*`` routes are declared BEFORE ``GET /{policy_key}`` so
+none of them are captured as a ``policy_key`` path param.
 """
 
 import logging
@@ -31,6 +38,7 @@ from app.repositories.policy_audit_repository import PolicyAuditRepository
 from app.repositories.policy_repository import PolicyRepository
 from app.pipeline.reevaluation import reevaluate_open_tickets
 from app.repositories.email_repository import EmailRepository
+from app.repositories.suggestion_repository import SuggestionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +47,7 @@ router = APIRouter(prefix="/policies", tags=["policies"])
 _policies = PolicyRepository()
 _audit = PolicyAuditRepository()
 _emails = EmailRepository()
+_suggestions = SuggestionRepository()
 
 
 class PolicyDetail(BaseModel):
@@ -95,6 +104,16 @@ class EditPolicyRequest(BaseModel):
 
 class RevertEditRequest(BaseModel):
     actor: str
+
+
+class RejectSuggestionRequest(BaseModel):
+    actor: str = "Chair1"
+    reason: str | None = None
+
+
+class AcceptSuggestionRequest(BaseModel):
+    actor: str = "Chair1"
+    policy_key: str
 
 
 async def _rebuild_index() -> None:
@@ -265,6 +284,68 @@ async def reevaluate(
     return {"open": open_count, "scheduled": True}
 
 
+def _suggestion_to_dict(s, zendesk_ticket_id=None) -> dict:
+    """Serialize a ``PolicySuggestion`` row for the chair-review list (CEL)."""
+    return {"id": s.id, "source_email_id": s.source_email_id,
+            "source_zendesk_ticket_id": zendesk_ticket_id,
+            "experience_summary": s.experience_summary, "title": s.title, "content": s.content,
+            "category": s.category, "intents": s.intents or [], "generalizable": s.generalizable,
+            "reason": s.reason, "confidence": s.confidence, "conflict_report": s.conflict_report,
+            "seen_count": s.seen_count, "status": s.status,
+            "created_at": s.created_at.isoformat() if s.created_at else None}
+
+
+@router.get("/suggestions")
+async def list_suggestions(
+    status: str | None = "pending", limit: int = 200, offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """List CEL policy suggestions for the chair-review queue.
+
+    Declared BEFORE ``GET /{policy_key}`` so ``suggestions`` is never captured
+    as a ``policy_key`` path param by that catch-all.
+    """
+    rows = await _suggestions.list(db, status=status, limit=limit, offset=offset)
+    out = []
+    for s in rows:
+        e = await _emails.get_email_by_id(db, str(s.source_email_id))
+        out.append(_suggestion_to_dict(s, getattr(e, "zendesk_ticket_id", None) if e else None))
+    return {"suggestions": out}
+
+
+@router.get("/suggestions/count")
+async def suggestions_count(db: AsyncSession = Depends(get_db)) -> dict:
+    """Pending-suggestion count for the chair-nav badge. Declared before the catch-all."""
+    return {"pending": await _suggestions.count_pending(db)}
+
+
+@router.patch("/suggestions/{sid}/reject")
+async def reject_suggestion(
+    sid: int, payload: RejectSuggestionRequest, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Reject a suggestion (404 if missing). Declared before the catch-all."""
+    row = await _suggestions.reject(db, sid, actor=payload.actor, reason=payload.reason)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Suggestion {sid} not found")
+    return {"id": row.id, "status": row.status}
+
+
+@router.patch("/suggestions/{sid}/accept")
+async def accept_suggestion(
+    sid: int, payload: AcceptSuggestionRequest, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Link an accepted suggestion to its resulting policy key (404 if missing).
+
+    Does NOT create the policy — the frontend calls the existing ``POST
+    /policies`` create path first, then this to mark the suggestion accepted
+    and record which policy resulted. Declared before the catch-all.
+    """
+    row = await _suggestions.mark_accepted(db, sid, actor=payload.actor, policy_key=payload.policy_key)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Suggestion {sid} not found")
+    return {"id": row.id, "status": row.status, "resulting_policy_key": row.resulting_policy_key}
+
+
 @router.get("/{policy_key}", response_model=PolicyDetail)
 async def get_policy(
     policy_key: str, db: AsyncSession = Depends(get_db)
@@ -272,8 +353,8 @@ async def get_policy(
     """Return one policy chunk by its ``policy_key`` (e.g. ``policy_117``).
 
     404 if no chunk carries that key. Read-only citation lookup for the review UI.
-    Declared AFTER the static GET routes above so ``/policies/audit`` is not
-    captured here as a path param.
+    Declared AFTER the static GET routes above (incl. ``/suggestions*``) so none
+    of them are captured here as a path param.
     """
     policy = await _policies.get_by_key(db, policy_key)
     if policy is None:
