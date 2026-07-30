@@ -114,6 +114,11 @@ async def test_stage_summaries_capture_expected_fields(client):
         "model_used",
         "placeholders",
         "answer_confidence",
+        # True when the model burned its whole completion budget before writing
+        # any visible reply (see EmailStatus.DRAFT_TRUNCATED). Traced explicitly
+        # rather than left to be inferred from draft_length == 0, which cannot
+        # distinguish truncation from a genuine drafter error.
+        "truncated",
     }
     # The trace records the draft length, never the draft text itself.
     assert isinstance(drafter_out["draft_length"], int)
