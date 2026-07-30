@@ -217,8 +217,19 @@ export function PolicySelectPopover({
             <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
               {p.title || p.policy_key}
             </p>
+            {/* pre-wrap because policy bodies carry literal newlines (list
+                items separated by a single \n, not a blank line), which the CSS
+                default collapses into one run-on paragraph. pre-wrap ONLY here,
+                unlike the detail view below, which also needs
+                wordBreak: "break-word": that view renders the full text in a
+                scrollable box where an unbroken 100-char URL would overflow and
+                hide content the chair must read before approving. This preview
+                is line-clamped (overflow: hidden), so nothing escapes the
+                dialog, and word-breaking is orthogonal to white-space — it was
+                neither better nor worse before this change. Matches the
+                PolicyList / AddPolicyPanel previews. */}
             <p className="line-clamp-2 text-[11px] leading-relaxed"
-               style={{ color: "var(--text-secondary)" }}>
+               style={{ color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
               {p.content}
             </p>
           </li>
