@@ -1,17 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  acceptSuggestion,
   createPolicy,
   editPolicy,
   findSimilarPolicies,
   getPolicy,
   listPolicies,
   listPolicyAudit,
+  listSuggestions,
   reactivatePolicy,
   recheckPolicy,
   reevaluatePolicies,
+  rejectSuggestion,
   retirePolicy,
   revertPolicyEdit,
+  suggestionsCount,
 } from "@/lib/api";
 import type { CreatePolicyRequest, EditPolicyRequest, PolicyListParams } from "@/types";
 
@@ -152,5 +156,77 @@ export function useReevaluatePolicies() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["emailQueue"] });
     },
+  });
+}
+
+// --- Continual Experience Learning: suggestions review (Task 6) -------------
+
+/**
+ * CEL chair-review queue. `status` defaults to "pending" (the review view);
+ * pass `null` for every status. `enabled` mirrors usePolicies — lets a caller
+ * defer the fetch until its view is actually showing (e.g. the Suggestions
+ * segment on /knowledge-base).
+ */
+export function useSuggestions(
+  status: string | null = "pending",
+  options?: { enabled?: boolean },
+) {
+  const enabled = options?.enabled ?? true;
+  const query = useQuery({
+    queryKey: ["suggestions", status],
+    queryFn: () => listSuggestions(status),
+    enabled,
+  });
+  return {
+    suggestions: query.data?.suggestions ?? [],
+    isLoading: enabled && query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
+}
+
+/** Pending-suggestion count for the chair-nav badge. Always enabled (cheap,
+ *  and the badge should show regardless of which KB segment is active). */
+export function useSuggestionsCount() {
+  const query = useQuery({ queryKey: ["suggestions", "count"], queryFn: () => suggestionsCount() });
+  return {
+    pending: query.data?.pending ?? 0,
+    isLoading: query.isLoading,
+  };
+}
+
+function useInvalidateSuggestions() {
+  const queryClient = useQueryClient();
+  return () => {
+    // A suggestion's disposition can move the KB (accept) or just leave the
+    // review queue (reject) — invalidate all three so every consumer
+    // (the policy list, the audit log, and this review queue/badge) is
+    // consistent regardless of which mutation fired.
+    queryClient.invalidateQueries({ queryKey: ["knowledgeBase"] });
+    queryClient.invalidateQueries({ queryKey: ["policyAudit"] });
+    queryClient.invalidateQueries({ queryKey: ["suggestions"] });
+  };
+}
+
+export function useRejectSuggestion() {
+  const invalidate = useInvalidateSuggestions();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string | null }) =>
+      rejectSuggestion(id, { actor: ACTOR, reason }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Links a suggestion to the policy it produced. Call this AFTER
+ * useCreatePolicy's create succeeds (this hook never creates a policy itself
+ * — see acceptSuggestion's own doc comment).
+ */
+export function useAcceptSuggestion() {
+  const invalidate = useInvalidateSuggestions();
+  return useMutation({
+    mutationFn: ({ id, policyKey }: { id: number; policyKey: string }) =>
+      acceptSuggestion(id, { actor: ACTOR, policy_key: policyKey }),
+    onSuccess: invalidate,
   });
 }

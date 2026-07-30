@@ -1,6 +1,8 @@
 import apiClient from "./client";
 
 import type {
+  AcceptSuggestionRequest,
+  AcceptSuggestionResponse,
   ConflictReport,
   CreatePolicyRequest,
   EditPolicyRequest,
@@ -9,7 +11,11 @@ import type {
   PolicyDetail,
   PolicyDocument,
   PolicyListParams,
+  RejectSuggestionRequest,
+  RejectSuggestionResponse,
   SimilarResponse,
+  SuggestionsCountResponse,
+  SuggestionsResponse,
 } from "@/types";
 
 // --- Read: citation detail --------------------------------------------------
@@ -118,5 +124,53 @@ export interface ReevaluateResponse {
  */
 export async function reevaluatePolicies(): Promise<ReevaluateResponse> {
   const { data } = await apiClient.post<ReevaluateResponse>("/policies/reevaluate");
+  return data;
+}
+
+// --- Continual Experience Learning: suggestions review (Task 6) -------------
+
+/**
+ * GET /policies/suggestions — CEL chair-review queue. `status` defaults to
+ * the pending queue (matches the endpoint's own default); pass `null` to omit
+ * the filter and fetch every status.
+ */
+export async function listSuggestions(status: string | null = "pending"): Promise<SuggestionsResponse> {
+  const { data } = await apiClient.get<SuggestionsResponse>("/policies/suggestions", {
+    params: status == null ? undefined : { status },
+  });
+  return data;
+}
+
+/** GET /policies/suggestions/count — pending count for the nav badge. */
+export async function suggestionsCount(): Promise<SuggestionsCountResponse> {
+  const { data } = await apiClient.get<SuggestionsCountResponse>("/policies/suggestions/count");
+  return data;
+}
+
+/** PATCH /policies/suggestions/{id}/reject. */
+export async function rejectSuggestion(
+  id: number,
+  body: RejectSuggestionRequest,
+): Promise<RejectSuggestionResponse> {
+  const { data } = await apiClient.patch<RejectSuggestionResponse>(
+    `/policies/suggestions/${id}/reject`,
+    body,
+  );
+  return data;
+}
+
+/**
+ * PATCH /policies/suggestions/{id}/accept — links a suggestion to the policy
+ * it produced. Does NOT create the policy itself; call after the existing
+ * `POST /policies` create succeeds (see useCreatePolicy/useAcceptSuggestion).
+ */
+export async function acceptSuggestion(
+  id: number,
+  body: AcceptSuggestionRequest,
+): Promise<AcceptSuggestionResponse> {
+  const { data } = await apiClient.patch<AcceptSuggestionResponse>(
+    `/policies/suggestions/${id}/accept`,
+    body,
+  );
   return data;
 }
