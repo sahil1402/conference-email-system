@@ -1,5 +1,4 @@
 import pytest_asyncio
-from types import SimpleNamespace
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from app.db.database import Base

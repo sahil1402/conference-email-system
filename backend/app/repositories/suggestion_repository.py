@@ -1,7 +1,6 @@
 """Persistence for CEL policy suggestions (repositories-only DB access)."""
 from difflib import SequenceMatcher
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import PolicySuggestion
 
 def _norm(title: str, content: str) -> str:

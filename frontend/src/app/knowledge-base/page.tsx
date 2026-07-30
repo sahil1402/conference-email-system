@@ -50,6 +50,22 @@ export default function KnowledgeBasePage() {
   // pre-filled rather than a bespoke editor.
   const [selectedSuggestion, setSelectedSuggestion] = useState<PolicySuggestion | null>(null);
 
+  // Accept-link failure (Finding 1 fix): useCreatePolicy's POST can succeed
+  // while the FOLLOW-UP PATCH /policies/suggestions/{id}/accept fails — the
+  // new policy is then live in the KB but the suggestion stays "pending"
+  // forever with nothing surfaced to the chair. Tracked at the page level
+  // (not just on the mutation itself) because AddPolicyPanel already closes
+  // (onClose → setSelectedSuggestion(null)) the instant the create succeeds,
+  // which unmounts the review panel BEFORE the async accept call can fail —
+  // so the error has nowhere to land except a page-level banner, and a retry
+  // must carry the already-created policy_key rather than re-creating it
+  // (re-creating would mint a duplicate policy).
+  const [acceptLinkError, setAcceptLinkError] = useState<{
+    suggestionId: number;
+    suggestionTitle: string;
+    policyKey: string;
+  } | null>(null);
+
   const [search, setSearch] = useState("");
   const [visibility, setVisibility] = useState<VisibilityFilter>("all");
   // Default to "active" — retired policies are the exception, not the norm,
@@ -237,6 +253,22 @@ export default function KnowledgeBasePage() {
         <PolicyHistory />
       ) : view === "suggestions" ? (
         <div className="flex flex-col gap-6">
+          {acceptLinkError && (
+            <ErrorBanner
+              message={`"${acceptLinkError.suggestionTitle}" was created as a policy, but linking the suggestion to it failed — the suggestion is still pending. Retry the link, or reject the suggestion from the list below.`}
+              onRetry={() => {
+                if (acceptSuggestionMutation.isPending) return;
+                const { suggestionId, suggestionTitle, policyKey } = acceptLinkError;
+                acceptSuggestionMutation.mutate(
+                  { id: suggestionId, policyKey },
+                  {
+                    onSuccess: () => setAcceptLinkError(null),
+                    onError: () => setAcceptLinkError({ suggestionId, suggestionTitle, policyKey }),
+                  }
+                );
+              }}
+            />
+          )}
           {suggestionsError ? (
             <ErrorBanner
               message="Couldn't load suggestions."
@@ -270,6 +302,7 @@ export default function KnowledgeBasePage() {
                   {
                     onSuccess: () => {
                       if (selectedSuggestion?.id === s.id) setSelectedSuggestion(null);
+                      if (acceptLinkError?.suggestionId === s.id) setAcceptLinkError(null);
                     },
                   }
                 )
@@ -387,11 +420,21 @@ export default function KnowledgeBasePage() {
                   // suggestion, so it's deliberately left pending rather than
                   // guessing which policy to link it to.
                   if (created) {
-                    acceptSuggestionMutation.mutate({
-                      id: selectedSuggestion.id,
-                      policyKey: created.policy_key,
-                    });
-                    announceConflicts(created.policy_key, created.conflict_report);
+                    const suggestionId = selectedSuggestion.id;
+                    const suggestionTitle = selectedSuggestion.title;
+                    const policyKey = created.policy_key;
+                    // Clear any stale failure from a prior attempt on a
+                    // different suggestion before this new accept resolves.
+                    setAcceptLinkError(null);
+                    acceptSuggestionMutation.mutate(
+                      { id: suggestionId, policyKey },
+                      {
+                        onError: () => {
+                          setAcceptLinkError({ suggestionId, suggestionTitle, policyKey });
+                        },
+                      }
+                    );
+                    announceConflicts(policyKey, created.conflict_report);
                     setSelectedSuggestion(null);
                   }
                 }}
