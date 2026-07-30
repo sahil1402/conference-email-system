@@ -676,9 +676,25 @@ async def get_email_trace(
     }
 
 
+async def _learn_from_edit_bg(email_id: str) -> None:
+    """Background CEL entry point: learn a candidate policy from a chair's
+    [CHAIR:]-gap-filling edit.
+
+    ``learn_from_edit`` opens its own session and never raises (best-effort),
+    so this wrapper exists only to give ``background_tasks.add_task`` a plain
+    ``(email_id)`` callable — no session/error handling needed here.
+    """
+    from app.pipeline.experience_learning import learn_from_edit
+
+    await learn_from_edit(email_id)
+
+
 @router.patch("/{email_id}/approve")
 async def approve_email(
-    email_id: str, payload: ApproveRequest, db: AsyncSession = Depends(get_db)
+    email_id: str,
+    payload: ApproveRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Approve an email's draft, preserving the diff when the chair edited it.
 
@@ -747,6 +763,12 @@ async def approve_email(
         original_text=original_text,
         edited_text=final_text or "",
     )
+    # CEL: an edit that resolved a [CHAIR: ...] gap is exactly the signal the
+    # experience-learning stage looks for (a chair supplying knowledge the AI
+    # didn't have) — schedule the best-effort background learner. A plain
+    # unchanged approve, or an edit with no such gap, schedules nothing.
+    if edited and find_placeholders(original_text):
+        background_tasks.add_task(_learn_from_edit_bg, str(updated.id))
     return _email_to_dict(updated)
 
 

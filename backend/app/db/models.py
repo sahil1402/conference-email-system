@@ -443,3 +443,27 @@ class PolicyAuditLog(Base):
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class PolicySuggestion(Base):
+    """A chair-gated candidate internal policy learned from a [CHAIR:]-gap edit (CEL)."""
+    __tablename__ = "policy_suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_email_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="pending")
+    experience_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    intents: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    generalizable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    conflict_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    seen_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    reviewed_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    reviewed_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resulting_policy_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

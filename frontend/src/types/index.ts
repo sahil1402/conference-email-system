@@ -677,3 +677,50 @@ export interface SimilarResponse {
   similar: SimilarPolicy[];
   conflict_report?: ConflictReport | null;
 }
+
+// --- Continual Experience Learning: suggestions review (Task 6) -------------
+
+/** One PolicySuggestion row (backend app/db/models.py) surfaced for chair
+ *  review at GET /policies/suggestions. A chair-gated candidate internal
+ *  policy learned from a [CHAIR:]-gap edit, reviewed via the same
+ *  add-internal-policy flow, pre-filled. */
+export interface PolicySuggestion {
+  id: number;
+  source_email_id: number;
+  /** Null when the source email has no linked Zendesk ticket. */
+  source_zendesk_ticket_id: number | null;
+  experience_summary: string;
+  title: string;
+  content: string;
+  category: string | null;
+  intents: string[];
+  generalizable: boolean;
+  reason: string | null;
+  confidence: number | null;
+  conflict_report?: ConflictReport | null;
+  seen_count: number;
+  status: "pending" | "accepted" | "rejected";
+  created_at: string | null;
+}
+
+export interface SuggestionsResponse { suggestions: PolicySuggestion[]; }
+export interface SuggestionsCountResponse { pending: number; }
+
+/** PATCH /policies/suggestions/{id}/reject request body. */
+export interface RejectSuggestionRequest {
+  actor: string;
+  reason?: string | null;
+}
+
+/** PATCH /policies/suggestions/{id}/accept request body. */
+export interface AcceptSuggestionRequest {
+  actor: string;
+  policy_key: string;
+}
+
+export interface RejectSuggestionResponse { id: number; status: string; }
+export interface AcceptSuggestionResponse {
+  id: number;
+  status: string;
+  resulting_policy_key: string;
+}
