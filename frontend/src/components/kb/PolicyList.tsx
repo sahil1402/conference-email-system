@@ -228,10 +228,13 @@ function PolicyRow({
           >
             {policy.title}
           </p>
-          {/* Line 3: content — truncated unless expanded */}
+          {/* Line 3: content — truncated unless expanded. pre-wrap because
+              policy bodies carry literal newlines (list items are separated by
+              a single \n, not a blank line), which the CSS default collapses
+              into one run-on paragraph. Same combination as PolicyHistory. */}
           <p
             className={cn("mt-1 text-sm", !isExpanded && "line-clamp-2")}
-            style={{ color: "var(--text-secondary)" }}
+            style={{ color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}
           >
             {policy.content}
           </p>
