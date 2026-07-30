@@ -161,7 +161,7 @@ All backend behavior is env-driven (`backend/.env`; see `backend/.env.example`).
 | `MAX_RETRIEVED_CHUNKS` | int | Grounding chunks returned | `5` ² |
 | `WARM_RETRIEVER_ON_STARTUP` | bool | Build index (and load embed model) at startup | `True` |
 | `FAISS_MODEL_NAME` | str | CPU sentence-embedding model for `faiss`/`fusion` | `all-MiniLM-L6-v2` |
-| `DRAFTER_MAX_TOKENS` | int | Max tokens per generated reply | `500` |
+| `DRAFTER_MAX_TOKENS` | int | Max tokens per generated reply (sized for reasoning models, which use budget on hidden reasoning first) | `2500` |
 | `DRAFTER_TEMPERATURE` / `DRAFTER_SEED` | float / int | Drafter determinism | `0.0` / `7` |
 | `DRAFT_MODEL` | str | Hosted drafter model id (used when `MODEL_PROVIDER=anthropic_api`) | *configurable hosted model id* ³ |
 | `LOCAL_MODEL_BASE_URL` | str | OpenAI-compatible local endpoint | `http://localhost:11434/v1` |

@@ -123,8 +123,16 @@ class Settings(BaseSettings):
     # Sentence-transformers model used by the FAISS retriever (CPU). Only read
     # when RETRIEVAL_BACKEND == "faiss".
     FAISS_MODEL_NAME: str = "all-MiniLM-L6-v2"
-    # Max tokens the drafter may generate for a reply.
-    DRAFTER_MAX_TOKENS: int = 500
+    # Max tokens the drafter may generate for a reply. Sized for REASONING
+    # models, which spend completion budget on hidden reasoning before emitting
+    # any visible text: at the former 500 the budget could be exhausted before
+    # the reply started, returning an empty draft (see EmailStatus.DRAFT_TRUNCATED
+    # and the guard in drafter._draft_local). 2500 is the value the drafter eval
+    # harnesses already use (scripts/{judge_testset,draft_eval,testset,
+    # placeholder_eval}.py) — the only place this module was measured against a
+    # reasoning model. Raising the cap also raises the truncation guard's
+    # threshold automatically; both read this setting.
+    DRAFTER_MAX_TOKENS: int = 2500
     # Determinism for the OpenAI-compatible drafter/distiller. temperature 0 =
     # greedy (most reproducible). Reasoning models that only allow the default
     # temperature reject 0 with a 400 — the caller drops temperature and retries,

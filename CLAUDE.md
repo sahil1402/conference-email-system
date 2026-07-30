@@ -53,7 +53,7 @@ Typed pydantic-settings `Settings`; env → `.env`. Access: `from app.core.confi
 | FAQ_CONFIDENCE_THRESHOLD | Min confidence router applies for FAQ auto-reply | `0.65` |
 | MAX_RETRIEVED_CHUNKS | Max policy chunks retrieved | `3` |
 | AL_CONFIDENCE_MARGIN / AL_EDIT_RATIO | Active-learning flag thresholds | `0.15` / `0.15` |
-| DRAFTER_MAX_TOKENS | Max drafter tokens | `500` |
+| DRAFTER_MAX_TOKENS | Max drafter tokens (sized for reasoning models — too low returns an empty draft ⇒ `DRAFT_TRUNCATED`) | `2500` |
 | DRAFT_MODEL | Drafter model id (never hardcode in source; read from here) | `claude-sonnet-5` |
 | LOCAL_MODEL_BASE_URL / LOCAL_MODEL_NAME | Self-hosted OpenAI-compatible endpoint + model | `http://localhost:11434/v1` / `llama3.1:8b` |
 | LOCAL_MODEL_API_KEY | Optional bearer token for a hosted keyed chat-completions endpoint | `None` |
