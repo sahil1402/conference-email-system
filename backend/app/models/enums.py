@@ -30,6 +30,13 @@ class EmailStatus(str, Enum):
     CLASSIFIED = "CLASSIFIED"
     ROUTED = "ROUTED"
     DRAFT_GENERATED = "DRAFT_GENERATED"
+    # The drafter call SUCCEEDED but the model exhausted its completion budget
+    # before emitting any visible reply (reasoning models spend tokens thinking
+    # first), so there is no draft to review. Distinct from ROUTED (used when the
+    # drafter genuinely errored) so this recoverable, retryable condition is not
+    # silently recorded as a finished draft. Like SOLVED / SEND_FAILED below it's
+    # a plain string in the String(32) status column, so no migration is needed.
+    DRAFT_TRUNCATED = "DRAFT_TRUNCATED"
     APPROVED = "APPROVED"
     SENT = "SENT"
     # The ticket was resolved WITHOUT sending a reply (the chair judged no

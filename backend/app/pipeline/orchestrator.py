@@ -52,9 +52,14 @@ from app.repositories.policy_repository import PolicyRepository
 logger = logging.getLogger(__name__)
 
 # Map a terminal pipeline status to the email's persisted lifecycle status.
+# Consumed by direct index (_LIFECYCLE_STATUS[status]) — every internal status
+# the draft step can produce MUST have an entry here or the pipeline KeyErrors.
 _LIFECYCLE_STATUS = {
     "complete": EmailStatus.DRAFT_GENERATED.value,
     "draft_failed": EmailStatus.ROUTED.value,
+    # The drafter succeeded but was cut off before writing any visible reply —
+    # no draft exists to review, and it is retryable. See EmailStatus docstring.
+    "draft_truncated": EmailStatus.DRAFT_TRUNCATED.value,
 }
 
 # How many leading characters of the body to use as the retrieval query
@@ -476,8 +481,18 @@ class EmailPipeline:
                 "model_used": draft.model_used,
                 "placeholders": len(draft.placeholders),
                 "answer_confidence": draft.answer_confidence,
+                # Surfaced in the trace so a budget-exhausted draft is greppable,
+                # not just inferable from draft_length == 0.
+                "truncated": bool(draft.generation_metadata.get("truncated")),
             }
-        status = "draft_failed" if draft.generation_metadata.get("error") else "complete"
+        # A real error outranks truncation: "error" means the call itself failed,
+        # while "truncated" means it succeeded but produced no usable reply.
+        if draft.generation_metadata.get("error"):
+            status = "draft_failed"
+        elif draft.generation_metadata.get("truncated"):
+            status = "draft_truncated"
+        else:
+            status = "complete"
 
         # --- route (now draft-aware): lane = FAQ iff the draft is self-sufficient.
         # The strategy-independent safety floor (chair placeholders or

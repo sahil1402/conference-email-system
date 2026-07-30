@@ -608,14 +608,49 @@ class ResponseDrafter:
                 response.raise_for_status()
                 data = response.json()
 
-            raw_text = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            raw_text = choice["message"]["content"]
             reply, citations, notes, confidence = _split_structured(raw_text)
             metadata = {"provider": "local"}
+            # The provider's own truncation signal ("length" when the completion
+            # budget ran out). Recorded UNCONDITIONALLY — mirroring the Anthropic
+            # path's stop_reason — so a partially-truncated-but-usable draft stays
+            # diagnosable too, not just the empty case flagged below.
+            finish_reason = choice.get("finish_reason")
+            if finish_reason is not None:
+                metadata["finish_reason"] = finish_reason
             usage = data.get("usage")
             if isinstance(usage, dict):
                 metadata["input_tokens"] = usage.get("prompt_tokens")
                 metadata["output_tokens"] = usage.get("completion_tokens")
             placeholders, notes = _apply_reply_contract(reply, notes, metadata)
+
+            # Reasoning models can spend the whole completion budget before
+            # emitting any visible text, so the call SUCCEEDS (HTTP 200) with an
+            # empty reply. That is a detected pipeline outcome, not a system
+            # error: it deliberately does NOT go through _fallback() (which is
+            # for genuine failures and marks metadata["error"]). Flagging it here
+            # lets the orchestrator persist a distinct terminal status instead of
+            # recording an empty draft as a successful DRAFT_GENERATED.
+            #
+            # Two independent signals, because post_chat() adapts requests
+            # per-model and providers are not uniform about which they report:
+            # finish_reason is authoritative when present, the token comparison
+            # catches providers that omit it.
+            output_tokens = metadata.get("output_tokens")
+            hit_token_cap = (
+                isinstance(output_tokens, int)
+                and output_tokens >= settings.DRAFTER_MAX_TOKENS
+            )
+            if (finish_reason == "length" or hit_token_cap) and not reply.strip():
+                metadata["truncated"] = True
+                logger.warning(
+                    "Local model draft truncated before producing any visible reply "
+                    "(finish_reason=%s, output_tokens=%s, cap=%s); no draft to review.",
+                    finish_reason,
+                    output_tokens,
+                    settings.DRAFTER_MAX_TOKENS,
+                )
 
             return DraftResponse(
                 draft_text=reply,
