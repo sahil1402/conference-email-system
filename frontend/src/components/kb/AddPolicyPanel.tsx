@@ -377,12 +377,22 @@ export function AddPolicyPanel({
                     </div>
                   </div>
 
+                  {/* pre-wrap because policy bodies carry literal newlines
+                      (list items separated by a single \n, not a blank line),
+                      which the CSS default collapses into one run-on
+                      paragraph. Applies through HighlightText's <mark>/Fragment
+                      children — they are inline, so the newlines sit in their
+                      text nodes and this parent still governs them. Same
+                      combination as PolicyList and PolicyHistory. */}
                   <p
                     className={cn(
                       "mt-1.5 text-xs leading-relaxed",
                       !isExpanded && "line-clamp-2"
                     )}
-                    style={{ color: "var(--text-secondary)" }}
+                    style={{
+                      color: "var(--text-secondary)",
+                      whiteSpace: "pre-wrap",
+                    }}
                   >
                     {conflict && conflict.snippets.length > 0 ? (
                       <HighlightText text={policy.content} snippets={conflict.snippets} />
