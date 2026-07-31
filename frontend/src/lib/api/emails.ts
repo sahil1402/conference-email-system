@@ -117,8 +117,8 @@ export async function sendEmail(
 }
 
 /** POST /emails/{id}/set-status — set the ticket's Zendesk status (new/open/
- * solved) WITHOUT sending a reply. Returns the updated email plus the status
- * metadata. Transport/guard failures surface as the normalized ApiError. */
+ * pending/solved) WITHOUT sending a reply. Returns the updated email plus the
+ * status metadata. Transport/guard failures surface as the normalized ApiError. */
 export async function setEmailStatus(
   id: number,
   status: SetStatusRequest["status"]
