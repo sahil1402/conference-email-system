@@ -38,6 +38,7 @@ from app.repositories.policy_audit_repository import PolicyAuditRepository
 from app.repositories.policy_repository import PolicyRepository
 from app.pipeline.reevaluation import reevaluate_open_tickets
 from app.repositories.email_repository import EmailRepository
+from app.repositories.suggestion_audit_repository import SuggestionAuditRepository
 from app.repositories.suggestion_repository import SuggestionRepository
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ _policies = PolicyRepository()
 _audit = PolicyAuditRepository()
 _emails = EmailRepository()
 _suggestions = SuggestionRepository()
+_suggestion_audit = SuggestionAuditRepository()
 
 
 class PolicyDetail(BaseModel):
@@ -323,10 +325,32 @@ async def suggestions_count(db: AsyncSession = Depends(get_db)) -> dict:
 async def reject_suggestion(
     sid: int, payload: RejectSuggestionRequest, db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Reject a suggestion (404 if missing). Declared before the catch-all."""
+    """Reject a suggestion (404 if missing). Declared before the catch-all.
+
+    Writes an append-only ``suggestion_audit_logs`` entry AFTER the rejection
+    lands. ``PolicySuggestion.reviewed_by`` / ``reviewed_reason`` are current-
+    state fields that a later review action overwrites; the audit row is the
+    permanent history — a re-rejection appends a second row rather than
+    replacing the first.
+
+    The log write is awaited UNGUARDED, so a failed governance write surfaces as
+    a 5xx rather than being swallowed. Note this is the same two-commit shape as
+    ``create_policy`` → ``_audit.log``: the rejection has already committed by
+    then, so a failure here leaves the state change without its audit row. That
+    is an accepted, pre-existing trade-off, not a new one.
+
+    A 404 logs nothing — only real rejections are recorded.
+    """
     row = await _suggestions.reject(db, sid, actor=payload.actor, reason=payload.reason)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Suggestion {sid} not found")
+    await _suggestion_audit.log(
+        db,
+        suggestion_id=sid,
+        action="rejected",
+        actor=payload.actor,
+        reason=payload.reason,
+    )
     return {"id": row.id, "status": row.status}
 
 
