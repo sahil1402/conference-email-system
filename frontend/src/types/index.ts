@@ -527,8 +527,11 @@ export interface SendRequest {
 /** SetStatusRequest — POST /emails/{id}/set-status body: set the Zendesk status
  * WITHOUT sending a reply (backend app/api/v1/emails.py). */
 export interface SetStatusRequest {
-  /** The Zendesk status to set. Only "solved" has a keyboard shortcut. */
-  status: "new" | "open" | "solved";
+  /** The Zendesk status to set. Only "solved" has a keyboard shortcut.
+   *  Must stay in sync with SetTicketStatusButton's `NoReplyStatus` — the two
+   *  unions independently gate which values are reachable, so widening one
+   *  alone either fails tsc at the call site or compiles a dead value. */
+  status: "new" | "open" | "pending" | "solved";
   /** Actor recorded in the audit log (defaults to "chair" backend-side). */
   set_by?: string;
 }

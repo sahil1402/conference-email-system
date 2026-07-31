@@ -54,7 +54,7 @@ export function useSendEmail() {
   });
 }
 
-/** Set the ticket's Zendesk status (new/open/solved) WITHOUT sending a reply. */
+/** Set the ticket's Zendesk status (new/open/pending/solved) WITHOUT sending a reply. */
 export function useSetEmailStatus() {
   const invalidate = useInvalidateEmailQueries();
   return useMutation<

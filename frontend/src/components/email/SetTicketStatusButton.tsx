@@ -13,13 +13,18 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { cn } from "@/lib/utils";
 import { zendeskStatusColor } from "@/lib/zendesk-status";
 
-/** The Zendesk statuses this control can set WITHOUT sending a reply. */
-export type NoReplyStatus = "new" | "open" | "solved";
+/** The Zendesk statuses this control can set WITHOUT sending a reply.
+ *  Must stay in sync with `SetStatusRequest.status` in types/index.ts — both
+ *  unions gate reachability independently, so widening only one either fails
+ *  tsc at the EmailWorkspace call site or silently compiles an unreachable
+ *  option into the dropdown. */
+export type NoReplyStatus = "new" | "open" | "pending" | "solved";
 
 /** Dropdown options, in Zendesk's native order. */
 const STATUS_OPTIONS: { value: NoReplyStatus; label: string }[] = [
   { value: "new", label: "Mark as new" },
   { value: "open", label: "Mark as open" },
+  { value: "pending", label: "Mark as pending" },
   { value: "solved", label: "Mark as solved" },
 ];
 
@@ -28,7 +33,7 @@ const STATUS_OPTIONS: { value: NoReplyStatus; label: string }[] = [
  * sending any reply. The primary button always marks the ticket **solved** (the
  * common "no response warranted" case — the one wired to the Ctrl+Alt+X
  * shortcut); the chevron dropdown offers the other no-reply states (new / open /
- * solved), each firing immediately.
+ * pending / solved), each firing immediately.
  *
  * Styled `outline` so it reads as secondary next to the indigo "Submit as …"
  * reply button. Mirrors SplitActionButton's structure, but its primary action is

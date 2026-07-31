@@ -1,5 +1,5 @@
 /**
- * "Set status, no reply" (mark new / open / solved without a reply) over the REAL
+ * "Set status, no reply" (mark new / open / pending / solved without a reply) over the REAL
  * TicketPage + EmailWorkspace + EmailDetail wiring. Mirrors approve-send-chain's
  * post-C4 harness: selection is URL-driven (the ticket route), useSetEmailStatus
  * runs for real, only the network call (`setEmailStatus`), the ticket-detail
@@ -145,7 +145,11 @@ describe("set status, no reply (on the ticket route)", () => {
     await waitFor(() => expect(state.push).toHaveBeenCalledWith("/tickets/22001"));
   });
 
-  it("dropdown offers new / open / solved, each firing its status", async () => {
+  // One representative item ("open") through the real wiring. The full option
+  // set (new / open / pending / solved) and each item's firing are covered in
+  // SetTicketStatusButton.test.tsx; this asserts the chosen status reaches the
+  // network layer, not which options exist.
+  it("a dropdown item fires its status through the real wiring", async () => {
     const user = userEvent.setup();
     renderTicket();
     await waitForDetail();
