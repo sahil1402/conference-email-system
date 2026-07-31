@@ -505,6 +505,18 @@ class ZendeskIngestAdapter:
         requester's message).
         """
         initial = self._find_initial_inquiry(messages, ticket.get("requester_id"))
+        # The ticket's own creation time is when the requester actually opened the
+        # ticket, so it — not this row's insert time — is what ``received_at``
+        # should hold. Same ``_parse_dt`` used for ``zendesk_created_at`` below,
+        # so both columns are read from one field by one parser.
+        #
+        # Applied CONDITIONALLY at each call site (``**({...} if ... else {})``):
+        # ``create_email`` does ``Email(**data)``, so an explicit None would
+        # INSERT NULL into a NOT NULL column rather than falling back to the
+        # column's ``server_default``. The pipeline branch does not need this — it
+        # already forwards ``created_at`` as ``email_data["timestamp"]``, which
+        # the orchestrator parses into the record it persists.
+        received_at = _parse_dt(ticket.get("created_at"))
         # Closed tickets are terminal/immutable — a reply can't be sent to one (a
         # genuine follow-up spawns a NEW ticket). Ingest for visibility/history but
         # SKIP the pipeline entirely: no classification, no draft. Status ARCHIVED
@@ -519,6 +531,7 @@ class ZendeskIngestAdapter:
                     "body": (initial.get("plain_body") if initial else ticket.get("description")) or "",
                     "status": EmailStatus.ARCHIVED.value,
                     "source": EmailSource.ZENDESK.value,
+                    **({"received_at": received_at} if received_at else {}),
                 },
             )
             result.closed_ingested += 1
@@ -544,6 +557,7 @@ class ZendeskIngestAdapter:
                 "body": ticket.get("description") or "",
                 "status": EmailStatus.PENDING.value,
                 "source": EmailSource.ZENDESK.value,
+                **({"received_at": received_at} if received_at else {}),
             },
         )
         return str(email.id)
