@@ -221,6 +221,14 @@ describe("ChairNotesPanel — no data loss: every note renders inside the contai
  */
 const BOXY_CLASS_RE = /(^|\s)(rounded|border|bg-)/;
 
+/**
+ * Inline-style equivalent: any background, or any border declaration OTHER than
+ * `border-left` (which Piece D legitimately uses for the urgent accent rule).
+ * Matched on cssText because jsdom cannot expand a shorthand containing
+ * `var()` into longhands — see the sweep below.
+ */
+const BOXY_INLINE_RE = /(^|;)\s*(background|border(?!-left))/;
+
 /** Direct children of the container — one per note. */
 const rowsIn = (box: HTMLElement) => Array.from(box.children) as HTMLElement[];
 
@@ -244,15 +252,25 @@ describe("ChairNotesPanel — rows are plain, the container is the only box (B2)
     });
   });
 
-  it("gives rows no background or border via inline style either", async () => {
+  it("gives rows no background, and no border on the box-forming edges", async () => {
     // The tint and accent were inline styles, not classes, so the class sweep
     // above cannot see them — this is the half that catches a partial revert.
+    //
+    // Asserted against cssText rather than the longhand getters, which are NOT
+    // reliable here: these styles use `var(--token)`, and jsdom cannot expand a
+    // shorthand containing var() into longhands, so `style.borderLeftColor`
+    // reads "" even though `border-left` is set. A longhand sweep would
+    // therefore pass vacuously against a `border: 1px solid var(--x)` full box
+    // — exactly the regression it is meant to catch.
+    //
+    // SCOPE: background and every border edge EXCEPT left are forbidden — that
+    // is the anti-nested-box invariant. The left edge is deliberately exempt:
+    // Piece D puts a 2px rule there, asserted in its own block below.
     renderTicket(STEPS.slice(0, 3).join("\n"));
     await waitForDetail();
 
     for (const row of rowsIn(containers()[0])) {
-      expect(row.style.backgroundColor).toBe("");
-      expect(row.style.borderColor).toBe("");
+      expect(row.style.cssText).not.toMatch(BOXY_INLINE_RE);
     }
   });
 
@@ -467,5 +485,84 @@ describe("ChairNoteRow — strips a stray leading list marker (C2)", () => {
     rows.forEach((row, i) => {
       expect(row.querySelector("p")?.textContent).toBe(STEPS[i]);
     });
+  });
+});
+
+const URGENT_NOTE = "WARNING (automated check): possible chair-facing leak.";
+
+describe("ChairNoteRow — urgent rows carry a left accent rule (D)", () => {
+  it("gives ONLY the urgent row a --danger left rule", async () => {
+    // The scanning signal. Urgent already had a distinct glyph, colour and
+    // label; what it lacked was anything breaking the panel's uniform left
+    // edge, which is what a chair scans down.
+    renderTicket([STEPS[0], URGENT_NOTE, STEPS[1]].join("\n"));
+    await waitForDetail();
+
+    const [advisoryA, urgent, advisoryB] = rowsIn(containers()[0]);
+
+    // Asserted on the `border-left` SHORTHAND: jsdom keeps it unexpanded
+    // because of the var(), so `style.borderLeftColor` reads "".
+    expect(urgent.style.borderLeft).toBe("2px solid var(--danger)");
+    // Advisory keeps the same border at transparent — alignment only, so the
+    // list does not jitter by 2px between severities.
+    expect(advisoryA.style.borderLeft).toBe("2px solid transparent");
+    expect(advisoryB.style.borderLeft).toBe("2px solid transparent");
+  });
+
+  it("uses a rule, not a box: same width and style on every row", async () => {
+    // Pins that D restored a MARGIN MARKER, not the per-row box B2 removed.
+    // Only the colour may differ between severities.
+    renderTicket([STEPS[0], URGENT_NOTE].join("\n"));
+    await waitForDetail();
+
+    for (const row of rowsIn(containers()[0])) {
+      expect(row.style.borderLeft).toMatch(/^2px solid /);
+      expect(row.style.cssText).not.toMatch(BOXY_INLINE_RE);
+      expect(row.getAttribute("class") ?? "").not.toMatch(/rounded/);
+    }
+  });
+
+  it("keeps advisory rows visually identical to pre-D", async () => {
+    // A transparent border paints nothing, so an advisory-only panel must look
+    // exactly as it did before this piece.
+    renderTicket(STEPS.slice(0, 3).join("\n"));
+    await waitForDetail();
+
+    for (const row of rowsIn(containers()[0])) {
+      expect(row.style.borderLeft).toBe("2px solid transparent");
+      expect(row.style.cssText).not.toMatch(BOXY_INLINE_RE);
+    }
+  });
+
+  it("still distinguishes urgent by glyph and label, not colour alone", async () => {
+    // The rule is an ADDITION. If it ever became the only signal, a colourblind
+    // chair would lose the escalation entirely.
+    renderTicket([STEPS[0], URGENT_NOTE].join("\n"));
+    await waitForDetail();
+
+    const box = containers()[0];
+    const [advisory, urgent] = rowsIn(box);
+
+    expect(within(urgent).getByText("Automated leak check")).toBeInTheDocument();
+    expect(within(box).getByText("possible chair-facing leak.")).toBeInTheDocument();
+    expect(within(advisory).queryByText("Automated leak check")).toBeNull();
+    // Both severities still render an icon.
+    expect(urgent.querySelector("svg")).not.toBeNull();
+    expect(advisory.querySelector("svg")).not.toBeNull();
+  });
+});
+
+describe("ChairNoteRow — bullet sits tight to its icon (D)", () => {
+  it("pulls the bullet toward the icon without touching icon→text spacing", async () => {
+    // Uniform gap-2.5 made the bullet read as a third free-floating element.
+    // -mr-1 closes bullet→icon to ~6px; the row keeps gap-2.5 for icon→text.
+    renderTicket(STEPS[0]);
+    await waitForDetail();
+
+    const row = rowsIn(containers()[0])[0];
+    const bullet = bulletsIn(row)[0];
+
+    expect(bullet.getAttribute("class") ?? "").toContain("-mr-1");
+    expect(row.getAttribute("class") ?? "").toContain("gap-2.5");
   });
 });

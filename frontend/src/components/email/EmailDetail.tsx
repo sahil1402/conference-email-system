@@ -1117,12 +1117,24 @@ function ChairNotesPanel({ notes }: { notes: ChairNote[] }) {
  * B2 because, once the set gained an outer container, it read as boxes nested
  * in a box. Row spacing comes from the container's `space-y-2`.
  *
- * Severity still reaches the chair through the icon and the urgent label, so
- * the escalation is never carried by color alone. Revisited in Piece D.
- *
  * The leading bullet marks the row as one discrete step in a sequence; the icon
  * carries severity. Two separate jobs, so both are present — the bullet is
  * muted and the icon keeps the accent colour, so they do not compete.
+ *
+ * D: urgent rows also get a 2px `--danger` rule down their left edge. Every row
+ * already carried a red octagon glyph and an "AUTOMATED LEAK CHECK" label, so
+ * the missing signal was never colour — it was that all rows shared one
+ * unbroken left-edge rhythm, giving a chair scanning the panel nothing to catch
+ * on. The rule marks the row in the margin (like an editor's change bar)
+ * WITHOUT enclosing it, so B1/B2's "one box, plain rows" consolidation stands:
+ * no tint, no rounding, no per-row padding block, and 2px rather than the 3px
+ * bar B2 removed. A background tint was rejected on measurement — dark-mode
+ * `--danger-subtle` (#2b0f0f) against `--surface-raised` (#21263a) is barely
+ * separable, so it would have been the least scannable option.
+ *
+ * ADVISORY rows carry the same border at `transparent`. That is purely for
+ * alignment: a border on urgent rows alone would shift their content 2px right
+ * and make the list jitter. Advisory rendering is pixel-identical to pre-D.
  */
 function ChairNoteRow({ note }: { note: ChairNote }) {
   const urgent = note.severity === "urgent";
@@ -1130,8 +1142,13 @@ function ChairNoteRow({ note }: { note: ChairNote }) {
   const Icon = urgent ? AlertOctagon : AlertTriangle;
   return (
     <div
-      className="flex items-start gap-2.5 text-sm leading-relaxed"
-      style={{ color: "var(--text-primary)" }}
+      className="flex items-start gap-2.5 pl-2 text-sm leading-relaxed"
+      style={{
+        color: "var(--text-primary)",
+        // Inline, not a `border-l-2` class, so B2's "no rounded/border/bg-
+        // classes inside the container" sweep stays absolute and un-exempted.
+        borderLeft: `2px solid ${urgent ? "var(--danger)" : "transparent"}`,
+      }}
     >
       {/* A text glyph, deliberately NOT a `rounded-full` dot: a CSS dot needs
           `rounded`/`bg-` classes, which would trip B2's "the container is the
@@ -1140,9 +1157,12 @@ function ChairNoteRow({ note }: { note: ChairNote }) {
           the rows are divs, not <li>, so a screen reader would otherwise
           announce a literal "bullet" per step with no list semantics to earn
           it. */}
+      {/* `-mr-1` pulls the bullet to ~6px from the icon against the row's 10px
+          gap, so the two read as one leading cluster; icon→text stays at 10px.
+          Without it the uniform gap left the bullet looking detached. */}
       <span
         aria-hidden="true"
-        className="shrink-0 select-none"
+        className="-mr-1 shrink-0 select-none"
         style={{ color: "var(--text-muted)" }}
       >
         •
