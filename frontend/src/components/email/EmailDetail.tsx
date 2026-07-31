@@ -1074,23 +1074,22 @@ function ChairNotesPanel({ notes }: { notes: ChairNote[] }) {
 }
 
 /**
- * One note: a left accent bar + tinted surface carry the severity (restrained,
- * not a full-bleed alert). Urgent rows add a small label so the escalation reads
- * even for a colorblind chair — color is never the only signal.
+ * One note: a plain row inside the panel's single container (B1), NOT its own
+ * box — the per-row `rounded-md border-l-[3px]` + tinted surface was removed in
+ * B2 because, once the set gained an outer container, it read as boxes nested
+ * in a box. Row spacing comes from the container's `space-y-2`.
+ *
+ * Severity still reaches the chair through the icon and the urgent label, so
+ * the escalation is never carried by color alone. Revisited in Piece D.
  */
 function ChairNoteRow({ note }: { note: ChairNote }) {
   const urgent = note.severity === "urgent";
   const accent = urgent ? "var(--danger)" : "var(--warning)";
-  const tint = urgent ? "var(--danger-subtle)" : "var(--warning-subtle)";
   const Icon = urgent ? AlertOctagon : AlertTriangle;
   return (
     <div
-      className="flex items-start gap-2.5 rounded-md border-l-[3px] p-2.5 pl-3 text-sm leading-relaxed"
-      style={{
-        backgroundColor: tint,
-        borderColor: accent,
-        color: "var(--text-primary)",
-      }}
+      className="flex items-start gap-2.5 text-sm leading-relaxed"
+      style={{ color: "var(--text-primary)" }}
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0" style={{ color: accent }} />
       <div className="min-w-0 space-y-0.5">

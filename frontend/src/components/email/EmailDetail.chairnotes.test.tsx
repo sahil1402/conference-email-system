@@ -213,26 +213,85 @@ describe("ChairNotesPanel — no data loss: every note renders inside the contai
   });
 });
 
-describe("ChairNotesPanel — per-row styling untouched by B1", () => {
-  it("still renders each note in its own bordered row inside the container", async () => {
-    // B1 adds the outer box ONLY. The rows keep their own boxes for now (they
-    // will look nested until B2 flattens them) — this pins that B1 did not
-    // quietly start that work, so B2's diff stays honest.
+/**
+ * Class fragments that make an element read as its own BOX. Matched on the raw
+ * `class` attribute, not `className`: SVG elements expose className as an
+ * SVGAnimatedString, which would silently stringify to "[object ...]" and never
+ * match — the icon would then be exempt from the sweep without anyone noticing.
+ */
+const BOXY_CLASS_RE = /(^|\s)(rounded|border|bg-)/;
+
+/** Direct children of the container — one per note. */
+const rowsIn = (box: HTMLElement) => Array.from(box.children) as HTMLElement[];
+
+describe("ChairNotesPanel — rows are plain, the container is the only box (B2)", () => {
+  it("renders one plain row per note, with no box classes of its own", async () => {
+    // B2 strips the per-row `rounded-md border-l-[3px]` + tint. Before B2 these
+    // rows each carried their own box, which read as boxes nested in a box once
+    // B1 landed.
     renderTicket(STEPS.slice(0, 3).join("\n"));
     await waitForDetail();
 
     const box = containers()[0];
-    const rows = STEPS.slice(0, 3).map((s) =>
-      within(box).getByText(s).closest("div.rounded-md")
-    );
+    const rows = rowsIn(box);
 
     expect(rows).toHaveLength(3);
-    for (const row of rows) {
-      expect(row).not.toBeNull();
-      expect(row?.className).toContain("border-l-[3px]");
-      expect(box).toContainElement(row as HTMLElement);
+    rows.forEach((row, i) => {
+      // Still a distinct row holding the right note — flattening the styling
+      // must not have merged or reordered them.
+      expect(row).toHaveTextContent(STEPS[i]);
+      expect(row.getAttribute("class") ?? "").not.toMatch(BOXY_CLASS_RE);
+    });
+  });
+
+  it("gives rows no background or border via inline style either", async () => {
+    // The tint and accent were inline styles, not classes, so the class sweep
+    // above cannot see them — this is the half that catches a partial revert.
+    renderTicket(STEPS.slice(0, 3).join("\n"));
+    await waitForDetail();
+
+    for (const row of rowsIn(containers()[0])) {
+      expect(row.style.backgroundColor).toBe("");
+      expect(row.style.borderColor).toBe("");
     }
-    // Distinct rows, not one merged block.
-    expect(new Set(rows).size).toBe(3);
+  });
+
+  it("leaves the container as the ONLY box-level element in the panel", async () => {
+    // Sweeps every descendant, so a box re-appearing on an inner wrapper (not
+    // just the row root) is caught too. Includes an urgent note because that
+    // branch renders extra markup.
+    renderTicket(
+      [STEPS[0], STEPS[1], "WARNING (automated check): possible leak."].join("\n")
+    );
+    await waitForDetail();
+
+    const box = containers()[0];
+    // The container itself is legitimately boxy — everything inside must not be.
+    expect(box.getAttribute("class") ?? "").toMatch(BOXY_CLASS_RE);
+
+    const boxy = Array.from(box.querySelectorAll("*")).filter((el) =>
+      BOXY_CLASS_RE.test(el.getAttribute("class") ?? "")
+    );
+    expect(boxy).toEqual([]);
+  });
+
+  it("keeps pre-wrap on the note text", async () => {
+    // Unchanged by B2, but it lives on an element whose ancestors were just
+    // restyled — pin it so a future flatten cannot take it along.
+    renderTicket(STEPS[0]);
+    await waitForDetail();
+
+    expect(within(containers()[0]).getByText(STEPS[0])).toHaveStyle({
+      whiteSpace: "pre-wrap",
+    });
+  });
+
+  it("still renders the severity icon (untouched by B2, revisited in D)", async () => {
+    // The icon is the remaining non-color severity signal now that the tint is
+    // gone, so its disappearance would be a real regression, not a cleanup.
+    renderTicket(STEPS[0]);
+    await waitForDetail();
+
+    expect(containers()[0].querySelector("svg")).not.toBeNull();
   });
 });
