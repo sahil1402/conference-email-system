@@ -130,6 +130,53 @@ def _append_draft_history(
     record["draft"] = new_draft
 
 
+def _parse_received_at(value) -> datetime | None:
+    """Coerce an inbound email's ``timestamp`` into a ``received_at`` datetime.
+
+    ``received_at`` is meant to hold when the REQUESTER wrote in, but the column
+    only carries a ``server_default``, so without this it silently records when
+    our row was inserted. Callers that know the real instant pass it as
+    ``email_data["timestamp"]`` (a Zendesk ticket's ``created_at``, or an
+    ``/ingest`` payload's timestamp).
+
+    Returns ``None`` — meaning "leave ``received_at`` alone" — for anything we
+    cannot read as a real instant: a missing key, an empty string (the
+    ``/ingest`` default and the adapter's ``or ""`` fallback), or an unparseable
+    one. Never raises: a malformed timestamp must degrade to the insert-time
+    default, not fail the pipeline run.
+
+    Zendesk sends ISO-8601 with a ``Z`` suffix, so the suffix is normalized
+    before parsing. A naive value is assumed UTC, then the result is CONVERTED to
+    UTC — see the note on the return below, this is a correctness requirement and
+    not just tidiness.
+    """
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning(
+                "Unparseable email timestamp %r; falling back to insert time.", value
+            )
+            return None
+    else:
+        return None
+    # Attach UTC to a naive value FIRST: ``astimezone`` on a naive datetime
+    # assumes system-local time, which would make the stored instant depend on
+    # the server's timezone.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    # Then convert to UTC, because storage is NOT offset-preserving on every
+    # dialect: SQLite's DATETIME writes the wall-clock fields and silently
+    # DISCARDS tzinfo, so "2026-02-09T14:45:00-05:00" would persist as 14:45
+    # rather than 19:45 — wrong by five hours, with no error, and only on SQLite
+    # (asyncpg converts correctly for timestamptz). Normalizing here makes the
+    # stored instant identical on both. A no-op for the UTC/``Z`` timestamps
+    # Zendesk sends, so it changes nothing on the poller path.
+    return parsed.astimezone(timezone.utc)
+
+
 async def resolve_lineage_roots(
     db: AsyncSession,
     keys,
@@ -566,6 +613,25 @@ class EmailPipeline:
                 ),
             },
         }
+        # When the caller knows when the requester actually wrote in, store it as
+        # received_at instead of letting the column's server_default record our
+        # insert time. Added CONDITIONALLY, so the key is ABSENT rather than None
+        # when there is no real value:
+        #   * Defensive, not load-bearing: ``create_email`` does
+        #     ``Email(**record)``, and SQLAlchemy 2.0 does tolerate an explicit
+        #     None here (a None-valued attribute on a server_default column is
+        #     omitted from the INSERT, so the default still fires — verified).
+        #     The conditional avoids DEPENDING on that leniency, and keeps a
+        #     meaningless key out of ``record``, which is a shared contract also
+        #     read by ``update_email_outputs`` and ``add_processing_result``.
+        #   * ``reprocess_email`` / ``reprocess_email_with_thread`` build
+        #     ``email_data`` with no "timestamp" key at all, so they add nothing
+        #     here and an existing row keeps its received_at — unchanged
+        #     behaviour (``update_email_outputs`` also allowlists the columns it
+        #     writes, so received_at could not leak through even if present).
+        received_at = _parse_received_at(email_data.get("timestamp"))
+        if received_at is not None:
+            record["received_at"] = received_at
         return _Computed(
             classification=classification,
             retrieved_chunks=retrieved_chunks,
