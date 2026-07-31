@@ -615,11 +615,15 @@ class EmailPipeline:
         }
         # When the caller knows when the requester actually wrote in, store it as
         # received_at instead of letting the column's server_default record our
-        # insert time. Added CONDITIONALLY — the key must stay ABSENT, not None,
+        # insert time. Added CONDITIONALLY, so the key is ABSENT rather than None
         # when there is no real value:
-        #   * ``create_email`` does ``Email(**record)``, and an explicit None
-        #     would INSERT NULL into a NOT NULL column (an explicitly-set
-        #     attribute suppresses the server_default) instead of defaulting.
+        #   * Defensive, not load-bearing: ``create_email`` does
+        #     ``Email(**record)``, and SQLAlchemy 2.0 does tolerate an explicit
+        #     None here (a None-valued attribute on a server_default column is
+        #     omitted from the INSERT, so the default still fires — verified).
+        #     The conditional avoids DEPENDING on that leniency, and keeps a
+        #     meaningless key out of ``record``, which is a shared contract also
+        #     read by ``update_email_outputs`` and ``add_processing_result``.
         #   * ``reprocess_email`` / ``reprocess_email_with_thread`` build
         #     ``email_data`` with no "timestamp" key at all, so they add nothing
         #     here and an existing row keeps its received_at — unchanged

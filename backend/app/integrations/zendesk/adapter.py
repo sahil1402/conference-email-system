@@ -510,10 +510,12 @@ class ZendeskIngestAdapter:
         # should hold. Same ``_parse_dt`` used for ``zendesk_created_at`` below,
         # so both columns are read from one field by one parser.
         #
-        # Applied CONDITIONALLY at each call site (``**({...} if ... else {})``):
-        # ``create_email`` does ``Email(**data)``, so an explicit None would
-        # INSERT NULL into a NOT NULL column rather than falling back to the
-        # column's ``server_default``. The pipeline branch does not need this — it
+        # Applied CONDITIONALLY at each call site (``**({...} if ... else {})``)
+        # so the key is absent rather than None when the ticket has no usable
+        # created_at. Defensive rather than load-bearing: SQLAlchemy 2.0 omits a
+        # None-valued attribute on a server_default column from the INSERT, so the
+        # default would still fire — this just avoids relying on that leniency.
+        # The pipeline branch does not need this — it
         # already forwards ``created_at`` as ``email_data["timestamp"]``, which
         # the orchestrator parses into the record it persists.
         received_at = _parse_dt(ticket.get("created_at"))
