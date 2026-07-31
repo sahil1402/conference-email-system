@@ -363,10 +363,33 @@ async def accept_suggestion(
     Does NOT create the policy — the frontend calls the existing ``POST
     /policies`` create path first, then this to mark the suggestion accepted
     and record which policy resulted. Declared before the catch-all.
+
+    Writes an append-only ``suggestion_audit_logs`` entry AFTER the accept lands,
+    mirroring ``reject_suggestion``. Until now an accept left no record of itself:
+    ``POST /policies`` logs ``policy_created`` to ``policy_audit_logs``, but
+    nothing said "suggestion N was accepted", and the two were linked only by the
+    overwritable ``resulting_policy_key`` on the suggestion row.
+
+    ``resulting_policy_key`` is read off the PERSISTED row, not ``payload``, so
+    the entry records what was actually written. It is always available here —
+    ``AcceptSuggestionRequest.policy_key`` is required, because the frontend
+    creates the policy before calling this.
+
+    Same contract as reject: the write is awaited UNGUARDED (a failed governance
+    write surfaces rather than being swallowed), it commits separately from the
+    accept (the ``create_policy`` → ``_audit.log`` two-commit shape), and a 404
+    logs nothing.
     """
     row = await _suggestions.mark_accepted(db, sid, actor=payload.actor, policy_key=payload.policy_key)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Suggestion {sid} not found")
+    await _suggestion_audit.log(
+        db,
+        suggestion_id=sid,
+        action="accepted",
+        actor=payload.actor,
+        resulting_policy_key=row.resulting_policy_key,
+    )
     return {"id": row.id, "status": row.status, "resulting_policy_key": row.resulting_policy_key}
 
 
