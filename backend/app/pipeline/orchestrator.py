@@ -130,6 +130,40 @@ def _append_draft_history(
     record["draft"] = new_draft
 
 
+def _parse_received_at(value) -> datetime | None:
+    """Coerce an inbound email's ``timestamp`` into a ``received_at`` datetime.
+
+    ``received_at`` is meant to hold when the REQUESTER wrote in, but the column
+    only carries a ``server_default``, so without this it silently records when
+    our row was inserted. Callers that know the real instant pass it as
+    ``email_data["timestamp"]`` (a Zendesk ticket's ``created_at``, or an
+    ``/ingest`` payload's timestamp).
+
+    Returns ``None`` — meaning "leave ``received_at`` alone" — for anything we
+    cannot read as a real instant: a missing key, an empty string (the
+    ``/ingest`` default and the adapter's ``or ""`` fallback), or an unparseable
+    one. Never raises: a malformed timestamp must degrade to the insert-time
+    default, not fail the pipeline run.
+
+    Zendesk sends ISO-8601 with a ``Z`` suffix, so the suffix is normalized
+    before parsing. A naive value is assumed UTC so the result is always
+    tz-aware, matching the ``DateTime(timezone=True)`` column.
+    """
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning(
+                "Unparseable email timestamp %r; falling back to insert time.", value
+            )
+            return None
+    else:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
 async def resolve_lineage_roots(
     db: AsyncSession,
     keys,
@@ -566,6 +600,21 @@ class EmailPipeline:
                 ),
             },
         }
+        # When the caller knows when the requester actually wrote in, store it as
+        # received_at instead of letting the column's server_default record our
+        # insert time. Added CONDITIONALLY — the key must stay ABSENT, not None,
+        # when there is no real value:
+        #   * ``create_email`` does ``Email(**record)``, and an explicit None
+        #     would INSERT NULL into a NOT NULL column (an explicitly-set
+        #     attribute suppresses the server_default) instead of defaulting.
+        #   * ``reprocess_email`` / ``reprocess_email_with_thread`` build
+        #     ``email_data`` with no "timestamp" key at all, so they add nothing
+        #     here and an existing row keeps its received_at — unchanged
+        #     behaviour (``update_email_outputs`` also allowlists the columns it
+        #     writes, so received_at could not leak through even if present).
+        received_at = _parse_received_at(email_data.get("timestamp"))
+        if received_at is not None:
+            record["received_at"] = received_at
         return _Computed(
             classification=classification,
             retrieved_chunks=retrieved_chunks,
