@@ -1081,6 +1081,10 @@ function ChairNotesPanel({ notes }: { notes: ChairNote[] }) {
  *
  * Severity still reaches the chair through the icon and the urgent label, so
  * the escalation is never carried by color alone. Revisited in Piece D.
+ *
+ * The leading bullet marks the row as one discrete step in a sequence; the icon
+ * carries severity. Two separate jobs, so both are present — the bullet is
+ * muted and the icon keeps the accent colour, so they do not compete.
  */
 function ChairNoteRow({ note }: { note: ChairNote }) {
   const urgent = note.severity === "urgent";
@@ -1091,6 +1095,20 @@ function ChairNoteRow({ note }: { note: ChairNote }) {
       className="flex items-start gap-2.5 text-sm leading-relaxed"
       style={{ color: "var(--text-primary)" }}
     >
+      {/* A text glyph, deliberately NOT a `rounded-full` dot: a CSS dot needs
+          `rounded`/`bg-` classes, which would trip B2's "the container is the
+          only box-level element" sweep and force an exemption into a guard
+          that is currently absolute. `aria-hidden` because it is decoration —
+          the rows are divs, not <li>, so a screen reader would otherwise
+          announce a literal "bullet" per step with no list semantics to earn
+          it. */}
+      <span
+        aria-hidden="true"
+        className="shrink-0 select-none"
+        style={{ color: "var(--text-muted)" }}
+      >
+        •
+      </span>
       <Icon className="mt-0.5 h-4 w-4 shrink-0" style={{ color: accent }} />
       <div className="min-w-0 space-y-0.5">
         {urgent && (

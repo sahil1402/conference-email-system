@@ -295,3 +295,77 @@ describe("ChairNotesPanel — rows are plain, the container is the only box (B2)
     expect(containers()[0].querySelector("svg")).not.toBeNull();
   });
 });
+
+/**
+ * The bullet glyph. Matched on content rather than a test id so the assertion
+ * describes what a chair actually sees; `aria-hidden` does not hide an element
+ * from a DOM query, only from the accessibility tree.
+ */
+const bulletsIn = (root: HTMLElement) =>
+  Array.from(root.querySelectorAll("span")).filter(
+    (el) => el.textContent?.trim() === "•"
+  );
+
+describe("ChairNoteRow — bullet marker per step (C1)", () => {
+  it("renders exactly one bullet per row, on every severity", async () => {
+    // Mixed advisory + urgent: the bullet marks "discrete step", which is true
+    // of every note, so it must NOT be conditional on severity the way the
+    // icon glyph and the leak-check label are.
+    renderTicket(
+      [STEPS[0], "WARNING (automated check): possible leak.", STEPS[1]].join("\n")
+    );
+    await waitForDetail();
+
+    const box = containers()[0];
+    const rows = rowsIn(box);
+
+    expect(rows).toHaveLength(3);
+    expect(bulletsIn(box)).toHaveLength(3);
+    for (const row of rows) {
+      expect(bulletsIn(row)).toHaveLength(1);
+    }
+  });
+
+  it("scales one-per-row with the note count, not one per panel", async () => {
+    // Guards the mirror image of B1's bug: a marker hoisted out of the row and
+    // rendered once for the whole set would still "show a bullet".
+    renderTicket(STEPS.join("\n"));
+    await waitForDetail();
+
+    expect(bulletsIn(containers()[0])).toHaveLength(STEPS.length);
+  });
+
+  it("sits ALONGSIDE the severity icon, not in place of it", async () => {
+    // The two carry different information (sequence vs severity). A change that
+    // swapped one for the other would look fine and lose a signal.
+    renderTicket(STEPS[0]);
+    await waitForDetail();
+
+    const row = rowsIn(containers()[0])[0];
+
+    expect(bulletsIn(row)).toHaveLength(1);
+    expect(row.querySelector("svg")).not.toBeNull();
+    // Bullet leads the row, so the left edge reads as a list.
+    expect(row.firstElementChild).toBe(bulletsIn(row)[0]);
+  });
+
+  it("keeps the bullet out of the accessibility tree", async () => {
+    // Decorative: these rows are divs, not <li>, so an exposed glyph would be
+    // announced as content ("bullet Check whether…") with no list semantics.
+    renderTicket(STEPS[0]);
+    await waitForDetail();
+
+    expect(bulletsIn(containers()[0])[0]).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("does not disturb the note text or its pre-wrap", async () => {
+    // The bullet is a SIBLING of the text, not a prefix concatenated into it —
+    // otherwise C2's prefix-stripping would later have to parse around it.
+    renderTicket(STEPS[0]);
+    await waitForDetail();
+
+    const text = within(containers()[0]).getByText(STEPS[0]);
+    expect(text).toHaveStyle({ whiteSpace: "pre-wrap" });
+    expect(text.textContent).toBe(STEPS[0]);
+  });
+});
