@@ -146,8 +146,9 @@ def _parse_received_at(value) -> datetime | None:
     default, not fail the pipeline run.
 
     Zendesk sends ISO-8601 with a ``Z`` suffix, so the suffix is normalized
-    before parsing. A naive value is assumed UTC so the result is always
-    tz-aware, matching the ``DateTime(timezone=True)`` column.
+    before parsing. A naive value is assumed UTC, then the result is CONVERTED to
+    UTC — see the note on the return below, this is a correctness requirement and
+    not just tidiness.
     """
     if isinstance(value, datetime):
         parsed = value
@@ -161,7 +162,19 @@ def _parse_received_at(value) -> datetime | None:
             return None
     else:
         return None
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    # Attach UTC to a naive value FIRST: ``astimezone`` on a naive datetime
+    # assumes system-local time, which would make the stored instant depend on
+    # the server's timezone.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    # Then convert to UTC, because storage is NOT offset-preserving on every
+    # dialect: SQLite's DATETIME writes the wall-clock fields and silently
+    # DISCARDS tzinfo, so "2026-02-09T14:45:00-05:00" would persist as 14:45
+    # rather than 19:45 — wrong by five hours, with no error, and only on SQLite
+    # (asyncpg converts correctly for timestamptz). Normalizing here makes the
+    # stored instant identical on both. A no-op for the UTC/``Z`` timestamps
+    # Zendesk sends, so it changes nothing on the poller path.
+    return parsed.astimezone(timezone.utc)
 
 
 async def resolve_lineage_roots(
