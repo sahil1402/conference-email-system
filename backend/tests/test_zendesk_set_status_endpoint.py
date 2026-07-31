@@ -1,5 +1,5 @@
 """Tests for POST /emails/{id}/set-status — set a ticket's Zendesk status
-(new / open / solved) with NO reply.
+(new / open / pending / solved) with NO reply.
 
 Hermetic, mirroring test_zendesk_send_endpoint.py: the transport
 (`zendesk_sender`) is monkeypatched to a fake so no real Zendesk call happens;
@@ -115,13 +115,15 @@ async def test_solved_no_reply_succeeds(adb, monkeypatch, reconcile_calls):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("target", ["new", "open"])
+@pytest.mark.parametrize("target", ["new", "open", "pending"])
 async def test_new_open_move_bucket_but_keep_workflow_status(
     adb, monkeypatch, reconcile_calls, target
 ):
-    """new / open aren't resolutions: the ticket bucket moves (zendesk_status),
-    but the email's workflow status is left unchanged (not SOLVED)."""
-    email = await _seed(adb, status="draft_generated", zendesk_status="pending")
+    """new / open / pending aren't resolutions: the ticket bucket moves
+    (zendesk_status), but the email's workflow status is left unchanged (not
+    SOLVED). Seeded as 'hold' so no target equals the starting bucket — an
+    equal one would make the "bucket moved" assertion vacuously true."""
+    email = await _seed(adb, status="draft_generated", zendesk_status="hold")
     fake = FakeSolveSender(outcome=_outcome(target))
     monkeypatch.setattr(emails_api, "zendesk_sender", fake)
 
