@@ -1046,9 +1046,26 @@ function ChairNotesPanel({ notes }: { notes: ChairNote[] }) {
   if (notes.length === 0) return null;
   return (
     <div className="space-y-2 pt-1">
-      {notes.map((note, i) => (
-        <ChairNoteRow key={i} note={note} />
-      ))}
+      {/* ONE container around the whole set of notes: the drafter emits these
+          as a single ordered workflow (one imperative step per line), so they
+          read as one instruction, not N unrelated alerts. Exactly one of these
+          renders no matter how many notes there are — the count lives inside.
+          `role="group"` + a label so the set is announced as a unit rather than
+          a run of loose rows. The trailing "Internal —" caption stays OUTSIDE:
+          it is a disclaimer about the section, not one of the steps. */}
+      <div
+        role="group"
+        aria-label="Chair suggestions"
+        className="space-y-2 rounded-lg border p-3"
+        style={{
+          borderColor: "var(--border)",
+          backgroundColor: "var(--surface-raised)",
+        }}
+      >
+        {notes.map((note, i) => (
+          <ChairNoteRow key={i} note={note} />
+        ))}
+      </div>
       <p className="pt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
         Internal — not sent to the requester.
       </p>
