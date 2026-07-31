@@ -63,9 +63,15 @@ export function SuggestionList({
                   )}
                 </span>
               </div>
+              {/* Candidate policy body — clamped to two lines. pre-wrap because
+                  the CEL-condensed content carries literal newlines (list items
+                  separated by a single \n, not a blank line), which the CSS
+                  default collapses into one run-on paragraph. Same fix as
+                  PolicyList / AddPolicyPanel / PolicySelectPopover; this
+                  component landed after that pass and was missed. */}
               <p
                 className={cn("mt-1 text-xs leading-relaxed line-clamp-2")}
-                style={{ color: "var(--text-secondary)" }}
+                style={{ color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}
               >
                 {s.content}
               </p>
