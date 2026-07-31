@@ -369,3 +369,103 @@ describe("ChairNoteRow — bullet marker per step (C1)", () => {
     expect(text.textContent).toBe(STEPS[0]);
   });
 });
+
+/**
+ * ⚠️ These tests pin a PRECAUTIONARY guard, not a reproduction of a real bug.
+ * No prefixed multi-step note has ever been observed; two live probes against
+ * the current drafter model produced no evidence either way. If one of these
+ * strip-cases ever fires on real traffic, that is the first observation of the
+ * behaviour — see the comment on `stripLeadingListMarker` in EmailDetail.tsx.
+ *
+ * The KEEP cases are the load-bearing half: they are what stops the guard from
+ * silently eating legitimate note text.
+ */
+describe("ChairNoteRow — strips a stray leading list marker (C2)", () => {
+  /** Rendered text of the single note in a one-note panel. */
+  async function renderedNote(raw: string): Promise<string> {
+    renderTicket(raw);
+    await waitForDetail();
+    const row = rowsIn(containers()[0])[0];
+    // The <p> is the row's last element; the bullet + icon are its siblings.
+    return row.querySelector("p")?.textContent ?? "";
+  }
+
+  // Expected output written out in full, never derived from the input — a
+  // computed expectation can agree with a broken implementation.
+  it.each([
+    [
+      "numeric dot",
+      "1. Check whether the author already has an approved extension.",
+      "Check whether the author already has an approved extension.",
+    ],
+    [
+      "numeric paren",
+      "2) Confirm the current submission deadline in the CFP.",
+      "Confirm the current submission deadline in the CFP.",
+    ],
+    [
+      "hyphen",
+      "- Ask the program chair if a second extension is allowed.",
+      "Ask the program chair if a second extension is allowed.",
+    ],
+    ["asterisk", "* Decide whether to grant or decline.", "Decide whether to grant or decline."],
+    ["bullet glyph", "• Reply with the agreed date.", "Reply with the agreed date."],
+    ["en-dash", "– Verify the co-author's affiliation.", "Verify the co-author's affiliation."],
+    ["em-dash", "— Escalate to the program chair.", "Escalate to the program chair."],
+    ["two-digit", "10. Final step in the workflow.", "Final step in the workflow."],
+  ])("strips a leading %s marker", async (_label, raw, expected) => {
+    expect(await renderedNote(raw)).toBe(expected);
+  });
+
+  it.each([
+    // The mandatory \s+ after the marker is what saves these.
+    "3-day deadline applies here.",
+    "-5 degrees is out of scope.",
+    "1.5x the page limit is not permitted.",
+    "*emphasis* matters in the reply.",
+    // Digits with no marker separator at all.
+    "2026 deadline is firm.",
+    // 4 digits — beyond \d{1,2}. With \d+ this would lose the year entirely,
+    // silently rewriting the note to "Deadline moved to March.".
+    "2026. Deadline moved to March.",
+    // Degenerate: stripping would leave nothing, so the guard keeps the original
+    // rather than rendering an empty row.
+    "1)",
+    // The ACTUAL string the live probe returned — the only real drafter output
+    // we possess. Pinned as an explicit no-op so the guard provably does not
+    // touch the one behaviour we have genuinely observed.
+    "Determine whether withdrawal and resubmission under the AI Alignment track is permitted for paper #4127.",
+  ])("leaves %j untouched", async (raw) => {
+    expect(await renderedNote(raw)).toBe(raw);
+  });
+
+  it("renders a prefixed note as ONE bullet plus clean text, not doubled", async () => {
+    // The end-to-end point of the piece: the visible row must not read
+    // "• 1. Check…". Asserts on the row's full text, so a marker surviving
+    // anywhere in it fails.
+    renderTicket("1. Check whether the author already has an approved extension.");
+    await waitForDetail();
+
+    const row = rowsIn(containers()[0])[0];
+
+    expect(bulletsIn(row)).toHaveLength(1);
+    expect(row.querySelector("p")?.textContent).toBe(
+      "Check whether the author already has an approved extension."
+    );
+    expect(row.textContent).not.toContain("1.");
+  });
+
+  it("leaves an UNPREFIXED note completely unchanged (the common case)", async () => {
+    // Regression guard. Every note we have actually seen looks like this, so if
+    // the guard ever touches this path it is doing net harm.
+    renderTicket(STEPS.join("\n"));
+    await waitForDetail();
+
+    const box = containers()[0];
+    const rows = rowsIn(box);
+    expect(rows).toHaveLength(STEPS.length);
+    rows.forEach((row, i) => {
+      expect(row.querySelector("p")?.textContent).toBe(STEPS[i]);
+    });
+  });
+});

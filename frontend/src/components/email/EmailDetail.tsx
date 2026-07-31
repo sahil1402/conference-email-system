@@ -1039,6 +1039,44 @@ function parseChairNotes(raw: string | null | undefined): ChairNote[] {
 }
 
 /**
+ * A leading list marker the MODEL wrote into a note line — "1. ", "2) ", "- ",
+ * "* ", "• " and the en/em-dash variants. The trailing `\s+` is the whole
+ * discriminator: a marker must be followed by whitespace, which is what
+ * separates "- Ask the chair" from "-5 degrees" or "1.5x the page limit".
+ * `\d{1,2}` (not `\d+`) caps step numbers at two digits, so a line opening with
+ * a year — "2026. Deadline moved to March." — is never mangled into
+ * "Deadline moved to March.". Anchored at `^` only; never mid-string.
+ */
+const LEADING_LIST_MARKER_RE = /^(?:\d{1,2}[.)]|[-–—*•])\s+/;
+
+/**
+ * ⚠️ PRECAUTIONARY — this is NOT a fix for a bug anyone has seen.
+ *
+ * No prefixed multi-step note has ever been observed. Two live probes against
+ * the current drafter model returned no evidence either way (the second came
+ * back as a single-step note with no prefix at all), and no real note text was
+ * reachable anywhere else — dev DB empty, `data/eval_real/` absent, pipeline
+ * traces and eval artifacts contain zero `notes_for_chair` occurrences.
+ *
+ * It exists because the drafter prompt says "one imperative step per line" but
+ * never forbids numbering, and `MODEL_PROVIDER` is a documented swappable seam
+ * — so a future model could reasonably emit "1. Do X", which would render as
+ * "• 1. Do X" next to the bullet C1 adds. The guard is inert when no marker is
+ * present, so the common case is untouched.
+ *
+ * Do not read this as "we fixed the numbering bug" — if you are here because
+ * you actually saw doubled markers, that is the FIRST observation, and worth
+ * recording.
+ *
+ * Strips at most one marker (no loop), and never strips a note down to nothing:
+ * a bare "1)" keeps itself rather than rendering an empty row.
+ */
+function stripLeadingListMarker(text: string): string {
+  const stripped = text.replace(LEADING_LIST_MARKER_RE, "");
+  return stripped.trim() ? stripped : text;
+}
+
+/**
  * Renders parsed chair notes as distinct rows, escalating amber (advisory) →
  * red (urgent). Returns null when there are none so no empty box appears.
  */
@@ -1120,7 +1158,7 @@ function ChairNoteRow({ note }: { note: ChairNote }) {
           </span>
         )}
         <p style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {note.text}
+          {stripLeadingListMarker(note.text)}
         </p>
       </div>
     </div>
