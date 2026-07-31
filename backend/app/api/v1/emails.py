@@ -110,10 +110,11 @@ class RedraftRequest(BaseModel):
 class SetStatusRequest(BaseModel):
     """Options for setting a ticket's Zendesk status WITHOUT sending a reply."""
 
-    status: Literal["new", "open", "solved"] = Field(
+    status: Literal["new", "open", "pending", "solved"] = Field(
         default="solved",
         description="The Zendesk status to set (no reply is sent). "
-        "Only 'solved' has a keyboard shortcut; 'new'/'open' are button-only.",
+        "Only 'solved' has a keyboard shortcut; 'new'/'open'/'pending' are "
+        "button-only.",
     )
     set_by: str = Field(
         default="chair", description="Actor recorded in the audit log."
@@ -947,19 +948,21 @@ async def set_ticket_status_no_reply(
     payload: SetStatusRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Set a Zendesk ticket's status (new / open / solved) WITHOUT sending a reply.
+    """Set a Zendesk ticket's status (new / open / pending / solved) WITHOUT
+    sending a reply.
 
     For the "no response warranted — just set the state" case: the ticket status
     flips and nothing goes to the requester (no comment). ``solved`` is the common
     "resolve it" action (and the only one with a keyboard shortcut); ``new`` /
-    ``open`` re-open or reset the ticket. Unlike ``/send`` there is no reply to
-    authorize, so the send gate does not apply — but the same closed-ticket guard,
-    audit trail, and best-effort re-sync do. A transport failure marks the email
-    ``send_failed`` (re-triable), mirroring ``/send``.
+    ``open`` re-open or reset the ticket, and ``pending`` parks it awaiting the
+    requester. Unlike ``/send`` there is no reply to authorize, so the send gate
+    does not apply — but the same closed-ticket guard, audit trail, and
+    best-effort re-sync do. A transport failure marks the email ``send_failed``
+    (re-triable), mirroring ``/send``.
 
     Local workflow status: a no-reply ``solved`` is terminal → ``SOLVED``; ``new`` /
-    ``open`` do not resolve the email, so its workflow status is left unchanged
-    (only ``zendesk_status`` — and thus the queue bucket — moves).
+    ``open`` / ``pending`` do not resolve the email, so its workflow status is left
+    unchanged (only ``zendesk_status`` — and thus the queue bucket — moves).
     """
     payload = payload or SetStatusRequest()
     set_status = payload.status
