@@ -467,3 +467,36 @@ class PolicySuggestion(Base):
     resulting_policy_key: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SuggestionAuditLog(Base):
+    """Append-only record of chair review actions on a CEL policy suggestion.
+
+    ``PolicySuggestion.reviewed_by`` / ``reviewed_reason`` hold CURRENT state and
+    are overwritten on every review action; this table is the history they lose.
+    One row per accept/reject, never updated.
+
+    ``suggestion_id`` carries NO ForeignKey, matching ``policy_audit_logs``
+    (``policy_key`` is a plain string) and ``policy_suggestions.source_email_id``.
+    An FK would be enforced only on Postgres: SQLite — the default for local dev,
+    tests and CI — does not enforce foreign keys unless ``PRAGMA foreign_keys=ON``
+    is set, and nothing here sets it. Integrity is upheld by the endpoints, which
+    404 before writing. Deliberately NOT ``audit_logs``: that table is email-
+    scoped with an ON DELETE CASCADE, so a deleted email would take the
+    governance trail with it, and every write there publishes an SSE event.
+    """
+
+    __tablename__ = "suggestion_audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    suggestion_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Client-supplied and UNVERIFIED — there is no auth; today every caller
+    # sends the placeholder "Chair1". Recorded as given, implying no identity.
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resulting_policy_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
