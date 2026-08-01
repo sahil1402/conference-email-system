@@ -211,6 +211,41 @@ describe("DateRangeFilter", () => {
     }
   });
 
+  // --- outside-month days --------------------------------------------------
+
+  it("de-emphasizes outside-month days by targeting the day BUTTON", async () => {
+    const { user } = setup();
+    await openPopover(user);
+
+    const outside = document.querySelectorAll('[data-outside="true"]');
+    expect(outside.length).toBeGreaterThan(0);
+
+    // The rule must reach the button. A cell-level `text-[var(--text-muted)]`
+    // silently did nothing, because CalendarDayButton sets its own explicit
+    // color and an explicit color on a child always beats an inherited one —
+    // which is why these rendered identically to in-month days.
+    for (const cell of Array.from(outside)) {
+      expect(cell.getAttribute("class")).toContain(
+        "[&_button]:text-[var(--text-muted)]"
+      );
+    }
+  });
+
+  it("outside-month days stay clickable (style-only change)", async () => {
+    const { onChange, user } = setup();
+    await openPopover(user);
+
+    // July 2026 begins on a Wednesday, so Mon Jun 29 renders as an outside day.
+    const outsideDay = screen.getByRole("button", { name: "Monday, June 29th, 2026" });
+    expect(outsideDay.closest('[data-outside="true"]')).not.toBeNull();
+    expect(outsideDay).toBeEnabled();
+
+    await user.click(outsideDay);
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onChange).toHaveBeenCalledWith("2026-06-29", "2026-06-29");
+  });
+
   // --- timezone round-trip -------------------------------------------------
 
   it("round-trips a picked day without a timezone shift", async () => {

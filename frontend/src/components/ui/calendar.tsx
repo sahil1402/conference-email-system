@@ -43,7 +43,7 @@ import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "lucide-react
  *   selected (single) accent-hover fill, white text  (see SELECTED FILL below)
  *   range start/end  accent-hover fill, white text
  *   range middle     25% accent mix, text-primary  (see the range note below)
- *   outside month    text-muted
+ *   outside month    text-muted ON THE BUTTON (see the note in `outside`)
  *   disabled         text-muted @ 50%
  *
  * ⚠️ RANGE FILL — why NOT --accent-subtle, which is the obvious choice.
@@ -210,7 +210,20 @@ function Calendar({
           defaultClassNames.today
         ),
         outside: cn(
-          "text-[var(--text-muted)] aria-selected:text-[var(--text-muted)]",
+          // ⚠️ Targets the BUTTON, not the cell. The previous
+          // `text-[var(--text-muted)]` sat on the <td> and never took effect:
+          // CalendarDayButton sets its own explicit text color, and an
+          // explicitly-set color on a child ALWAYS beats a color inherited from
+          // its parent, whatever the selectors' specificity. Outside-month days
+          // therefore rendered at --text-primary — identical to in-month days,
+          // which is exactly how the "they look the same" report presented.
+          // The descendant form also out-specifies the button's own utility
+          // (0,1,1 vs 0,1,0), so it wins on both counts.
+          "[&_button]:text-[var(--text-muted)]",
+          // Hover lifts to secondary rather than the ghost variant's primary:
+          // enough feedback to confirm these are clickable, without letting an
+          // outside day briefly read as in-month.
+          "[&_button:hover]:text-[var(--text-secondary)]",
           defaultClassNames.outside
         ),
         disabled: cn(
