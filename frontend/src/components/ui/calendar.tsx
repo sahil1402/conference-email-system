@@ -40,8 +40,8 @@ import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "lucide-react
  *   default          text-primary, transparent
  *   hover            surface-raised            (matches the ghost button)
  *   today            accent RING, normal text  (see the contrast note below)
- *   selected (single) accent fill, white text
- *   range start/end  accent fill, white text
+ *   selected (single) accent-hover fill, white text  (see SELECTED FILL below)
+ *   range start/end  accent-hover fill, white text
  *   range middle     25% accent mix, text-primary  (see the range note below)
  *   outside month    text-muted
  *   disabled         text-muted @ 50%
@@ -56,6 +56,17 @@ import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "lucide-react
  * luminance — the reason the measured ratio (~1.33) understates how visible it
  * actually is, and it is anchored at both ends by solid accent endpoints.
  * Requires `color-mix()` (Baseline 2023; fine for this app's targets).
+ *
+ * ⚠️ SELECTED FILL — why --accent-hover rather than the obvious --accent.
+ * White text on --accent (#6366f1) measures 4.47:1 in BOTH themes (the two
+ * accent tokens are the same hex in dark and light), just under the 4.5:1 AA
+ * floor for body text. --accent-hover (#4f46e5) measures 6.29:1. Since a
+ * selected day number is text a chair has to read, this is an accessibility
+ * floor rather than a palette choice. Hover then darkens further via an 85%
+ * mix toward black (7.86:1) so the affordance survives the base getting darker.
+ * NOTE this deliberately does NOT match button.tsx's primary variant, which
+ * still ships white-on---accent at 4.47:1 app-wide; that is tracked separately
+ * and is not this component's to change.
  *
  * ⚠️ CONTRAST — why "today" is a ring and not accent-colored text. `--accent`
  * (#6366f1) is identical in both themes, and as TEXT on the light surface
@@ -285,14 +296,19 @@ function CalendarDayButton({
         // Focus ring, token-mapped (stock used border-ring / ring-ring).
         "group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10",
         "group-data-[focused=true]/day:ring-2 group-data-[focused=true]/day:ring-[var(--accent)]",
-        // Single selection.
-        "data-[selected-single=true]:bg-[var(--accent)] data-[selected-single=true]:text-white",
-        "data-[selected-single=true]:hover:bg-[var(--accent-hover)]",
-        // Range ends: solid accent, same as a single selection.
-        "data-[range-start=true]:rounded-l-[var(--cell-radius)] data-[range-start=true]:bg-[var(--accent)] data-[range-start=true]:text-white",
-        "data-[range-start=true]:hover:bg-[var(--accent-hover)]",
-        "data-[range-end=true]:rounded-r-[var(--cell-radius)] data-[range-end=true]:bg-[var(--accent)] data-[range-end=true]:text-white",
-        "data-[range-end=true]:hover:bg-[var(--accent-hover)]",
+        // Single selection. Fill is --accent-HOVER, not --accent: white on
+        // --accent measures 4.47:1, just under the 4.5 AA floor for body text,
+        // while --accent-hover measures 6.29:1. This is an accessibility floor,
+        // not a style preference — see the SELECTED FILL note in the header.
+        "data-[selected-single=true]:bg-[var(--accent-hover)] data-[selected-single=true]:text-white",
+        "data-[selected-single=true]:hover:bg-[color-mix(in_srgb,var(--accent-hover)_85%,black)]",
+        // Range ends: same solid treatment as a single selection, so they must
+        // use the same fill — leaving these at --accent would both fail AA and
+        // render the endpoints a visibly different indigo from a single pick.
+        "data-[range-start=true]:rounded-l-[var(--cell-radius)] data-[range-start=true]:bg-[var(--accent-hover)] data-[range-start=true]:text-white",
+        "data-[range-start=true]:hover:bg-[color-mix(in_srgb,var(--accent-hover)_85%,black)]",
+        "data-[range-end=true]:rounded-r-[var(--cell-radius)] data-[range-end=true]:bg-[var(--accent-hover)] data-[range-end=true]:text-white",
+        "data-[range-end=true]:hover:bg-[color-mix(in_srgb,var(--accent-hover)_85%,black)]",
         // Range middle: the cell already paints --accent-subtle, so the button
         // stays transparent and only carries the text color.
         "data-[range-middle=true]:rounded-none data-[range-middle=true]:bg-transparent data-[range-middle=true]:text-[var(--text-primary)]",
