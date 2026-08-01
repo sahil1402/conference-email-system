@@ -11,6 +11,8 @@ arrive as path/query strings) and coerce internally; a non-numeric id resolves
 to "not found" rather than an error.
 """
 
+from datetime import datetime
+
 from sqlalchemy import String, cast, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +65,8 @@ def _queue_conditions(
     unassigned: bool,
     source: str | None = None,
     zendesk_status: str | None = None,
+    received_after: datetime | None = None,
+    received_before: datetime | None = None,
 ) -> list:
     """Build the shared WHERE conditions for the queue list AND its count.
 
@@ -76,6 +80,16 @@ def _queue_conditions(
     matches the numeric ticket id). ``zendesk_status="solved"`` is
     the combined solved+closed bucket (see _SOLVED_BUCKET_*); other statuses are
     exact-match.
+
+    ``received_after`` / ``received_before`` bound ``received_at``, INCLUSIVE at
+    both ends (``>=`` / ``<=``), and are independent: either may be given alone
+    for an open-ended range. They are the "when did this arrive" filter, so they
+    read ``received_at`` and NOTHING ELSE — deliberately never falling back to
+    ``zendesk_created_at`` for non-Zendesk rows. That column is NULL for
+    ``/ingest`` and toy rows, and under SQL three-valued logic every comparison
+    against NULL yields NULL, so such a fallback would silently drop those rows
+    from every range query. ``received_at`` is NOT NULL for every row, which is
+    what makes it safe to compare directly.
     """
     conditions: list = []
     if lane is not None:
@@ -99,6 +113,10 @@ def _queue_conditions(
             conditions.append(Email.zendesk_status.in_(_SOLVED_BUCKET_STATUSES))
         else:
             conditions.append(Email.zendesk_status == zendesk_status)
+    if received_after is not None:
+        conditions.append(Email.received_at >= received_after)
+    if received_before is not None:
+        conditions.append(Email.received_at <= received_before)
     if search:
         # Strip a single leading "#" so a chair pasting "#21567" from the ticket
         # badge matches the numeric zendesk_ticket_id. Applied to ALL three
@@ -573,18 +591,24 @@ class EmailRepository:
         unassigned: bool = False,
         source: str | None = None,
         zendesk_status: str | None = None,
+        received_after: datetime | None = None,
+        received_before: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[Email]:
         """Return the email queue, filtered server-side by any combination of
-        lane / chair / unassigned / status / source / zendesk_status / search.
+        lane / chair / unassigned / status / source / zendesk_status / search /
+        received_at range.
 
         Every filter is applied in SQL (via :func:`_queue_conditions`), so the
         returned page is a slice of the FULL matching set — callers never filter
-        a truncated page client-side. Ordered newest first.
+        a truncated page client-side. Ordered newest first, which is the same
+        column ``received_after`` / ``received_before`` bound, so a date range
+        narrows this ordering rather than fighting it.
         """
         conditions = _queue_conditions(
-            lane, chair_id, status, search, unassigned, source, zendesk_status
+            lane, chair_id, status, search, unassigned, source, zendesk_status,
+            received_after, received_before,
         )
         stmt = (
             select(Email)
@@ -613,6 +637,8 @@ class EmailRepository:
         unassigned: bool = False,
         source: str | None = None,
         zendesk_status: str | None = None,
+        received_after: datetime | None = None,
+        received_before: datetime | None = None,
     ) -> int:
         """Return the total number of emails matching the queue filters.
 
@@ -622,7 +648,8 @@ class EmailRepository:
         callers can show an accurate count regardless of ``limit``/``offset``.
         """
         conditions = _queue_conditions(
-            lane, chair_id, status, search, unassigned, source, zendesk_status
+            lane, chair_id, status, search, unassigned, source, zendesk_status,
+            received_after, received_before,
         )
         stmt = select(func.count()).select_from(Email).where(*conditions)
         result = await db.execute(stmt)
@@ -636,16 +663,23 @@ class EmailRepository:
         status: str | None = None,
         search: str | None = None,
         unassigned: bool = False,
+        received_after: datetime | None = None,
+        received_before: datetime | None = None,
     ) -> dict:
         """Return grouped facet counts for the queue's status bar + source toggle.
 
         A single dedicated aggregate (three grouped queries), NOT a tally over a
         capped queue page — the Phase 6C rule that page-derived aggregates drop
         out-of-window rows. The context filters (lane / chair / unassigned /
-        status / search) are honored so the facets COMPOSE with the queue's other
-        filters, but the facet dimensions themselves (source, zendesk_status) are
-        deliberately NOT applied — selecting one status must not zero out the
-        others in the bar.
+        status / search / received_at range) are honored so the facets COMPOSE
+        with the queue's other filters, but the facet dimensions themselves
+        (source, zendesk_status) are deliberately NOT applied — selecting one
+        status must not zero out the others in the bar.
+
+        The date range is a CONTEXT filter, not a facet dimension: it is not one
+        of the values the bar or toggle renders, so narrowing to a date window
+        should narrow the status/source counts shown alongside it, exactly as
+        ``status`` and ``search`` already do.
 
         Returns:
           - ``by_zendesk_status``: {zendesk_status -> count} over the context,
@@ -658,7 +692,15 @@ class EmailRepository:
             (unfiltered). This drives the self-hiding source toggle — it must
             reflect what exists in the data, not the current filter view.
         """
-        context = _queue_conditions(lane, chair_id, status, search, unassigned)
+        context = _queue_conditions(
+            lane,
+            chair_id,
+            status,
+            search,
+            unassigned,
+            received_after=received_after,
+            received_before=received_before,
+        )
 
         zs_stmt = (
             select(Email.zendesk_status, func.count(Email.id))

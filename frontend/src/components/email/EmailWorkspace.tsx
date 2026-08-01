@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AlertCircle, Inbox, PanelLeft, SearchX, X } from "lucide-react";
 
 import {
@@ -186,6 +193,29 @@ export function EmailWorkspace({
   const [zendeskStatusFilter, setZendeskStatusFilter] = usePersistedState<
     string | null
   >("confmail.filterZendeskStatus", null);
+  // Received-date window, as bare `YYYY-MM-DD` strings (the backend owns
+  // whole-day expansion — never send a timestamp). Null when unbounded on that
+  // side; the two are independent, so an open-ended range is valid.
+  const [receivedAfter, setReceivedAfter] = usePersistedState<string | null>(
+    "confmail.filterReceivedAfter",
+    null
+  );
+  const [receivedBefore, setReceivedBefore] = usePersistedState<string | null>(
+    "confmail.filterReceivedBefore",
+    null
+  );
+  // Both bounds move together (Apply / preset / Clear each set the pair), so the
+  // control emits one call and this sets both. Keeping it a single callback also
+  // keeps the two setState calls in one React batch, so `filterKey` transitions
+  // once rather than through a half-applied intermediate window that would fire
+  // an extra query.
+  const handleReceivedRangeChange = useCallback(
+    (after: string | null, before: string | null) => {
+      setReceivedAfter(after);
+      setReceivedBefore(before);
+    },
+    [setReceivedAfter, setReceivedBefore]
+  );
 
   // Debounce the search box so typing doesn't fire a request per keystroke.
   // Seeded from the persisted search so a restored filter takes effect on mount
@@ -210,6 +240,11 @@ export function EmailWorkspace({
     chairFilter,
     sourceFilter,
     zendeskStatusFilter,
+    // Load-bearing: a filter missing from this array does not reset the page, so
+    // narrowing the set while on page 3 strands the chair on a page that no
+    // longer exists. Same bug class as the 2026-07-28 pagination fix.
+    receivedAfter,
+    receivedBefore,
   ]);
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
@@ -237,8 +272,21 @@ export function EmailWorkspace({
     if (debouncedSearch) params.search = debouncedSearch;
     if (chairFilter === "unassigned") params.unassigned = true;
     else if (chairFilter !== "all") params.chair_id = Number(chairFilter);
+    // Context filters, not facet dimensions: a date window should narrow the
+    // status-bar/source counts the same way status and search do. Living here
+    // means they reach BOTH useQueueFacets (which takes contextParams directly)
+    // and useEmailQueue (via the spread into queueParams) with no extra wiring.
+    if (receivedAfter) params.received_after = receivedAfter;
+    if (receivedBefore) params.received_before = receivedBefore;
     return params;
-  }, [laneFilter, statusFilter, debouncedSearch, chairFilter]);
+  }, [
+    laneFilter,
+    statusFilter,
+    debouncedSearch,
+    chairFilter,
+    receivedAfter,
+    receivedBefore,
+  ]);
 
   const queueParams = useMemo<EmailQueueParams>(() => {
     const params: EmailQueueParams = {
@@ -450,6 +498,9 @@ export function EmailWorkspace({
             byZendeskStatus={byZendeskStatus}
             zendeskStatusFilter={zendeskStatusFilter}
             onZendeskStatusSelect={setZendeskStatusFilter}
+            receivedAfter={receivedAfter}
+            receivedBefore={receivedBefore}
+            onReceivedRangeChange={handleReceivedRangeChange}
             total={total}
             shownCount={emails.length}
             rangeStart={offset + 1}
