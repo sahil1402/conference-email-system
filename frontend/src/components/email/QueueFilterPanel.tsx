@@ -2,6 +2,7 @@
 
 import type { Chair } from "@/types";
 
+import { DateRangeFilter } from "./DateRangeFilter";
 import { EmailFilters } from "./EmailFilters";
 import { SourceToggle } from "./SourceToggle";
 import { ZendeskStatusBar } from "./ZendeskStatusBar";
@@ -30,6 +31,13 @@ interface QueueFilterPanelProps {
   byZendeskStatus: Record<string, number>;
   zendeskStatusFilter: string | null;
   onZendeskStatusSelect: (v: string | null) => void;
+  // Received-date window, as bare `YYYY-MM-DD` strings (null = unbounded on
+  // that side). Emitted as a PAIR because the two bounds always change together
+  // — Apply, a preset and Clear each set both at once, and splitting them into
+  // two callbacks would fire two state updates and two query keys per action.
+  receivedAfter: string | null;
+  receivedBefore: string | null;
+  onReceivedRangeChange: (after: string | null, before: string | null) => void;
   // Result count + pagination for the CURRENT filter set. `total` is the
   // backend's filtered total (accurate regardless of page size); `shownCount` is
   // how many rows the loaded page holds; `rangeStart` is the 1-based index of
@@ -79,6 +87,9 @@ export function QueueFilterPanel({
   byZendeskStatus,
   zendeskStatusFilter,
   onZendeskStatusSelect,
+  receivedAfter,
+  receivedBefore,
+  onReceivedRangeChange,
   total,
   shownCount,
   rangeStart,
@@ -118,6 +129,15 @@ export function QueueFilterPanel({
           onSelect={onZendeskStatusSelect}
         />
       )}
+
+      {/* Below the status bar, above the mt-auto footer. Spacing comes from the
+          container's `gap-4` — deliberately NOT `space-y-*`, which sets
+          margin-top on children and would collide with the footer's `mt-auto`. */}
+      <DateRangeFilter
+        receivedAfter={receivedAfter}
+        receivedBefore={receivedBefore}
+        onChange={onReceivedRangeChange}
+      />
 
       {/* Result count + page controls for the active filter. `mt-auto` pins this
           to the BOTTOM of the column so it sits in a constant place regardless

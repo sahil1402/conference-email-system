@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AlertCircle, Inbox, PanelLeft, SearchX, X } from "lucide-react";
 
 import {
@@ -189,16 +196,25 @@ export function EmailWorkspace({
   // Received-date window, as bare `YYYY-MM-DD` strings (the backend owns
   // whole-day expansion — never send a timestamp). Null when unbounded on that
   // side; the two are independent, so an open-ended range is valid.
-  // NOTE: only the values are destructured for now — the setters land with the
-  // DateRangeFilter render in the next piece, and an unused setter would fail
-  // `next build`'s lint step.
-  const [receivedAfter] = usePersistedState<string | null>(
+  const [receivedAfter, setReceivedAfter] = usePersistedState<string | null>(
     "confmail.filterReceivedAfter",
     null
   );
-  const [receivedBefore] = usePersistedState<string | null>(
+  const [receivedBefore, setReceivedBefore] = usePersistedState<string | null>(
     "confmail.filterReceivedBefore",
     null
+  );
+  // Both bounds move together (Apply / preset / Clear each set the pair), so the
+  // control emits one call and this sets both. Keeping it a single callback also
+  // keeps the two setState calls in one React batch, so `filterKey` transitions
+  // once rather than through a half-applied intermediate window that would fire
+  // an extra query.
+  const handleReceivedRangeChange = useCallback(
+    (after: string | null, before: string | null) => {
+      setReceivedAfter(after);
+      setReceivedBefore(before);
+    },
+    [setReceivedAfter, setReceivedBefore]
   );
 
   // Debounce the search box so typing doesn't fire a request per keystroke.
@@ -482,6 +498,9 @@ export function EmailWorkspace({
             byZendeskStatus={byZendeskStatus}
             zendeskStatusFilter={zendeskStatusFilter}
             onZendeskStatusSelect={setZendeskStatusFilter}
+            receivedAfter={receivedAfter}
+            receivedBefore={receivedBefore}
+            onReceivedRangeChange={handleReceivedRangeChange}
             total={total}
             shownCount={emails.length}
             rangeStart={offset + 1}
