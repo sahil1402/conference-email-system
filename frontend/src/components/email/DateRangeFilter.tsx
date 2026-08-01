@@ -21,9 +21,26 @@ import { cn } from "@/lib/utils";
  * Queue filter for the `received_at` window.
  *
  * Presentational only, matching SourceToggle / ZendeskStatusBar: flat props in,
- * one `onChange` out, no filter state of its own. (The popover's open/closed
- * flag is transient UI state, not filter state.) Wiring into EmailWorkspace's
- * usePersistedState / filterKey / contextParams is a separate step.
+ * one `onChange` out, no committed filter state of its own. Wiring into
+ * EmailWorkspace's usePersistedState / filterKey / contextParams is separate.
+ *
+ * DRAFT + APPLY. Everything inside the popover edits a DRAFT; nothing reaches
+ * `onChange` until Apply. The first version committed on every calendar click,
+ * which made building a range unusable — picking a start date immediately fired
+ * a filter change and closed the popover, so there was no room to navigate
+ * months or deliberately choose an end date. One rule now governs the whole
+ * popover: **nothing commits until Apply**. That rule is why the presets set the
+ * draft too rather than committing on click (see PRESETS below) — a popover
+ * where some clicks commit and others don't is exactly the confusion this
+ * replaced.
+ *
+ * Two Clear-ish affordances, deliberately different, split by where they live:
+ *   • header "Clear" (OUTSIDE the popover) — a committed action, fires
+ *     onChange(null, null) immediately. This is the ZendeskStatusBar pattern:
+ *     a one-click way to drop the filter without opening anything.
+ *   • footer "Reset" (INSIDE the popover) — a draft action. Clears the draft and
+ *     keeps the popover open so a fresh range can be picked in the same session.
+ *     It does NOT commit; Apply still owns that.
  *
  * ⚠️ OUTPUT CONTRACT — bare `YYYY-MM-DD`, never a timestamp. The backend
  * documents that a bare date covers the WHOLE day (`received_after` -> 00:00:00,
@@ -69,8 +86,15 @@ function fromParam(value: string | null): Date | null {
  * Preset windows. All are ROLLING and inclusive of today rather than aligned to
  * calendar boundaries ("last week" = the previous 7 days, not last Mon–Sun),
  * which is the more useful reading for a support queue where the question is
- * "what came in recently". Flagged for confirmation — the alternative reading is
- * defensible and this is a product decision, not a technical one.
+ * "what came in recently".
+ *
+ * Presets populate the DRAFT and leave the popover open — they do not commit.
+ * The alternative (commit + close, since a preset is one click and already a
+ * complete range) is defensible and is a one-line change: call `commit(...)`
+ * instead of `setDraft(...)` in `applyPreset`. It is not the default because a
+ * popover in which some controls commit and others don't is the exact confusion
+ * the draft flow replaced, and because landing a preset in the draft lets a
+ * chair take "Last month" and then nudge one end before applying.
  */
 const PRESETS: { label: string; resolve: (today: Date) => [Date, Date] }[] = [
   { label: "Today", resolve: (t) => [t, t] },
@@ -107,32 +131,57 @@ export function DateRangeFilter({
   const before = fromParam(receivedBefore);
   const isActive = after !== null || before !== null;
 
-  // react-day-picker wants `to` omitted rather than null for an open range.
-  const selected: DateRange | undefined = after
-    ? { from: after, to: before ?? undefined }
-    : before
-      ? { from: before, to: before }
-      : undefined;
+  /** The COMMITTED range, as react-day-picker wants it (`to` omitted, not null). */
+  const committed = React.useMemo<DateRange | undefined>(() => {
+    if (after) return { from: after, to: before ?? undefined };
+    if (before) return { from: before, to: before };
+    return undefined;
+    // Derived from the string props; Date objects are rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receivedAfter, receivedBefore]);
 
-  const applyPreset = (resolve: (today: Date) => [Date, Date]) => {
-    const [from, to] = resolve(new Date());
-    onChange(toParam(from), toParam(to));
+  const [draft, setDraft] = React.useState<DateRange | undefined>(committed);
+  // The visible month is controlled so a preset can jump the view to its start
+  // (e.g. "Last quarter" lands three months back) and so month navigation is
+  // preserved while building a range.
+  const [month, setMonth] = React.useState<Date>(committed?.from ?? new Date());
+
+  /**
+   * Re-seed the draft from the COMMITTED value on every open, which is what
+   * makes cancelling clean: clicking away or pressing Escape closes without
+   * committing, and the abandoned draft can never resurface on the next open.
+   */
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      setDraft(committed);
+      setMonth(committed?.from ?? new Date());
+    }
+    setOpen(next);
+  };
+
+  const commit = (range: DateRange | undefined) => {
+    if (!range?.from) {
+      onChange(null, null);
+    } else {
+      // A single picked day is a valid one-day range (from == to), which the
+      // backend's inclusive bounds handle natively.
+      onChange(toParam(range.from), toParam(range.to ?? range.from));
+    }
     setOpen(false);
   };
 
-  const handleSelect = (range: DateRange | undefined) => {
-    if (!range?.from) {
-      onChange(null, null);
-      return;
-    }
-    // Committed on EVERY click, not only once both ends exist: an open-ended
-    // "from the 21st onward" is a legitimate filter the backend supports, and
-    // committing immediately gives a live preview of the narrowing queue. The
-    // popover stays open until the range is complete so the second click has
-    // something to land on.
-    onChange(toParam(range.from), range.to ? toParam(range.to) : null);
-    if (range.to) setOpen(false);
+  const applyPreset = (resolve: (today: Date) => [Date, Date]) => {
+    const [from, to] = resolve(new Date());
+    setDraft({ from, to });
+    setMonth(from);
   };
+
+  // Nothing to apply only when the draft is empty AND no filter is committed —
+  // in every other case Apply is meaningful, including "no edits were made"
+  // (re-commits the current range) and "Reset was pressed" (commits a clear).
+  // Inverted ranges need no guard here: react-day-picker's range mode always
+  // returns from <= to, so an invalid range is unrepresentable.
+  const applyDisabled = !draft?.from && !isActive;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -155,7 +204,7 @@ export function DateRangeFilter({
         )}
       </div>
 
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -178,8 +227,8 @@ export function DateRangeFilter({
           </button>
         </PopoverTrigger>
 
-        {/* p-0 overrides PopoverContent's default padding so the preset rail can
-            run edge-to-edge against the divider. */}
+        {/* p-0 overrides PopoverContent's default padding so the preset rail and
+            the footer can run edge-to-edge against their dividers. */}
         <PopoverContent align="start" className="p-0">
           <div className="flex flex-col sm:flex-row">
             <div
@@ -197,34 +246,55 @@ export function DateRangeFilter({
                   {label}
                 </button>
               ))}
-              {isActive && (
-                <>
-                  <div
-                    className="my-1 h-px"
-                    style={{ backgroundColor: "var(--border)" }}
-                  />
+            </div>
+
+            <div className="flex flex-col">
+              <Calendar
+                mode="range"
+                selected={draft}
+                onSelect={setDraft}
+                month={month}
+                onMonthChange={setMonth}
+                showOutsideDays
+              />
+
+              <div
+                className="flex items-center justify-between gap-2 border-t p-2"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <span className="truncate text-xs" style={{ color: "var(--text-muted)" }}>
+                  {formatRangeLabel(draft?.from ?? null, draft?.to ?? null)}
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      onChange(null, null);
-                      setOpen(false);
-                    }}
-                    className="rounded-md px-3 py-1.5 text-left text-sm transition-colors hover:bg-[var(--surface-raised)]"
-                    style={{ color: "var(--text-muted)" }}
+                    onClick={() => setDraft(undefined)}
+                    className="rounded-md px-2.5 py-1 text-sm transition-colors hover:bg-[var(--surface-raised)]"
+                    style={{ color: "var(--text-secondary)" }}
                   >
                     Reset
                   </button>
-                </>
-              )}
+                  <button
+                    type="button"
+                    onClick={() => commit(draft)}
+                    disabled={applyDisabled}
+                    className={cn(
+                      "rounded-md px-3 py-1 text-sm font-medium transition-colors",
+                      "disabled:cursor-not-allowed disabled:opacity-50"
+                    )}
+                    style={{
+                      // --accent-hover, not --accent: white on --accent measures
+                      // 4.47:1, under the 4.5 AA floor. Same call the calendar's
+                      // selected-day state makes; see calendar.tsx's header.
+                      backgroundColor: "var(--accent-hover)",
+                      color: "#ffffff",
+                    }}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
             </div>
-
-            <Calendar
-              mode="range"
-              selected={selected}
-              onSelect={handleSelect}
-              defaultMonth={after ?? before ?? undefined}
-              showOutsideDays
-            />
           </div>
         </PopoverContent>
       </Popover>

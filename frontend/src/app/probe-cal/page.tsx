@@ -253,10 +253,14 @@ export default function ProbeCalendarPage() {
                 )}
               </pre>
               <p style={{ color: "var(--text-muted)" }}>
-                Check: presets close the popover · a custom range commits after
-                the first click (open-ended) then closes on the second · Clear
-                only appears when a range is active · trigger shows the accent
-                border when active.
+                Draft + Apply: nothing below changes until you press{" "}
+                <strong>Apply</strong>. Check that you can pick a start date,
+                navigate months, then pick an end date without the popover
+                closing · presets fill the draft (and jump the view) rather than
+                committing · <strong>Reset</strong> clears the draft but keeps
+                the popover open · Escape/click-away discards the draft, and
+                reopening shows the applied range again · the header{" "}
+                <strong>Clear</strong> (top-right) still commits immediately.
               </p>
             </div>
           </div>
