@@ -14,7 +14,7 @@ import logging
 import re
 
 import bleach
-from datetime import timezone
+from datetime import datetime, time, timezone
 from typing import Literal
 
 from fastapi import (
@@ -440,6 +440,99 @@ async def ingest_email(
     return result.model_dump()
 
 
+# --- received_at range parsing -------------------------------------------
+# Contract for the date-range filter, single-sourced here because BOTH /queue
+# and /queue/facets must interpret the values identically or the counts beside
+# the list would describe a different window than the list itself.
+#
+# A bare date is DELIBERATELY accepted (chairs pick days, not instants) and is
+# expanded to cover the whole day: ``received_after`` -> 00:00:00.000000,
+# ``received_before`` -> 23:59:59.999999. Requiring full timestamps was the
+# alternative and was rejected — it pushes the same expansion onto every caller,
+# and a client that forgets it silently loses almost a full day of tickets
+# against the repository's INCLUSIVE ``<=``, with no error to notice.
+#
+# A value carrying an explicit time is used verbatim (never re-expanded), so a
+# caller who wants a precise instant still gets one.
+_RECEIVED_PARAM_CONTRACT = (
+    "Accepts a bare date (YYYY-MM-DD) or a full ISO-8601 timestamp. A bare date "
+    "covers the WHOLE day in local-to-UTC terms: `received_after` starts at "
+    "00:00:00 and `received_before` ends at 23:59:59.999999. A timestamp is used "
+    "exactly as given. Naive values (no offset) are read as UTC. Both bounds are "
+    "inclusive."
+)
+
+
+def _parse_received_bound(
+    raw: str | None, *, param: str, end_of_day: bool
+) -> datetime | None:
+    """Parse a ``received_after`` / ``received_before`` query value.
+
+    Returns ``None`` for an absent/blank value (filter not applied). Raises 422
+    for anything unparseable, rather than degrading to "no filter" — a chair who
+    mistypes a date must see an error, not a silently unfiltered queue.
+
+    Date-only input is widened to the correct end of the day (see the contract
+    above). Naive input is stamped UTC, matching the convention the ingest path
+    already uses (``orchestrator._parse_received_at``), so a value means the same
+    instant no matter which entry point produced it.
+    """
+    if raw is None or not raw.strip():
+        return None
+    text = raw.strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(
+            # Literal 422, not a starlette constant: HTTP_422_UNPROCESSABLE_ENTITY
+            # is deprecated on current starlette (warns on every call) while its
+            # replacement HTTP_422_UNPROCESSABLE_CONTENT does not exist on older
+            # versions that `fastapi>=0.111` still permits. The integer is correct
+            # on both.
+            status_code=422,
+            detail=(
+                f"Invalid {param}: {raw!r}. Expected YYYY-MM-DD or an ISO-8601 "
+                "timestamp such as 2026-01-20T14:30:00Z."
+            ),
+        ) from None
+    # "date only" is decided on the RAW TEXT, not on the parsed value: a caller
+    # who explicitly asked for 2026-01-20T00:00:00 means midnight and must not
+    # have it silently widened to the end of the day.
+    is_date_only = "T" not in text and " " not in text
+    if is_date_only and end_of_day:
+        parsed = datetime.combine(parsed.date(), time.max, tzinfo=parsed.tzinfo)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _received_range(
+    received_after: str | None, received_before: str | None
+) -> tuple[datetime | None, datetime | None]:
+    """Parse both bounds and reject an inverted range with a 422.
+
+    Without this check an inverted range is indistinguishable from a genuinely
+    empty window: the repository returns 0 rows either way, so a chair who typed
+    the dates backwards would conclude there are no tickets rather than that the
+    request was wrong.
+    """
+    after = _parse_received_bound(
+        received_after, param="received_after", end_of_day=False
+    )
+    before = _parse_received_bound(
+        received_before, param="received_before", end_of_day=True
+    )
+    if after is not None and before is not None and after > before:
+        raise HTTPException(
+            status_code=422,  # see _parse_received_bound on the literal
+            detail=(
+                f"received_after ({after.isoformat()}) must be on or before "
+                f"received_before ({before.isoformat()})."
+            ),
+        )
+    return after, before
+
+
 @router.get("/queue")
 async def get_queue(
     lane: str | None = None,
@@ -449,12 +542,15 @@ async def get_queue(
     unassigned: bool = False,
     source: str | None = None,
     zendesk_status: str | None = None,
+    received_after: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
+    received_before: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return the email queue, filtered server-side by any combination of
-    lane / chair / unassigned / status / source / zendesk_status / search.
+    lane / chair / unassigned / status / source / zendesk_status / search /
+    received_at range.
 
     ``total`` is the count for the SAME filter set (not the whole table), so a
     scoped caller gets an accurate total independent of ``limit``/``offset`` and
@@ -464,7 +560,13 @@ async def get_queue(
     ``limit`` is bounded 1..200 and ``offset`` >= 0 (FastAPI returns 422 for
     out-of-range values), so no caller can request an unbounded page or a
     negative offset.
+
+    ``received_after`` / ``received_before`` bound ``received_at`` inclusively
+    (see :data:`_RECEIVED_PARAM_CONTRACT`); an inverted range is a 422, not an
+    empty page. The RESOLVED datetimes are echoed in ``page_info``, so a client
+    can see exactly which window was applied after any end-of-day expansion.
     """
+    after, before = _received_range(received_after, received_before)
     kwargs = dict(
         lane=lane,
         chair_id=chair_id,
@@ -473,6 +575,8 @@ async def get_queue(
         unassigned=unassigned,
         source=source,
         zendesk_status=zendesk_status,
+        received_after=after,
+        received_before=before,
     )
     emails = await email_repo.get_email_queue(db, limit=limit, offset=offset, **kwargs)
     total = await email_repo.count_email_queue(db, **kwargs)
@@ -490,6 +594,8 @@ async def get_queue_facets(
     status: str | None = None,
     search: str | None = None,
     unassigned: bool = False,
+    received_after: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
+    received_before: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return grouped facet counts for the queue's status bar + source toggle.
@@ -497,10 +603,14 @@ async def get_queue_facets(
     A dedicated server-side aggregate (see EmailRepository.count_queue_facets),
     NOT a tally over a capped queue page — that page-derived pattern drops
     out-of-window rows (Phase 6C bug class). The context filters
-    (lane / chair / unassigned / status / search) are honored so the facets
-    compose with the queue's other filters; the facet dimensions themselves
-    (source, zendesk_status) are intentionally not applied so the bar always
-    shows every status and the toggle always sees every source.
+    (lane / chair / unassigned / status / search / received_at range) are honored
+    so the facets compose with the queue's other filters; the facet dimensions
+    themselves (source, zendesk_status) are intentionally not applied so the bar
+    always shows every status and the toggle always sees every source.
+
+    The date range is parsed by the SAME helper as ``/queue``
+    (:func:`_received_range`), so the counts always describe the identical
+    window as the list they sit beside — including the end-of-day expansion.
 
     Response shape::
 
@@ -510,6 +620,7 @@ async def get_queue_facets(
           "sources": ["toy_dataset", "zendesk"]
         }
     """
+    after, before = _received_range(received_after, received_before)
     return await email_repo.count_queue_facets(
         db,
         lane=lane,
@@ -517,6 +628,8 @@ async def get_queue_facets(
         status=status,
         search=search,
         unassigned=unassigned,
+        received_after=after,
+        received_before=before,
     )
 
 
