@@ -34,6 +34,19 @@ export interface EmailQueueParams {
   zendesk_status?: string;
   /** Case-insensitive match on subject OR sender. */
   search?: string;
+  /**
+   * Inclusive lower bound on `received_at`, as a bare `YYYY-MM-DD` date.
+   *
+   * The backend documents that a bare date covers the WHOLE day
+   * (`received_after` -> 00:00:00, `received_before` -> 23:59:59.999999) and
+   * owns that expansion. Callers must NOT send a timestamp or do end-of-day
+   * arithmetic here — doing so opts out of the server-side widening and
+   * silently drops most of the final day. An inverted range is a 422.
+   */
+  received_after?: string;
+  /** Inclusive upper bound on `received_at`, as a bare `YYYY-MM-DD` date. See
+   *  `received_after` for the whole-day contract. */
+  received_before?: string;
   limit?: number;
   offset?: number;
 }
@@ -47,10 +60,21 @@ export const QUEUE_PAGE_SIZE = 100;
 
 /** Context filters for the facets aggregate — the queue params minus the facet
  * dimensions (source / zendesk_status) and pagination, so the bar/toggle counts
- * stay stable while a status/source is selected. */
+ * stay stable while a status/source is selected.
+ *
+ * The date range belongs here, not among the facet dimensions: it is not a value
+ * the status bar or source toggle renders, so narrowing to a window should
+ * narrow the counts shown beside it, exactly as `status` and `search` do. The
+ * backend applies it as a context filter for the same reason. */
 export type QueueFacetsParams = Pick<
   EmailQueueParams,
-  "lane" | "chair_id" | "unassigned" | "status" | "search"
+  | "lane"
+  | "chair_id"
+  | "unassigned"
+  | "status"
+  | "search"
+  | "received_after"
+  | "received_before"
 >;
 
 /** GET /emails/queue — fetch the email review queue (envelope with total + page_info).

@@ -186,6 +186,20 @@ export function EmailWorkspace({
   const [zendeskStatusFilter, setZendeskStatusFilter] = usePersistedState<
     string | null
   >("confmail.filterZendeskStatus", null);
+  // Received-date window, as bare `YYYY-MM-DD` strings (the backend owns
+  // whole-day expansion — never send a timestamp). Null when unbounded on that
+  // side; the two are independent, so an open-ended range is valid.
+  // NOTE: only the values are destructured for now — the setters land with the
+  // DateRangeFilter render in the next piece, and an unused setter would fail
+  // `next build`'s lint step.
+  const [receivedAfter] = usePersistedState<string | null>(
+    "confmail.filterReceivedAfter",
+    null
+  );
+  const [receivedBefore] = usePersistedState<string | null>(
+    "confmail.filterReceivedBefore",
+    null
+  );
 
   // Debounce the search box so typing doesn't fire a request per keystroke.
   // Seeded from the persisted search so a restored filter takes effect on mount
@@ -210,6 +224,11 @@ export function EmailWorkspace({
     chairFilter,
     sourceFilter,
     zendeskStatusFilter,
+    // Load-bearing: a filter missing from this array does not reset the page, so
+    // narrowing the set while on page 3 strands the chair on a page that no
+    // longer exists. Same bug class as the 2026-07-28 pagination fix.
+    receivedAfter,
+    receivedBefore,
   ]);
   const prevFilterKey = useRef(filterKey);
   useEffect(() => {
@@ -237,8 +256,21 @@ export function EmailWorkspace({
     if (debouncedSearch) params.search = debouncedSearch;
     if (chairFilter === "unassigned") params.unassigned = true;
     else if (chairFilter !== "all") params.chair_id = Number(chairFilter);
+    // Context filters, not facet dimensions: a date window should narrow the
+    // status-bar/source counts the same way status and search do. Living here
+    // means they reach BOTH useQueueFacets (which takes contextParams directly)
+    // and useEmailQueue (via the spread into queueParams) with no extra wiring.
+    if (receivedAfter) params.received_after = receivedAfter;
+    if (receivedBefore) params.received_before = receivedBefore;
     return params;
-  }, [laneFilter, statusFilter, debouncedSearch, chairFilter]);
+  }, [
+    laneFilter,
+    statusFilter,
+    debouncedSearch,
+    chairFilter,
+    receivedAfter,
+    receivedBefore,
+  ]);
 
   const queueParams = useMemo<EmailQueueParams>(() => {
     const params: EmailQueueParams = {
