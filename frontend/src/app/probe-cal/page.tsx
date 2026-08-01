@@ -25,6 +25,7 @@
 import * as React from "react";
 
 import { Calendar } from "@/components/ui/calendar";
+import { DateRangeFilter } from "@/components/email/DateRangeFilter";
 import { useTheme } from "@/hooks/useTheme";
 
 /** Copied from globals.css. Only the tokens the calendar actually consumes. */
@@ -131,6 +132,9 @@ function ThemePanel({
 export default function ProbeCalendarPage() {
   const { theme, toggleTheme } = useTheme();
   const { month, range, disabled } = useProbeDates();
+  // Local stand-in for the EmailWorkspace filter state this control will own.
+  const [probeAfter, setProbeAfter] = React.useState<string | null>(null);
+  const [probeBefore, setProbeBefore] = React.useState<string | null>(null);
 
   return (
     <main
@@ -202,7 +206,64 @@ export default function ProbeCalendarPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-sm font-medium">3 · What to look at</h2>
+          <h2 className="text-sm font-medium">
+            3 · DateRangeFilter (the actual queue control)
+          </h2>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            Rendered at the real sidebar width (256px, matching the expanded
+            filter column) inside a container painted <code>--surface</code>,
+            since that is what it will sit on. Not wired to anything — the state
+            below is local to this probe, and the emitted values are echoed live
+            so you can confirm the wire format.
+          </p>
+          <div className="flex flex-col gap-6 md:flex-row">
+            <div
+              className="w-64 rounded-lg border p-3"
+              style={{
+                backgroundColor: "var(--surface)",
+                borderColor: "var(--border)",
+              }}
+            >
+              <DateRangeFilter
+                receivedAfter={probeAfter}
+                receivedBefore={probeBefore}
+                onChange={(a, b) => {
+                  setProbeAfter(a);
+                  setProbeBefore(b);
+                }}
+              />
+            </div>
+            <div className="space-y-2 text-sm">
+              <p style={{ color: "var(--text-secondary)" }}>
+                Emitted params (must be bare <code>YYYY-MM-DD</code>, no time
+                component):
+              </p>
+              <pre
+                className="rounded-lg border p-3 text-xs"
+                style={{
+                  backgroundColor: "var(--surface-raised)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                {JSON.stringify(
+                  { received_after: probeAfter, received_before: probeBefore },
+                  null,
+                  2
+                )}
+              </pre>
+              <p style={{ color: "var(--text-muted)" }}>
+                Check: presets close the popover · a custom range commits after
+                the first click (open-ended) then closes on the second · Clear
+                only appears when a range is active · trigger shows the accent
+                border when active.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium">4 · What to look at</h2>
           <ul className="space-y-1.5 text-sm">
             {STATES.map(([state, what]) => (
               <li key={state} className="flex gap-2">
