@@ -514,8 +514,12 @@ export interface ApproveRequest {
 
 /** SendRequest — POST /emails/{id}/send body (backend app/api/v1/emails.py). */
 export interface SendRequest {
-  /** True = public reply to the requester (needs ALLOW_AUTO_SEND); false/omitted
-   * = internal note (default, safe). */
+  /** True = public reply to the requester; false/omitted = internal note
+   * (default, safe). NOT gated on ALLOW_AUTO_SEND — the backend send gate
+   * authorizes any chair-APPROVED draft regardless of that flag, so `true` on
+   * an approved draft does reach the requester. The UI no longer lets a chair
+   * choose: EmailDetail fixes this per submit status (REPLY_PUBLIC_BY_STATUS —
+   * solved → public, pending/open → internal). */
   public?: boolean;
   /** Actor recorded in the audit log (defaults to "chair" backend-side). */
   sent_by?: string;

@@ -69,20 +69,29 @@ zendesk_adapter = ZendeskIngestAdapter()
 class SendRequest(BaseModel):
     """Options for releasing a draft (Zendesk write-back)."""
 
-    # Default is the safe internal note. A public reply also requires
-    # ALLOW_AUTO_SEND=True (enforced in the endpoint), per ZENDESK_API.md §4.
+    # Default is the safe internal note, so a caller that omits this never
+    # notifies a requester by accident. NOT gated on ALLOW_AUTO_SEND: the send
+    # gate (app/core/send_gate.py) decides WHETHER this draft may be sent at
+    # all, and a chair-APPROVED draft is authorized regardless of the flag — so
+    # public=True on an approved draft does reach the requester with
+    # ALLOW_AUTO_SEND=False. The flag only unlocks the separate unreviewed
+    # FAQ-lane auto path. See ZENDESK_API.md §4.
     public: bool = Field(
         default=False,
-        description="True = public reply to the requester (needs ALLOW_AUTO_SEND); "
-        "False = internal note (default, safe).",
+        description="True = public reply to the requester; False = internal note "
+        "(default, safe). Whether the draft may be sent at all is decided by the "
+        "send gate, not by this field.",
     )
     sent_by: str = Field(default="chair", description="Actor recorded in the audit log.")
-    # Reserved (not yet consumed): the Zendesk status to set on send. Mirrors the
-    # frontend ApproveRequest.target_status naming/values (types/index.ts). Inert
-    # in this piece — /send still hardcodes status behavior until a later piece.
+    # Consumed: an explicit value wins and is passed straight to the ticket
+    # update, independently of public/internal (e.g. "pending" on an internal
+    # note). When omitted, the §4 default applies instead: a public reply →
+    # "solved", an internal note → status left unchanged. Mirrors the frontend
+    # SendRequest.target_status naming/values (types/index.ts).
     target_status: Literal["open", "pending", "solved"] | None = Field(
         default=None,
-        description="Zendesk ticket status to set on send (reserved; currently unused).",
+        description="Zendesk ticket status to set on send. Omit to keep the "
+        "default (public reply → 'solved'; internal note → unchanged).",
     )
 
 
