@@ -69,6 +69,16 @@ function findPlaceholders(text: string): string[] {
   return Array.from(text.matchAll(PLACEHOLDER_RE), (m) => m[1].trim());
 }
 
+// AAAI (2026-08): reply visibility is now fixed per submit status --
+// the chair-facing toggle is being soft-removed (see commits that follow).
+// Restore = revert this map to unused + uncomment the toggle blocks.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired up in the next commit
+const REPLY_PUBLIC_BY_STATUS: Record<SplitActionStatus, boolean> = {
+  pending: false,
+  open: false,
+  solved: true,
+};
+
 interface EmailDetailProps {
   email: Email;
   /**
