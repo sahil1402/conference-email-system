@@ -40,7 +40,8 @@ import {
 import { PolicyDetailModal } from "./PolicyDetailModal";
 import { PolicySelectPopover } from "./PolicySelectPopover";
 import { ConversationThread } from "./ConversationThread";
-import { SendVisibilityToggle } from "./SendVisibilityToggle";
+// AAAI (2026-08): visibility toggle soft-removed — see REPLY_PUBLIC_BY_STATUS.
+// import { SendVisibilityToggle } from "./SendVisibilityToggle";
 import { SetTicketStatusButton, type NoReplyStatus } from "./SetTicketStatusButton";
 import { ZendeskLinkButton } from "./ZendeskLinkButton";
 import { CopyLinkButton } from "./CopyLinkButton";
@@ -72,7 +73,6 @@ function findPlaceholders(text: string): string[] {
 // AAAI (2026-08): reply visibility is now fixed per submit status --
 // the chair-facing toggle is being soft-removed (see commits that follow).
 // Restore = revert this map to unused + uncomment the toggle blocks.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired up in the next commit
 const REPLY_PUBLIC_BY_STATUS: Record<SplitActionStatus, boolean> = {
   pending: false,
   open: false,
@@ -170,19 +170,24 @@ export function EmailDetail({
   useEffect(() => {
     setEditedDraft(draftText);
   }, [draftText]);
-  // Submit-as status + reply visibility. Persisted (localStorage) so a chosen
-  // status / toggle survives switching emails (this pane remounts per email) and
-  // reloads — staying put until changed again. Owned here (not inside the child
-  // controls) so the "A" keyboard shortcut submits with the same values a click
-  // would. Default = submit as Solved, internal note (safe).
+  // Submit-as status. Persisted (localStorage) so a chosen status survives
+  // switching emails (this pane remounts per email) and reloads — staying put
+  // until changed again. Owned here (not inside the child control) so the
+  // Ctrl+Alt+S shortcut submits with the same value a click would. Default =
+  // submit as Solved.
   const [approveStatus, setApproveStatus] = usePersistedState<SplitActionStatus>(
     "confmail.submitStatus",
     "solved"
   );
-  const [replyPublic, setReplyPublic] = usePersistedState(
-    "confmail.replyPublic",
-    false
-  );
+  // AAAI (2026-08): visibility is no longer a chair choice — it's fixed per
+  // submit status via REPLY_PUBLIC_BY_STATUS. Kept commented (not deleted) so
+  // restoring the toggle is a one-file revert. NOTE on restore: the persisted
+  // `confmail.replyPublic` key may still hold a stale `true` from before this
+  // change.
+  // const [replyPublic, setReplyPublic] = usePersistedState(
+  //   "confmail.replyPublic",
+  //   false
+  // );
   const [rerouteOpen, setRerouteOpen] = useState(false);
   const [rerouteReason, setRerouteReason] = useState("");
   const [showDiff, setShowDiff] = useState(false);
@@ -271,7 +276,7 @@ export function EmailDetail({
         !isApproving
       ) {
         e.preventDefault();
-        onApprove(editedDraft, approveStatus, replyPublic);
+        onApprove(editedDraft, approveStatus, REPLY_PUBLIC_BY_STATUS[approveStatus]);
         return;
       }
 
@@ -330,7 +335,6 @@ export function EmailDetail({
     isApproving,
     editedDraft,
     approveStatus,
-    replyPublic,
     onApprove,
     canSetStatus,
     isSettingStatus,
@@ -630,18 +634,20 @@ export function EmailDetail({
                 selected={approveStatus}
                 onSelectedChange={setApproveStatus}
                 onAction={(status) =>
-                  onApprove(editedDraft, status, replyPublic)
+                  onApprove(editedDraft, status, REPLY_PUBLIC_BY_STATUS[status])
                 }
               />
 
-              {/* Reply visibility (internal note vs public reply) for the send
-                  that follows approval. Controlled by this pane so the value is
-                  read at submit time (default = internal note). */}
-              <SendVisibilityToggle
+              {/* AAAI (2026-08): reply visibility is no longer a chair choice —
+                  it's fixed per submit status (REPLY_PUBLIC_BY_STATUS above).
+                  Kept commented (not deleted) so the toggle can be restored by
+                  uncommenting this block, the `replyPublic` state, and the
+                  import — and reverting the two call sites to `replyPublic`. */}
+              {/* <SendVisibilityToggle
                 value={replyPublic}
                 onChange={setReplyPublic}
                 disabled={isApproving}
-              />
+              /> */}
 
               {/* Resolve the ticket's Zendesk status WITHOUT a reply. Only for a
                   live Zendesk ticket; independent of the draft/placeholders since
