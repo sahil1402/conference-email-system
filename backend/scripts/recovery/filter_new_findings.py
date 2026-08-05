@@ -15,7 +15,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Reuse the exact same Markdown renderer Marc already reviewed once, so
+# today's report looks identical in style/format to the 2026-07-26 one --
+# no need to re-explain the layout to him.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from find_internal_notes import render_markdown  # noqa: E402
 
 # Comment ids from the 2026-07-26T20:39:47Z report (124 total, across 123
 # tickets), transcribed from the reviewed/confirmed PDF. These are the ones
@@ -92,8 +99,19 @@ def main() -> None:
     out_data = dict(data)
     out_data["findings"] = new_findings
     out_data["affected_ticket_ids"] = sorted({f.get("ticket_id") for f in new_findings})
+    # Keep stats honest for the new, smaller set (tickets/comments scanned
+    # stays as-is -- that reflects the real sweep size -- but matches/
+    # tickets_with_matches should reflect only the new findings).
+    if "stats" in out_data:
+        out_data["stats"] = dict(out_data["stats"])
+        out_data["stats"]["matches"] = len(new_findings)
+        out_data["stats"]["tickets_with_matches"] = len(out_data["affected_ticket_ids"])
     out_path.write_text(json.dumps(out_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"\nFiltered report written: {out_path}")
+    print(f"\nFiltered JSON written: {out_path}")
+
+    md_path = out_path.with_suffix(".md")
+    md_path.write_text(render_markdown(out_data), encoding="utf-8")
+    print(f"Filtered Markdown written: {md_path}  <-- send this to Marc")
 
 
 if __name__ == "__main__":
