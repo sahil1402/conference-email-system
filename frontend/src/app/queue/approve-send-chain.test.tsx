@@ -10,7 +10,7 @@
  * NAVIGATION to the neighbouring ticket, so those tests assert router.push.
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -118,6 +118,51 @@ async function waitForDetail() {
   await screen.findByRole("button", { name: "Submit as Solved" });
 }
 
+/** The three submit statuses and the visibility each one is FIXED to (AAAI
+ *  2026-08). This table is the test-side mirror of REPLY_PUBLIC_BY_STATUS in
+ *  EmailDetail.tsx — deliberately written out by hand rather than imported, so
+ *  a change to the source map fails these tests instead of silently agreeing
+ *  with itself. */
+const VISIBILITY_BY_STATUS = [
+  { label: "Pending", target: "pending", isPublic: false },
+  { label: "Open", target: "open", isPublic: false },
+  { label: "Solved", target: "solved", isPublic: true },
+] as const;
+
+/** Pick a submit status from the split button's dropdown and wait for the
+ *  primary button's label to follow it (which also persists the selection —
+ *  what the Ctrl+Alt+S path reads). */
+async function selectStatus(
+  user: ReturnType<typeof userEvent.setup>,
+  label: string
+) {
+  await user.click(
+    screen.getByRole("button", { name: /choose a resulting status/i })
+  );
+  await user.click(
+    await screen.findByRole("menuitem", { name: new RegExp(`^${label}$`, "i") })
+  );
+  await screen.findByRole("button", { name: `Submit as ${label}` });
+}
+
+/** Ctrl+Alt+S on window (where EmailDetail registers the handler). Mirrors
+ *  EmailDetail.test.tsx's helper: a native event with `code: "KeyS"` and
+ *  getModifierState("AltGraph") === false, since the handler branches on both. */
+function pressCtrlAltS() {
+  const event = new KeyboardEvent("keydown", {
+    key: "s",
+    code: "KeyS",
+    ctrlKey: true,
+    altKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  Object.defineProperty(event, "getModifierState", { value: () => false });
+  act(() => {
+    window.dispatchEvent(event);
+  });
+}
+
 beforeAll(() => {
   window.HTMLElement.prototype.hasPointerCapture = vi.fn();
   window.HTMLElement.prototype.releasePointerCapture = vi.fn();
@@ -145,58 +190,96 @@ beforeEach(() => {
 });
 
 describe("approve → send chain (on the ticket route)", () => {
-  it("1. approves then sends with the status from the selector + toggle value", async () => {
+  // AAAI (2026-08): reply visibility is FIXED per submit status — Solved is
+  // always a public reply to the requester, Pending and Open are always
+  // internal notes. There is no chair-facing toggle any more, so `public` is
+  // never a free variable: it is a pure function of the chosen status, and the
+  // click path and the Ctrl+Alt+S path must agree on it (they read the status
+  // from DIFFERENT variables — the onAction argument vs the persisted
+  // approveStatus — so both are covered below).
+  it.each(VISIBILITY_BY_STATUS)(
+    "1. clicking Submit as $label always sends public: $isPublic",
+    async ({ label, target, isPublic }) => {
+      const user = userEvent.setup();
+      renderTicket();
+      await waitForDetail();
+
+      await selectStatus(user, label);
+      await user.click(screen.getByRole("button", { name: `Submit as ${label}` }));
+
+      await waitFor(() =>
+        expect(state.approve).toHaveBeenCalledWith(
+          1,
+          expect.objectContaining({ approved_by: "chair", target_status: target })
+        )
+      );
+      await waitFor(() =>
+        expect(state.send).toHaveBeenCalledWith(1, {
+          public: isPublic,
+          target_status: target,
+        })
+      );
+    }
+  );
+
+  it.each(VISIBILITY_BY_STATUS)(
+    "2. Ctrl+Alt+S submits $label with the same fixed public: $isPublic as a click",
+    async ({ label, target, isPublic }) => {
+      const user = userEvent.setup();
+      renderTicket();
+      await waitForDetail();
+
+      await selectStatus(user, label);
+      pressCtrlAltS();
+
+      await waitFor(() =>
+        expect(state.send).toHaveBeenCalledWith(1, {
+          public: isPublic,
+          target_status: target,
+        })
+      );
+    }
+  );
+
+  it("3. Solved stays public even when the chair has edited the draft", async () => {
+    // An edit changes the Zendesk TAG the backend applies (ai_drafted vs
+    // ai_auto_replied) but must NOT change who sees the reply — visibility
+    // follows the status alone.
     const user = userEvent.setup();
     renderTicket();
     await waitForDetail();
 
-    await user.click(screen.getByRole("button", { name: /choose a resulting status/i }));
-    await user.click(await screen.findByRole("menuitem", { name: /solved/i }));
-    await user.click(screen.getByRole("button", { name: /submit as solved/i }));
+    const textarea = screen.getByDisplayValue(
+      "Dear Author, the deadline is in the CFP."
+    );
+    await user.type(textarea, " Please see the CFP page.");
+    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
 
     await waitFor(() =>
       expect(state.approve).toHaveBeenCalledWith(
         1,
-        expect.objectContaining({ approved_by: "chair", target_status: "solved" })
+        expect.objectContaining({
+          final_text: "Dear Author, the deadline is in the CFP. Please see the CFP page.",
+        })
       )
     );
-    await waitFor(() =>
-      expect(state.send).toHaveBeenCalledWith(1, {
-        public: false,
-        target_status: "solved",
-      })
-    );
-  });
-
-  it("2. defaults to an internal note (public: false)", async () => {
-    const user = userEvent.setup();
-    renderTicket();
-    await waitForDetail();
-
-    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
-
-    await waitFor(() =>
-      expect(state.send).toHaveBeenCalledWith(1, {
-        public: false,
-        target_status: "solved",
-      })
-    );
-  });
-
-  it("3. toggling 'Send to requester' sends with public: true", async () => {
-    const user = userEvent.setup();
-    renderTicket();
-    await waitForDetail();
-
-    await user.click(screen.getByRole("switch")); // internal → public
-    await user.click(screen.getByRole("button", { name: "Submit as Solved" }));
-
     await waitFor(() =>
       expect(state.send).toHaveBeenCalledWith(1, {
         public: true,
         target_status: "solved",
       })
     );
+  });
+
+  it("3b. renders no reply-visibility control (the toggle is soft-removed)", async () => {
+    // Guard against the commented-out SendVisibilityToggle being restored
+    // without also reverting REPLY_PUBLIC_BY_STATUS — that combination would
+    // render a switch whose value is silently ignored at submit time.
+    renderTicket();
+    await waitForDetail();
+
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByText(/send to requester/i)).toBeNull();
   });
 
   it("4. does NOT send when approve fails", async () => {
