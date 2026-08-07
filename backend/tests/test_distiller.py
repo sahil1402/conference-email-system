@@ -61,6 +61,141 @@ def test_parse_keeps_every_query_line():
 
 
 # ---------------------------------------------------------------------------
+# Identification lines (submission number / OpenReview id / authors)
+#
+# SCOPE LIMIT: these assert the TRANSPORT contract only — what comes off the
+# wire, verbatim. Nothing here validates that a submission number is numeric,
+# that an OpenReview id is 10 chars, or that an AUTHOR line has two pipes;
+# that is deliberately the extractor module's job, so a malformed value must
+# arrive here intact rather than being silently dropped.
+# ---------------------------------------------------------------------------
+_IDENTIFIED = (
+    "INTENT: author_list_change\n"
+    "CONFIDENCE: 0.85\n"
+    "QUERY: add co-author to author list after paper submission deadline\n"
+    "SUBMISSION_NUMBER: 22336\n"
+    "OPENREVIEW_ID: Ab3xY9kLm2\n"
+    "AUTHOR: Jane Roe | jane@example.edu | Example University\n"
+    "AUTHOR: John Doe | NONE | Example University\n"
+)
+
+
+def test_parse_submission_number_present():
+    assert _parse(_IDENTIFIED).submission_number_raw == "22336"
+
+
+def test_parse_openreview_id_present():
+    assert _parse(_IDENTIFIED).openreview_id_raw == "Ab3xY9kLm2"
+
+
+def test_parse_legacy_output_without_identification_fields():
+    """Backward compat: output predating these fields parses exactly as before.
+
+    The old fixture is reused verbatim, so this fails if the new lines were
+    ever made mandatory.
+    """
+    result = _parse(_STRUCTURED)
+    assert result is not None
+    assert result.submission_number_raw is None
+    assert result.openreview_id_raw is None
+    assert result.authors_raw == []
+    # ...and the pre-existing contract is untouched.
+    assert result.intent == "author_list_change"
+    assert result.confidence == 0.85
+    assert len(result.queries) == 2
+
+
+def test_parse_identification_leaves_existing_fields_untouched():
+    """The new lines must not be captured as queries, nor disturb intent."""
+    result = _parse(_IDENTIFIED)
+    assert result.intent == "author_list_change"
+    assert result.confidence == 0.85
+    assert result.queries == [
+        "add co-author to author list after paper submission deadline"
+    ]
+
+
+def test_parse_submission_number_none_sentinel():
+    text = _STRUCTURED + "SUBMISSION_NUMBER: NONE\n"
+    assert _parse(text).submission_number_raw is None
+
+
+def test_parse_openreview_id_none_sentinel():
+    text = _STRUCTURED + "OPENREVIEW_ID: NONE\n"
+    assert _parse(text).openreview_id_raw is None
+
+
+def test_parse_none_sentinel_is_case_insensitive():
+    text = _STRUCTURED + "SUBMISSION_NUMBER: none\nOPENREVIEW_ID: None\n"
+    result = _parse(text)
+    assert result.submission_number_raw is None
+    assert result.openreview_id_raw is None
+
+
+def test_parse_submission_number_kept_raw_when_not_numeric():
+    """Validation belongs to the extractor — the parser must not filter."""
+    text = _STRUCTURED + "SUBMISSION_NUMBER: AAAI-2026\n"
+    assert _parse(text).submission_number_raw == "AAAI-2026"
+
+
+def test_parse_multiple_author_lines():
+    assert _parse(_IDENTIFIED).authors_raw == [
+        "Jane Roe | jane@example.edu | Example University",
+        "John Doe | NONE | Example University",
+    ]
+
+
+def test_parse_keeps_malformed_author_line():
+    """A line missing a separator is still handed on, not dropped."""
+    text = (
+        _STRUCTURED
+        + "AUTHOR: Jane Roe | jane@example.edu | Example University\n"
+        + "AUTHOR: John Doe\n"  # malformed: no pipes at all
+        + "AUTHOR: Ann Poe | ann@example.edu\n"  # malformed: only one pipe
+    )
+    assert _parse(text).authors_raw == [
+        "Jane Roe | jane@example.edu | Example University",
+        "John Doe",
+        "Ann Poe | ann@example.edu",
+    ]
+
+
+def test_parse_zero_author_lines():
+    assert _parse(_STRUCTURED).authors_raw == []
+
+
+def test_parse_bare_none_author_line_is_dropped():
+    """`AUTHOR: NONE` means 'nobody', not a person named NONE."""
+    text = _STRUCTURED + "AUTHOR: NONE\nAUTHOR: none\n"
+    assert _parse(text).authors_raw == []
+
+
+def test_parse_keeps_author_line_with_none_parts():
+    """Only a BARE NONE is dropped — NONE as a missing *part* is data."""
+    text = _STRUCTURED + "AUTHOR: NONE | jane@example.edu | NONE\n"
+    assert _parse(text).authors_raw == ["NONE | jane@example.edu | NONE"]
+
+
+def test_parse_identification_without_queries_is_still_unusable():
+    """QUERY lines stay the only load-bearing field."""
+    text = (
+        "INTENT: cms_support\n"
+        "CONFIDENCE: 0.7\n"
+        "SUBMISSION_NUMBER: 22336\n"
+        "AUTHOR: Jane Roe | jane@example.edu | Example University\n"
+    )
+    assert _parse(text) is None
+
+
+def test_distill_result_identification_fields_default_empty():
+    """Constructing without the new fields must keep working (additive)."""
+    result = DistillResult(queries=["q"], intent="cms_support")
+    assert result.submission_number_raw is None
+    assert result.openreview_id_raw is None
+    assert result.authors_raw == []
+
+
+# ---------------------------------------------------------------------------
 # The distill call (mocked endpoint)
 # ---------------------------------------------------------------------------
 class _OkClient:
