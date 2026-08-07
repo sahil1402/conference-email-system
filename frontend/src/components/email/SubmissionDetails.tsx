@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -98,8 +98,34 @@ function AuthorLine({ author }: { author: AuthorMention }) {
 }
 
 /**
- * Which submission an email is about, and who it names: the submission number,
- * a link to its OpenReview forum page, and the people the email identifies.
+ * Several short values in ONE grid cell: wrapping, middot-separated.
+ *
+ * Reuses AuthorLine's separator idiom — a muted `aria-hidden` middot with
+ * spacing from the flex gap, so assistive tech reads the values as separate
+ * elements without announcing the punctuation. Inline (not stacked like the
+ * authors column) because each value here is a single atomic token, so there is
+ * no internal structure a separator could be confused with.
+ */
+function InlineValueList({ children }: { children: ReactNode[] }) {
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+      {children.map((child, index) => (
+        <Fragment key={index}>
+          {index > 0 && (
+            <span aria-hidden style={{ color: "var(--text-muted)" }}>
+              ·
+            </span>
+          )}
+          {child}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Which submissions an email refers to, and who it names: the submission
+ * numbers, links to their OpenReview forum pages, and the people it identifies.
  *
  * Owns its own "render nothing when there is nothing to show" logic, so callers
  * can pass the raw nullable `extraction` without a surrounding conditional —
@@ -122,8 +148,19 @@ export function SubmissionDetails({
   // the whole extraction — so every field is consulted, and each one that counts
   // here also has a row below. An extraction that passes this guard can never
   // render as a bare title with no content.
-  const hasSubmissionNumber = isPresent(extraction.submission_number);
-  const hasForumId = isPresent(extraction.openreview_forum_id);
+  // Blank entries are stripped and values trimmed defensively. The extractor
+  // already does both, but one slipping through would render as an empty value
+  // or, worse, a link whose href carries %20. Emptiness is then derived from the
+  // CLEANED lists, so a list of nothing but blanks correctly counts as empty.
+  const submissionNumbers = extraction.submission_numbers
+    .filter(isPresent)
+    .map((value) => value.trim());
+  const forumIds = extraction.openreview_forum_ids
+    .filter(isPresent)
+    .map((value) => value.trim());
+
+  const hasSubmissionNumbers = submissionNumbers.length > 0;
+  const hasForumIds = forumIds.length > 0;
   const hasAuthors = extraction.authors.some(
     (author) =>
       isPresent(author.name) ||
@@ -131,14 +168,7 @@ export function SubmissionDetails({
       isPresent(author.affiliation)
   );
 
-  if (!hasSubmissionNumber && !hasForumId && !hasAuthors) return null;
-
-  // Trimmed because it goes into a URL: the backend passes identifiers through
-  // unvalidated, so stray whitespace would otherwise become %20 in the href.
-  // encodeURIComponent is a no-op for a well-formed id ([A-Za-z0-9]{10}) and
-  // keeps a malformed one from breaking out of the query parameter.
-  const forumId = extraction.openreview_forum_id?.trim() ?? "";
-  const forumUrl = `${OPENREVIEW_FORUM_URL}?id=${encodeURIComponent(forumId)}`;
+  if (!hasSubmissionNumbers && !hasForumIds && !hasAuthors) return null;
 
   return (
     <div
@@ -162,47 +192,68 @@ export function SubmissionDetails({
           auto-sizes to the widest label, so the value column stays aligned
           across all three rows without hand-tuned widths. */}
       <div className="mt-1.5 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1">
-        {hasSubmissionNumber && (
+        {hasSubmissionNumbers && (
           <>
+            {/* Pluralised from the count rather than a fixed "Number(s)":
+                several submissions per email are now routine, not an edge case,
+                and the grid's label column auto-sizes so the width change costs
+                nothing. */}
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Number
+              {submissionNumbers.length === 1 ? "Number" : "Numbers"}
             </span>
-            {/* tabular-nums so ids line up when this sits near the ticket badge. */}
-            <span
-              className="text-sm font-semibold tabular-nums"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {extraction.submission_number}
-            </span>
+            <InlineValueList>
+              {submissionNumbers.map((number) => (
+                /* tabular-nums so ids line up with each other and with the
+                   ticket badge nearby. */
+                <span
+                  key={number}
+                  className="text-sm font-semibold tabular-nums"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {number}
+                </span>
+              ))}
+            </InlineValueList>
           </>
         )}
 
-        {hasForumId && (
+        {hasForumIds && (
           <>
+            {/* Not pluralised: "OpenReview" names the destination, not a count,
+                so it reads correctly for any number of links. */}
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               OpenReview
             </span>
-            <a
-              href={forumUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              /* "(opens in new tab)" suffix matches ZendeskLinkButton, the
-                 external-link convention this component already follows. The id
-                 is named because on its own it is an opaque string that tells a
-                 screen-reader user nothing; it stays a prefix of the visible
-                 text, so the accessible name still contains the label. */
-              aria-label={`Open submission ${forumId} in OpenReview (opens in new tab)`}
-              className={cn(
-                "inline-flex w-fit items-center gap-1 text-sm font-semibold",
-                "text-[var(--accent)] hover:underline",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
-              )}
-            >
-              {forumId}
-              {/* Inherits currentColor from the <a>; aria-hidden because the
-                  label already says the link opens in a new tab. */}
-              <ExternalLink className="h-3 w-3" aria-hidden />
-            </a>
+            <InlineValueList>
+              {forumIds.map((id) => (
+                /* One link PER id — they are different papers (ids are
+                   case-sensitive), so a single combined link would be wrong. */
+                <a
+                  key={id}
+                  href={`${OPENREVIEW_FORUM_URL}?id=${encodeURIComponent(id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  /* "(opens in new tab)" suffix matches ZendeskLinkButton, the
+                     external-link convention this component already follows.
+                     Each link names ITS OWN id: a shared generic label would
+                     leave a screen-reader user unable to tell several links
+                     apart, and the id is otherwise an opaque string. It stays a
+                     prefix of the visible text, so the accessible name still
+                     contains the label. */
+                  aria-label={`Open submission ${id} in OpenReview (opens in new tab)`}
+                  className={cn(
+                    "inline-flex items-center gap-1 text-sm font-semibold",
+                    "text-[var(--accent)] hover:underline",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
+                  )}
+                >
+                  {id}
+                  {/* Inherits currentColor from the <a>; aria-hidden because the
+                      label already says the link opens in a new tab. */}
+                  <ExternalLink className="h-3 w-3" aria-hidden />
+                </a>
+              ))}
+            </InlineValueList>
           </>
         )}
 

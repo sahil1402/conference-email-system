@@ -70,8 +70,8 @@ vi.mock("@/hooks/useEmailThread", () => ({
 }));
 
 const FULL_EXTRACTION: ExtractionData = {
-  submission_number: "22336",
-  openreview_forum_id: "Ab3xY9kLm2",
+  submission_numbers: ["22336"],
+  openreview_forum_ids: ["Ab3xY9kLm2"],
   authors: [
     {
       name: "Jane Roe",
@@ -155,8 +155,8 @@ describe("EmailDetail — SubmissionDetails presence", () => {
     // Examined-but-empty: the panel must stay silent, not render a bare title.
     renderTicket({
       extraction: {
-        submission_number: null,
-        openreview_forum_id: null,
+        submission_numbers: [],
+        openreview_forum_ids: [],
         authors: [],
         method: "llm_distiller",
       },

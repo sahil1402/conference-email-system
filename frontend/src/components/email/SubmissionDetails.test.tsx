@@ -1,10 +1,11 @@
 /**
- * SubmissionDetails (2a) — the panel's render / don't-render contract, plus
- * submission_number output.
+ * SubmissionDetails — the panel's render / don't-render contract and its output.
  *
- * All three fields now have UI: submission_number (2a), the OpenReview link
- * (2b) and authors (2c). The 2a/2b container-only placeholders for authors have
- * been replaced by real output assertions below.
+ * All three fields have UI, and the two identifier fields are LISTS: an email
+ * may name several submissions, so "several" is the routine case here, not an
+ * edge case. Single-element fixtures would pass even if something collapsed a
+ * list to a scalar, so the multi-identifier section below carries two or three
+ * of each on purpose.
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -13,8 +14,8 @@ import { SubmissionDetails } from "./SubmissionDetails";
 import type { AuthorMention, ExtractionData } from "@/types";
 
 const EMPTY: ExtractionData = {
-  submission_number: null,
-  openreview_forum_id: null,
+  submission_numbers: [],
+  openreview_forum_ids: [],
   authors: [],
   method: "none",
 };
@@ -48,8 +49,8 @@ describe("SubmissionDetails — renders nothing", () => {
     const { container } = render(
       <SubmissionDetails
         extraction={extraction({
-          submission_number: "   ",
-          openreview_forum_id: "",
+          submission_numbers: ["   "],
+          openreview_forum_ids: [""],
           authors: [author({ name: "  " })],
         })}
       />
@@ -76,7 +77,7 @@ describe("SubmissionDetails — renders nothing", () => {
 describe("SubmissionDetails — submission number", () => {
   it("renders the title and the number", () => {
     render(
-      <SubmissionDetails extraction={extraction({ submission_number: "22336" })} />
+      <SubmissionDetails extraction={extraction({ submission_numbers: ["22336"] })} />
     );
     expect(screen.getByText("Submission Details")).toBeInTheDocument();
     expect(screen.getByText("Number")).toBeInTheDocument();
@@ -88,7 +89,7 @@ describe("SubmissionDetails — submission number", () => {
     // duplicated aria-label string — one source of truth, so the name shown on
     // screen and the name announced can never drift apart.
     render(
-      <SubmissionDetails extraction={extraction({ submission_number: "22336" })} />
+      <SubmissionDetails extraction={extraction({ submission_numbers: ["22336"] })} />
     );
     const group = panel()!;
     expect(group).toBeInTheDocument();
@@ -105,7 +106,7 @@ describe("SubmissionDetails — submission number", () => {
     // The ticket badge elsewhere prefixes '#'; a submission number is a
     // different identifier and must not be dressed up as one.
     render(
-      <SubmissionDetails extraction={extraction({ submission_number: "9904" })} />
+      <SubmissionDetails extraction={extraction({ submission_numbers: ["9904"] })} />
     );
     expect(screen.getByText("9904")).toBeInTheDocument();
     expect(screen.queryByText("#9904")).toBeNull();
@@ -115,7 +116,7 @@ describe("SubmissionDetails — submission number", () => {
     // The backend passes identifiers through unvalidated; the UI must not
     // silently drop one it did not expect.
     render(
-      <SubmissionDetails extraction={extraction({ submission_number: "AAAI-2026" })} />
+      <SubmissionDetails extraction={extraction({ submission_numbers: ["AAAI-2026"] })} />
     );
     expect(screen.getByText("AAAI-2026")).toBeInTheDocument();
   });
@@ -123,7 +124,7 @@ describe("SubmissionDetails — submission number", () => {
   it("accepts an extra className on the container", () => {
     render(
       <SubmissionDetails
-        extraction={extraction({ submission_number: "22336" })}
+        extraction={extraction({ submission_numbers: ["22336"] })}
         className="mt-4"
       />
     );
@@ -141,7 +142,7 @@ describe("SubmissionDetails — OpenReview link", () => {
 
   it("renders the link when only openreview_forum_id is present", () => {
     render(
-      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+      <SubmissionDetails extraction={extraction({ openreview_forum_ids: [FORUM_ID] })} />
     );
     expect(panel()).toBeInTheDocument();
     expect(screen.getByText("OpenReview")).toBeInTheDocument();
@@ -152,7 +153,7 @@ describe("SubmissionDetails — OpenReview link", () => {
 
   it("points at the public forum page for that id", () => {
     render(
-      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+      <SubmissionDetails extraction={extraction({ openreview_forum_ids: [FORUM_ID] })} />
     );
     expect(forumLink()).toHaveAttribute(
       "href",
@@ -162,7 +163,7 @@ describe("SubmissionDetails — OpenReview link", () => {
 
   it("opens in a new tab safely", () => {
     render(
-      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+      <SubmissionDetails extraction={extraction({ openreview_forum_ids: [FORUM_ID] })} />
     );
     const link = forumLink();
     expect(link).toHaveAttribute("target", "_blank");
@@ -175,7 +176,7 @@ describe("SubmissionDetails — OpenReview link", () => {
     // Matches ZendeskLinkButton's "(opens in new tab)" convention; the raw id
     // alone would tell a screen-reader user nothing.
     render(
-      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+      <SubmissionDetails extraction={extraction({ openreview_forum_ids: [FORUM_ID] })} />
     );
     expect(forumLink()).toHaveAccessibleName(
       `Open submission ${FORUM_ID} in OpenReview (opens in new tab)`
@@ -184,14 +185,14 @@ describe("SubmissionDetails — OpenReview link", () => {
 
   it("shows the forum id as the link text", () => {
     render(
-      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+      <SubmissionDetails extraction={extraction({ openreview_forum_ids: [FORUM_ID] })} />
     );
     expect(forumLink()).toHaveTextContent(FORUM_ID);
   });
 
   it("keeps the visible text inside the accessible name (WCAG label-in-name)", () => {
     render(
-      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+      <SubmissionDetails extraction={extraction({ openreview_forum_ids: [FORUM_ID] })} />
     );
     const link = forumLink();
     expect(link.getAttribute("aria-label")).toContain(link.textContent?.trim());
@@ -202,7 +203,7 @@ describe("SubmissionDetails — OpenReview link", () => {
     // would become %20 in the URL and break the link.
     render(
       <SubmissionDetails
-        extraction={extraction({ openreview_forum_id: `  ${FORUM_ID}  ` })}
+        extraction={extraction({ openreview_forum_ids: [`  ${FORUM_ID}  `] })}
       />
     );
     expect(forumLink()).toHaveAttribute(
@@ -213,7 +214,7 @@ describe("SubmissionDetails — OpenReview link", () => {
 
   it("escapes an id carrying URL-special characters", () => {
     render(
-      <SubmissionDetails extraction={extraction({ openreview_forum_id: "a&b=c d" })} />
+      <SubmissionDetails extraction={extraction({ openreview_forum_ids: ["a&b=c d"] })} />
     );
     expect(forumLink()).toHaveAttribute(
       "href",
@@ -223,7 +224,7 @@ describe("SubmissionDetails — OpenReview link", () => {
 
   it("renders no link when there is no forum id", () => {
     render(
-      <SubmissionDetails extraction={extraction({ submission_number: "22336" })} />
+      <SubmissionDetails extraction={extraction({ submission_numbers: ["22336"] })} />
     );
     expect(screen.queryByRole("link")).toBeNull();
     expect(screen.queryByText("OpenReview")).toBeNull();
@@ -233,8 +234,8 @@ describe("SubmissionDetails — OpenReview link", () => {
     render(
       <SubmissionDetails
         extraction={extraction({
-          submission_number: "22336",
-          openreview_forum_id: FORUM_ID,
+          submission_numbers: ["22336"],
+          openreview_forum_ids: [FORUM_ID],
         })}
       />
     );
@@ -254,8 +255,8 @@ describe("SubmissionDetails — OpenReview link", () => {
     render(
       <SubmissionDetails
         extraction={extraction({
-          submission_number: "22336",
-          openreview_forum_id: FORUM_ID,
+          submission_numbers: ["22336"],
+          openreview_forum_ids: [FORUM_ID],
         })}
       />
     );
@@ -263,6 +264,177 @@ describe("SubmissionDetails — OpenReview link", () => {
     expect(grid).not.toBeNull();
     expect(grid).toContainElement(screen.getByText("Number"));
     expect(grid).toContainElement(screen.getByText("OpenReview"));
+  });
+});
+
+describe("SubmissionDetails — multiple identifiers", () => {
+  /** All OpenReview links currently rendered. */
+  function forumLinks(): HTMLElement[] {
+    return screen.getAllByRole("link", { name: /openreview/i });
+  }
+
+  it("renders every submission number, in array order", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({ submission_numbers: ["22336", "11111", "9904"] })}
+      />
+    );
+    for (const n of ["22336", "11111", "9904"]) {
+      expect(screen.getByText(n)).toBeInTheDocument();
+    }
+    // Order is the backend's (subject-first); re-sorting would discard it.
+    const cell = screen.getByText("Numbers").nextElementSibling!;
+    const rendered = Array.from(cell.querySelectorAll("span"))
+      .map((el) => el.textContent)
+      .filter((t) => t && t !== "·");
+    expect(rendered).toEqual(["22336", "11111", "9904"]);
+  });
+
+  it("pluralises the label only when there is more than one number", () => {
+    const { unmount } = render(
+      <SubmissionDetails extraction={extraction({ submission_numbers: ["22336"] })} />
+    );
+    expect(screen.getByText("Number")).toBeInTheDocument();
+    expect(screen.queryByText("Numbers")).toBeNull();
+    unmount();
+
+    render(
+      <SubmissionDetails
+        extraction={extraction({ submission_numbers: ["22336", "11111"] })}
+      />
+    );
+    expect(screen.getByText("Numbers")).toBeInTheDocument();
+    expect(screen.queryByText("Number")).toBeNull();
+  });
+
+  it("renders one link PER forum id, each with its own href", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          openreview_forum_ids: ["Ab3xY9kLm2", "Zz9QwErTy1"],
+        })}
+      />
+    );
+    const links = forumLinks();
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute(
+      "href",
+      "https://openreview.net/forum?id=Ab3xY9kLm2"
+    );
+    expect(links[1]).toHaveAttribute(
+      "href",
+      "https://openreview.net/forum?id=Zz9QwErTy1"
+    );
+  });
+
+  it("gives each link its OWN accessible label, not a shared generic one", () => {
+    // A shared label would leave a screen-reader user unable to tell several
+    // links apart — the ids are opaque, so the label is the only distinguisher.
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          openreview_forum_ids: ["Ab3xY9kLm2", "Zz9QwErTy1"],
+        })}
+      />
+    );
+    const names = forumLinks().map((l) => l.getAttribute("aria-label"));
+    expect(names).toEqual([
+      "Open submission Ab3xY9kLm2 in OpenReview (opens in new tab)",
+      "Open submission Zz9QwErTy1 in OpenReview (opens in new tab)",
+    ]);
+    expect(new Set(names).size).toBe(2); // genuinely distinct
+  });
+
+  it("keeps every link individually targetable and safe", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          openreview_forum_ids: ["Ab3xY9kLm2", "Zz9QwErTy1"],
+        })}
+      />
+    );
+    for (const link of forumLinks()) {
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    }
+  });
+
+  it("renders one number alongside several forum ids", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_numbers: ["22336"],
+          openreview_forum_ids: ["Ab3xY9kLm2", "Zz9QwErTy1"],
+        })}
+      />
+    );
+    expect(screen.getByText("Number")).toBeInTheDocument();
+    expect(screen.getByText("22336")).toBeInTheDocument();
+    expect(forumLinks()).toHaveLength(2);
+  });
+
+  it("renders several numbers alongside one forum id", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_numbers: ["22336", "11111"],
+          openreview_forum_ids: ["Ab3xY9kLm2"],
+        })}
+      />
+    );
+    expect(screen.getByText("Numbers")).toBeInTheDocument();
+    expect(forumLinks()).toHaveLength(1);
+  });
+
+  it("drops blank entries without dropping their siblings", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_numbers: ["22336", "   ", "11111"],
+          openreview_forum_ids: ["", "Ab3xY9kLm2"],
+        })}
+      />
+    );
+    const cell = screen.getByText("Numbers").nextElementSibling!;
+    const rendered = Array.from(cell.querySelectorAll("span"))
+      .map((el) => el.textContent)
+      .filter((t) => t && t !== "·");
+    expect(rendered).toEqual(["22336", "11111"]);
+    expect(forumLinks()).toHaveLength(1);
+  });
+
+  it("separates values with an aria-hidden middot", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({ submission_numbers: ["22336", "11111"] })}
+      />
+    );
+    const cell = screen.getByText("Numbers").nextElementSibling!;
+    const separators = Array.from(cell.querySelectorAll("span")).filter(
+      (el) => el.textContent === "·"
+    );
+    expect(separators).toHaveLength(1);
+    expect(separators[0]).toHaveAttribute("aria-hidden");
+  });
+
+  it("keeps all three rows in the same grid when all are multi-valued", () => {
+    // The shell/grid contract from earlier subtasks must survive the widening.
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_numbers: ["22336", "11111"],
+          openreview_forum_ids: ["Ab3xY9kLm2", "Zz9QwErTy1"],
+          authors: [author({ name: "Jane Roe" }), author({ name: "John Doe" })],
+        })}
+      />
+    );
+    const grid = panel()!.querySelector(".grid")!;
+    for (const label of ["Numbers", "OpenReview", "Authors"]) {
+      expect(grid).toContainElement(screen.getByText(label));
+    }
+    // Still 3 rows x 2 columns — several values live INSIDE a cell, and must
+    // not have become extra grid children.
+    expect(grid.children).toHaveLength(6);
   });
 });
 
@@ -484,8 +656,8 @@ describe("SubmissionDetails — all three rows together", () => {
     render(
       <SubmissionDetails
         extraction={extraction({
-          submission_number: "22336",
-          openreview_forum_id: "Ab3xY9kLm2",
+          submission_numbers: ["22336"],
+          openreview_forum_ids: ["Ab3xY9kLm2"],
           authors: [author({ name: "Jane Roe", email: "jane@example.edu" })],
         })}
       />
@@ -508,8 +680,8 @@ describe("SubmissionDetails — all three rows together", () => {
     render(
       <SubmissionDetails
         extraction={extraction({
-          submission_number: "22336",
-          openreview_forum_id: "Ab3xY9kLm2",
+          submission_numbers: ["22336"],
+          openreview_forum_ids: ["Ab3xY9kLm2"],
           authors: [author({ name: "Jane Roe" })],
         })}
       />
@@ -523,8 +695,8 @@ describe("SubmissionDetails — all three rows together", () => {
     render(
       <SubmissionDetails
         extraction={extraction({
-          submission_number: "22336",
-          openreview_forum_id: "Ab3xY9kLm2",
+          submission_numbers: ["22336"],
+          openreview_forum_ids: ["Ab3xY9kLm2"],
         })}
       />
     );
