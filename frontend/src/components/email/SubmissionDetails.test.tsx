@@ -2,11 +2,11 @@
  * SubmissionDetails (2a) — the panel's render / don't-render contract, plus
  * submission_number output.
  *
- * SCOPE LIMIT: only submission_number has UI in this subtask. The emptiness
- * check already considers openreview_forum_id and authors, so the "renders on
- * those alone" cases below assert the CONTAINER appears — deliberately not the
- * field output, which is 2b's and 2c's job. Those tests are what stop a later
- * subtask from having to revisit this component's render decision.
+ * SCOPE LIMIT: submission_number (2a) and the OpenReview link (2b) have UI.
+ * `authors` does NOT yet — the emptiness check already counts it, so the
+ * "renders on authors alone" case below asserts only that the CONTAINER
+ * appears, deliberately not any author output, which is 2c's job. That test is
+ * what stops 2c from having to revisit this component's render decision.
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -122,20 +122,142 @@ describe("SubmissionDetails — submission number", () => {
   });
 });
 
-describe("SubmissionDetails — other fields keep the panel alive (2b/2c)", () => {
-  it("still renders when only openreview_forum_id is present", () => {
+describe("SubmissionDetails — OpenReview link", () => {
+  const FORUM_ID = "Ab3xY9kLm2";
+
+  /** The link, queried by its accessible name rather than its opaque text. */
+  function forumLink(): HTMLElement {
+    return screen.getByRole("link", { name: /openreview/i });
+  }
+
+  it("renders the link when only openreview_forum_id is present", () => {
     render(
-      <SubmissionDetails
-        extraction={extraction({ openreview_forum_id: "Ab3xY9kLm2" })}
-      />
+      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
     );
-    // The container must appear even though 2b has not wired the field's output.
     expect(panel()).toBeInTheDocument();
-    expect(screen.getByText("Submission Details")).toBeInTheDocument();
-    // ...and the number row must be absent, since there is no number.
+    expect(screen.getByText("OpenReview")).toBeInTheDocument();
+    expect(forumLink()).toBeInTheDocument();
+    // No number row, since there is no number.
     expect(screen.queryByText("Number")).toBeNull();
   });
 
+  it("points at the public forum page for that id", () => {
+    render(
+      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+    );
+    expect(forumLink()).toHaveAttribute(
+      "href",
+      "https://openreview.net/forum?id=Ab3xY9kLm2"
+    );
+  });
+
+  it("opens in a new tab safely", () => {
+    render(
+      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+    );
+    const link = forumLink();
+    expect(link).toHaveAttribute("target", "_blank");
+    // noopener is the security-relevant half — without it the opened page gets
+    // a handle on window.opener.
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("names the destination and the new tab in its accessible label", () => {
+    // Matches ZendeskLinkButton's "(opens in new tab)" convention; the raw id
+    // alone would tell a screen-reader user nothing.
+    render(
+      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+    );
+    expect(forumLink()).toHaveAccessibleName(
+      `Open submission ${FORUM_ID} in OpenReview (opens in new tab)`
+    );
+  });
+
+  it("shows the forum id as the link text", () => {
+    render(
+      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+    );
+    expect(forumLink()).toHaveTextContent(FORUM_ID);
+  });
+
+  it("keeps the visible text inside the accessible name (WCAG label-in-name)", () => {
+    render(
+      <SubmissionDetails extraction={extraction({ openreview_forum_id: FORUM_ID })} />
+    );
+    const link = forumLink();
+    expect(link.getAttribute("aria-label")).toContain(link.textContent?.trim());
+  });
+
+  it("trims surrounding whitespace out of the href", () => {
+    // The backend passes identifiers through unvalidated; untrimmed whitespace
+    // would become %20 in the URL and break the link.
+    render(
+      <SubmissionDetails
+        extraction={extraction({ openreview_forum_id: `  ${FORUM_ID}  ` })}
+      />
+    );
+    expect(forumLink()).toHaveAttribute(
+      "href",
+      "https://openreview.net/forum?id=Ab3xY9kLm2"
+    );
+  });
+
+  it("escapes an id carrying URL-special characters", () => {
+    render(
+      <SubmissionDetails extraction={extraction({ openreview_forum_id: "a&b=c d" })} />
+    );
+    expect(forumLink()).toHaveAttribute(
+      "href",
+      "https://openreview.net/forum?id=a%26b%3Dc%20d"
+    );
+  });
+
+  it("renders no link when there is no forum id", () => {
+    render(
+      <SubmissionDetails extraction={extraction({ submission_number: "22336" })} />
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByText("OpenReview")).toBeNull();
+  });
+
+  it("renders both rows together, number first", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_number: "22336",
+          openreview_forum_id: FORUM_ID,
+        })}
+      />
+    );
+    const group = panel()!;
+    expect(screen.getByText("22336")).toBeInTheDocument();
+    expect(forumLink()).toBeInTheDocument();
+    // Reading order: the number row precedes the OpenReview row.
+    const labels = Array.from(group.querySelectorAll("span"))
+      .map((el) => el.textContent)
+      .filter((text) => text === "Number" || text === "OpenReview");
+    expect(labels).toEqual(["Number", "OpenReview"]);
+  });
+
+  it("aligns both rows in one label/value grid", () => {
+    // A shared grid is what keeps the value column aligned as rows are added;
+    // per-row flex containers would let the labels' differing widths stagger it.
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_number: "22336",
+          openreview_forum_id: FORUM_ID,
+        })}
+      />
+    );
+    const grid = panel()!.querySelector(".grid");
+    expect(grid).not.toBeNull();
+    expect(grid).toContainElement(screen.getByText("Number"));
+    expect(grid).toContainElement(screen.getByText("OpenReview"));
+  });
+});
+
+describe("SubmissionDetails — other fields keep the panel alive (2b/2c)", () => {
   it("still renders when only authors are present", () => {
     render(
       <SubmissionDetails
