@@ -450,6 +450,151 @@ def test_regex_submission_number_prefers_subject_over_body():
     assert result.submission_number == "11111"
 
 
+# --- quoted-notification subject vs. the body's current ask -----------------
+# A reply under a conference notification's subject carries the number that
+# notification was about, which is not necessarily what the sender is asking
+# about now. Synthetic subjects modelled on the real shapes; no ticket text.
+def test_regex_body_wins_when_quoted_notification_subject_disagrees():
+    """THE defect: subject quotes an old notification for A, body asks about B."""
+    result = _regex_extract(
+        subject="Re: [AAAI-26] Decision notification for your submission 11111",
+        body="Please remove me from paper 22222 — it is outside my area.",
+    )
+    assert result.submission_number == "22222"
+
+
+def test_regex_quoted_notification_exception_covers_the_observed_phrasings():
+    """Each mined notification phrase must trigger the exception."""
+    for subject in [
+        "Re: [AAAI-26] Decision notification for your submission 11111",
+        "Re: Regarding the Desk Rejection of Your AAAI-2026 Submission 11111",
+        "Re: [AAAI-26] Official Review posted to your assigned Paper 11111",
+        "Fwd: Update on your AAAI 2026 Submission 11111",
+        "Re: [AAAI-26]: Paper 11111 restored by venue organizers",
+    ]:
+        result = _regex_extract(
+            subject=subject, body="This is about paper 22222 instead."
+        )
+        assert result.submission_number == "22222", subject
+
+
+def test_regex_keeps_subject_number_when_body_has_none():
+    """Nothing to conflict with — the subject's number stands."""
+    result = _regex_extract(
+        subject="Re: [AAAI-26] Decision notification for your submission 11111",
+        body="Thank you for the update, I have no further questions.",
+    )
+    assert result.submission_number == "11111"
+
+
+def test_regex_keeps_subject_number_when_body_reinforces_it():
+    """The body repeating the SAME number is agreement, not a conflict."""
+    result = _regex_extract(
+        subject="Re: [AAAI-26] Decision notification for your submission 11111",
+        body="I am writing about submission 11111 and would like to appeal.",
+    )
+    assert result.submission_number == "11111"
+
+
+def test_regex_ordinary_subject_keeps_subject_first_precedence():
+    """The exception must NOT fire on plain subject/body disagreement.
+
+    A fresh, sender-written subject is not a quoted notification, so the
+    original subject-first rule still governs.
+    """
+    result = _regex_extract(
+        subject="Question about submission 11111",
+        body="Also, what about paper 22222?",
+    )
+    assert result.submission_number == "11111"
+
+
+def test_regex_reply_marker_alone_does_not_trigger_the_exception():
+    """`Re:` without a notification phrase is just an ordinary reply."""
+    result = _regex_extract(
+        subject="Re: Question about submission 11111",
+        body="Also, what about paper 22222?",
+    )
+    assert result.submission_number == "11111"
+
+
+def test_regex_notification_phrase_alone_does_not_trigger_the_exception():
+    """A sender writing the phrase in their OWN fresh subject is not a quote."""
+    result = _regex_extract(
+        subject="Desk rejection query for submission 11111",
+        body="Also, what about paper 22222?",
+    )
+    assert result.submission_number == "11111"
+
+
+def test_regex_reply_marker_must_be_at_the_START_of_the_subject():
+    """The marker is anchored, and that anchoring is load-bearing.
+
+    Unanchored, `re\\s*:` matches INSIDE ordinary words that happen to end in
+    "re" before a colon — "Score:", "More:", "Failure:" — which would fire the
+    exception on subjects that are not replies at all.
+    """
+    result = _regex_extract(
+        subject="Score: 9 — desk rejection of submission 11111",
+        body="Also see paper 22222.",
+    )
+    assert result.submission_number == "11111"
+
+
+def test_regex_paper_number_label_alone_does_not_trigger_the_exception():
+    """`Paper number:` is an id label, not a notification marker.
+
+    It is the most frequent phrase in real reply-subjects, so treating it as a
+    notification marker would fire the exception on a large share of ordinary
+    replies — the opposite of a narrow exception.
+    """
+    result = _regex_extract(
+        subject="Re: Paper number: 11111",
+        body="Also, what about paper 22222?",
+    )
+    assert result.submission_number == "11111"
+
+
+def test_regex_known_limitation_body_quoting_the_notification_defeats_the_fix():
+    """KNOWN LIMITATION, pinned deliberately — not an assertion that this is right.
+
+    When the body also QUOTES the notification, the body's first cue-worded
+    number is that same quoted number, so no disagreement is detected and the
+    subject's number stands even though the sender's real ask names a different
+    paper further down.
+
+    Measured on the real corpus, this is why the motivating ticket is not fixed
+    by this change. The obvious widening — take the first body number that
+    DIFFERS — was tried and rejected: it fixes that ticket but pulls numbers out
+    of quoted foreign-conference notifications and cited evidence, a worse trade.
+    Doing this properly needs quote-stripping (telling the sender's own prose
+    apart from quoted blocks), which is a separate piece.
+    """
+    result = _regex_extract(
+        subject="Re: [AAAI-26] Decision notification for your submission 11111",
+        body=(
+            "On Mon, AAAI wrote:\n"
+            "> Subject: Decision notification for your submission 11111\n"
+            "Please remove me from paper 22222 instead."
+        ),
+    )
+    # Today: the quoted 11111 is seen first, so the exception does not fire.
+    assert result.submission_number == "11111"
+
+
+def test_regex_exception_is_cue_vs_cue_only():
+    """A bare `#NNNNN` in the body must not displace the subject's number.
+
+    Hash-vs-cue precedence is a separate, deliberate rule; this fix is only
+    about two independently valid CUE-WORDED matches disagreeing.
+    """
+    result = _regex_extract(
+        subject="Re: [AAAI-26] Decision notification for your submission 11111",
+        body="See also #22222 for context.",
+    )
+    assert result.submission_number == "11111"
+
+
 def test_regex_submission_number_rejects_wrong_length():
     """4-5 digits only: shorter is a count, longer is not a submission number."""
     assert _regex_extract(body="paper 123").submission_number is None

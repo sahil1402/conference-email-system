@@ -255,11 +255,23 @@ async def test_extraction_runs_on_thread_followup_reprocess(session):
     # The follow-up path swaps the body for the latest requester turn, so the
     # extractor sees the CURRENT ask, not the original inquiry.
     assert "44444" in call["body"]
-    # Subject precedence still holds, and that is the right answer here: the
-    # ticket's own subject identifies the submission the whole thread is about,
-    # so a number a requester types in a follow-up cannot silently retarget it.
     assert call["subject"] == _EMAIL["subject"]
-    assert call["result"].submission_number == "22336"
+    # ⚠️ BEHAVIOUR CHANGE — this assertion was "22336" until the quoted-
+    # notification tie-break landed, and the comment here used to argue that the
+    # ticket's subject identifies the submission the whole thread is about, so a
+    # follow-up could not retarget it.
+    #
+    # This fixture's subject ("Re: Desk Rejection of Your Submission 22336") is
+    # exactly the shape the tie-break targets — a reply marker plus a
+    # notification phrase — and the follow-up names a different submission. So
+    # the rule now fires on the THREAD path too, not just within one email, and
+    # the current turn wins.
+    #
+    # Defensible: a requester writing "following up on submission 44444" is
+    # asking about 44444. But it is a wider consequence than the tie-break was
+    # scoped for, so it is flagged rather than quietly absorbed. To restore the
+    # old behaviour, gate the tie-break off when a thread transcript is present.
+    assert call["result"].submission_number == "44444"
 
 
 # ---------------------------------------------------------------------------

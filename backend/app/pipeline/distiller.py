@@ -69,6 +69,9 @@ _SYSTEM_PROMPT = (
     '"Re: ... Your AAAI-2026 Submission 12345".\n'
     "SUBMISSION_NUMBER is the submission's own number — never a year, and "
     "never the digits of a conference name such as AAAI-26 or AAAI 2026.\n"
+    "When a reply or forward quotes an older notification whose subject names "
+    "one submission but the current message asks about a different one, report "
+    "the submission the CURRENT message is about.\n"
     "OPENREVIEW_ID is the id in a forum or pdf link, as in "
     "openreview.net/forum?id=Ab3xY9kLm2 — never the id in a group link.\n"
     "Emit one AUTHOR line per person the email identifies, including the "

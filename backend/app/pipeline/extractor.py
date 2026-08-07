@@ -82,6 +82,25 @@ _CONFERENCE_PREFIX_RE = re.compile(r"(?:AAAI|IAAI|EAAI)[-\s]*$", re.IGNORECASE)
 _CONFERENCE_YEAR_MIN = 2020
 _CONFERENCE_YEAR_MAX = 2035
 
+# A subject the sender is replying to or forwarding, rather than one they wrote.
+_REPLY_MARKER_RE = re.compile(r"^\s*(?:re|fwd|fw|aw|tr)\s*:", re.IGNORECASE)
+# Phrases that mark such a subject as a CONFERENCE NOTIFICATION. Mined from the
+# real corpus (frequency among reply-subjects carrying a number, n=430):
+# "paper number" 183 · "notification for your" 67 · "desk rejection" 61 ·
+# "decision notification" 61 · "desk-reject" 35 · "official review" 28 ·
+# "assigned paper" 26 · "update on your" 12 · "review posted" 9 ·
+# "restored by venue" 7.
+# "paper number" is DELIBERATELY EXCLUDED despite being the most frequent: it is
+# an identifier label, not a notification marker — a sender may write it in their
+# own subject, and including it would fire the exception on ~43% of replies,
+# which is no longer a narrow exception.
+_NOTIFICATION_PHRASE_RE = re.compile(
+    r"decision notification|notification for your|desk[-\s]?reject"
+    r"|official review|review posted|assigned paper|update on your"
+    r"|restored by venue",
+    re.IGNORECASE,
+)
+
 
 def _reads_as_conference_year(value: str) -> bool:
     return len(value) == 4 and _CONFERENCE_YEAR_MIN <= int(value) <= _CONFERENCE_YEAR_MAX
@@ -95,14 +114,57 @@ def _accept_submission_match(match: re.Match[str], text: str) -> bool:
     return not (filler and _reads_as_conference_year(match.group("number")))
 
 
+def _first_cue_number(text: str) -> str | None:
+    """First accepted CUE-WORDED number in ``text`` (the bare ``#`` form aside)."""
+    for match in _SUBMISSION_CUE_RE.finditer(text):
+        if _accept_submission_match(match, text):
+            return match.group("number")
+    return None
+
+
+def _is_quoted_notification_subject(subject: str) -> bool:
+    """Is this subject a conference notification the sender replied to/forwarded?
+
+    Requires BOTH a reply/forward marker and a notification phrase, because
+    either alone is far too common: plenty of ordinary replies open with "Re:",
+    and a sender may legitimately write these words themselves. Together they
+    identify a subject line the CONFERENCE wrote, not the sender.
+    """
+    return bool(
+        _REPLY_MARKER_RE.match(subject) and _NOTIFICATION_PHRASE_RE.search(subject)
+    )
+
+
 def _find_submission_number(subject: str, body: str) -> str | None:
     """First trustworthy submission number in subject, else body.
 
     Subject is searched FIRST because a number there usually came from the
     conference's own notification, which the sender quoted or replied to — a
     more reliable provenance than a number typed into prose.
+
+    ONE narrow exception, and it is the same fact turned around: when the
+    subject is a quoted notification, its number is what the conference wrote
+    about back THEN, which is not necessarily what the sender is asking about
+    NOW. So if such a subject and the body each yield a valid cue-worded number
+    and they DISAGREE, the body wins — that is the current request. Observed in
+    real traffic: a reply under an old decision-notification subject for one
+    paper whose actual ask is to be unassigned from a different one.
+
+    Deliberately narrow. It requires a quoted-notification subject AND a
+    cue-worded body number AND the two to differ; miss any one and the original
+    subject-first order runs unchanged. It is also cue-vs-cue only: the bare
+    ``#NNNNN`` form never triggers it, so hash-vs-cue precedence is untouched.
     """
-    for text in (subject or "", body or ""):
+    subject = subject or ""
+    body = body or ""
+
+    subject_cue = _first_cue_number(subject)
+    if subject_cue is not None and _is_quoted_notification_subject(subject):
+        body_cue = _first_cue_number(body)
+        if body_cue is not None and body_cue != subject_cue:
+            return body_cue
+
+    for text in (subject, body):
         for pattern in (_SUBMISSION_CUE_RE, _HASH_NUMBER_RE):
             for match in pattern.finditer(text):
                 if _accept_submission_match(match, text):
