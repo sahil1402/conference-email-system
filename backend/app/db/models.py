@@ -55,14 +55,15 @@ class Email(Base):
     routing: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    # Which submission the email is about and who it names —
-    # {"submission_number": str|None, "openreview_forum_id": str|None,
+    # Which submissions the email refers to and who it names —
+    # {"submission_numbers": [str], "openreview_forum_ids": [str],
     #  "authors": [{"name", "email", "affiliation"}], "method": str}.
+    # The identifier fields are LISTS: an email may name several submissions.
     # ``method`` records WHICH path produced the values (llm_distiller /
     # regex_fallback / none) so a weaker regex guess is never read as the
     # model's answer. NULL for every row processed before this column existed;
     # readers must treat NULL as "never looked", which is NOT the same as an
-    # ``extraction`` whose ``submission_number`` is null ("looked, found none").
+    # ``extraction`` whose lists are EMPTY ("looked, found none").
     extraction: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Re-evaluation (Phase G). ``retrieval_context`` captures the exact retriever
@@ -248,9 +249,11 @@ class EmailProcessingResult(Base):
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # {"query": str, "intent": str, "retrieved_ids": [...]} — matches Email.
     retrieval_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # {"submission_number", "openreview_forum_id", "authors", "method"} —
-    # matches Email. A follow-up turn can name a different submission than the
-    # opening inquiry, so this is stored per-message rather than inherited.
+    # {"submission_numbers": [str], "openreview_forum_ids": [str], "authors",
+    # "method"} — matches Email. A follow-up turn can name different submissions
+    # than the opening inquiry, so this is stored per-message rather than
+    # inherited. Empty lists mean "examined, found none"; NULL means never
+    # examined.
     extraction: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Denormalized scalars (also derivable from the JSON above): the routing lane

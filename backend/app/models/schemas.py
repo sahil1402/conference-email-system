@@ -120,7 +120,7 @@ class AuthorMention(BaseModel):
 
 
 class ExtractionResult(BaseModel):
-    """Which submission an email is about, and who it names.
+    """Which submissions an email refers to, and who it names.
 
     Mirrors ``app.pipeline.extractor.ExtractionResult``, following the same
     local-mirror convention the other pipeline sub-objects in this module use
@@ -128,18 +128,25 @@ class ExtractionResult(BaseModel):
     pipeline types: these are the wire contract, the pipeline's are the internal
     one, and the two are free to move independently.
 
+    Every identifier field is a LIST — an email may legitimately name several
+    submissions, and reporting one silently discarded the rest.
+
     ``method`` is part of the contract, not decoration: it says WHICH path
     produced these values, so a consumer can tell the model's answer from a
     weaker regex guess. Note the distinction a null ``extraction`` carries —
     absent means the row was never examined, whereas a present result with
-    ``submission_number`` null means it was examined and nothing was found.
+    EMPTY lists means it was examined and nothing was found.
     """
 
-    submission_number: str | None = Field(
-        default=None, description="Submission/paper number as identified, or null."
+    submission_numbers: list[str] = Field(
+        default_factory=list,
+        description="Submission/paper numbers as identified, deduplicated, in "
+        "first-seen order. Empty when the email named none.",
     )
-    openreview_forum_id: str | None = Field(
-        default=None, description="OpenReview forum id as identified, or null."
+    openreview_forum_ids: list[str] = Field(
+        default_factory=list,
+        description="OpenReview forum ids as identified, deduplicated, in "
+        "first-seen order. Empty when the email named none.",
     )
     authors: list[AuthorMention] = Field(
         default_factory=list,
@@ -170,8 +177,8 @@ class EmailRecord(BaseModel):
     routing: RoutingDecision | None = None
     draft: DraftResponse | None = None
     # None means the row was never examined (it predates extraction), which is
-    # NOT the same as a present result that found nothing — hence optional with
-    # no default factory.
+    # NOT the same as a present result whose lists are EMPTY (examined, found
+    # none) — hence optional with no default factory.
     extraction: ExtractionResult | None = None
 
     created_at: datetime

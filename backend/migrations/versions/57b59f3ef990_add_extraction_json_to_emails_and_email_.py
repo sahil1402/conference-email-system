@@ -5,6 +5,13 @@ Adds a nullable ``extraction`` (JSON) column to BOTH ``emails`` and
 names. Shape mirrors ``app/pipeline/extractor.py::ExtractionResult``:
 {"submission_number", "openreview_forum_id", "authors", "method"}.
 
+NOTE (later change, recorded here so this file is not read as current): the two
+identifier fields were subsequently widened to LISTS —
+``submission_numbers`` / ``openreview_forum_ids`` — because an email may name
+several submissions. That changed only the dict stored INSIDE this JSON column,
+never the column itself, so it needed no migration of its own. The shape
+described above is what this revision introduced, not what is stored today.
+
 NULL ⇒ the row was processed before this column existed ("never looked"), which
 is deliberately distinguishable from a stored extraction whose
 ``submission_number`` is null ("looked, found none"). Every reader must tolerate

@@ -2,10 +2,10 @@
 
 The load-bearing distinction carried all the way from the DB layer:
 
-  * ``extraction: null``            — the row was never examined (it predates
-                                      the column). Nothing is known.
-  * ``{"submission_number": null,   — the row WAS examined and no submission
-     "method": "llm_distiller"}``     was found. That is a real finding.
+  * ``extraction: null``              — the row was never examined (it predates
+                                        the column). Nothing is known.
+  * ``{"submission_numbers": [],      — the row WAS examined and no submission
+     "method": "llm_distiller"}``       was found. That is a real finding.
 
 Coercing the first into the second (or into ``{}``) at any layer destroys it,
 so these tests assert through the REAL endpoints via ASGITransport rather than
@@ -13,8 +13,7 @@ calling ``_email_to_dict`` directly — a serializer can be correct while the
 route around it is not.
 
 SCOPE LIMIT: API shape only. No endpoint consumes or filters on `extraction`
-yet, and the frontend does not deserialize it (see the Email interface in
-frontend/src/types/index.ts, which has no `extraction` field as of this piece).
+yet — nothing here asserts on querying or filtering by it.
 """
 
 from __future__ import annotations
@@ -33,8 +32,8 @@ QUEUE = "/api/v1/emails/queue"
 
 # A fully populated extraction, exactly as the pipeline stores it.
 _FULL = {
-    "submission_number": "22336",
-    "openreview_forum_id": "Ab3xY9kLm2",
+    "submission_numbers": ["22336", "44444"],
+    "openreview_forum_ids": ["Ab3xY9kLm2", "Zz9QwErTy1"],
     "authors": [
         {
             "name": "Jane Roe",
@@ -46,10 +45,10 @@ _FULL = {
     "method": "llm_distiller",
 }
 
-# Examined, nothing found — every field null but `method` says the LLM ran.
+# Examined, nothing found — every list empty but `method` says the LLM ran.
 _EXAMINED_EMPTY = {
-    "submission_number": None,
-    "openreview_forum_id": None,
+    "submission_numbers": [],
+    "openreview_forum_ids": [],
     "authors": [],
     "method": "llm_distiller",
 }
@@ -150,6 +149,25 @@ async def test_authors_survive_as_a_list_of_objects(client):
     assert authors[1] == {"name": "John Doe", "email": None, "affiliation": None}
 
 
+async def test_multiple_identifiers_survive_as_lists(client):
+    """The list shape's point: several ids per email reach the client, in order.
+
+    Single-element lists would survive even if a layer collapsed lists to
+    scalars, so this fixture carries two of each.
+    """
+    extraction = (await _by_subject(client))["full"]["extraction"]
+    assert extraction["submission_numbers"] == ["22336", "44444"]
+    assert extraction["openreview_forum_ids"] == ["Ab3xY9kLm2", "Zz9QwErTy1"]
+
+
+async def test_identifier_lists_are_json_arrays_not_strings(client):
+    """A list must not be stringified anywhere on the way out."""
+    extraction = (await _detail(client, "full"))["extraction"]
+    assert isinstance(extraction["submission_numbers"], list)
+    assert isinstance(extraction["openreview_forum_ids"], list)
+    assert all(isinstance(v, str) for v in extraction["submission_numbers"])
+
+
 async def test_method_reaches_the_client(client):
     """`method` is contract, not decoration — it separates a model answer from
     a regex guess, so a consumer cannot weigh the values without it."""
@@ -179,7 +197,7 @@ async def test_examined_but_empty_is_distinct_from_null(client):
 
     assert never_looked is None
     assert looked_found_nothing is not None
-    assert looked_found_nothing["submission_number"] is None
+    assert looked_found_nothing["submission_numbers"] == []
     assert looked_found_nothing["method"] == "llm_distiller"
     assert never_looked != looked_found_nothing
 
@@ -223,12 +241,12 @@ async def test_schema_model_accepts_the_served_shape():
     from app.models.schemas import ExtractionResult
 
     parsed = ExtractionResult.model_validate(_FULL)
-    assert parsed.submission_number == "22336"
-    assert parsed.openreview_forum_id == "Ab3xY9kLm2"
+    assert parsed.submission_numbers == ["22336", "44444"]
+    assert parsed.openreview_forum_ids == ["Ab3xY9kLm2", "Zz9QwErTy1"]
     assert parsed.method == "llm_distiller"
     assert parsed.authors[1].name == "John Doe"
     assert parsed.authors[1].email is None
 
     empty = ExtractionResult.model_validate(_EXAMINED_EMPTY)
-    assert empty.submission_number is None
+    assert empty.submission_numbers == []
     assert empty.authors == []

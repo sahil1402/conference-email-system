@@ -205,6 +205,56 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
     }
 
 
+async def test_multi_value_identifier_lists_round_trip(session, monkeypatch):
+    """The list shape's whole point: >1 entry must survive the JSON column.
+
+    A single-element list would round-trip even if something upstream collapsed
+    lists to scalars, so this uses several of each and asserts ORDER too.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    pipeline = _pipeline()
+    pipeline.distiller = _StubDistiller(
+        DistillResult(
+            queries=["q"],
+            intent="desk_reject_appeal",
+            confidence=0.9,
+            submission_numbers_raw=["11111", "22222", "33333"],
+            openreview_ids_raw=["Ab3xY9kLm2", "Zz9QwErTy1"],
+        )
+    )
+    result = await pipeline.process_email(_EMAIL, session)
+
+    stored = (
+        await EmailRepository().get_email_by_id(session, result.email_id)
+    ).extraction
+    assert stored["submission_numbers"] == ["11111", "22222", "33333"]
+    assert stored["openreview_forum_ids"] == ["Ab3xY9kLm2", "Zz9QwErTy1"]
+
+
+async def test_examined_but_empty_persists_as_empty_lists_not_null(session):
+    """"Examined, found none" must be storable and distinguishable from NULL."""
+    email = Email(
+        sender="a@example.edu",
+        subject="No identifiers here",
+        body="Just a general question.",
+        status="draft_generated",
+        extraction={
+            "submission_numbers": [],
+            "openreview_forum_ids": [],
+            "authors": [],
+            "method": "llm_distiller",
+        },
+    )
+    session.add(email)
+    await session.commit()
+    await session.refresh(email)
+
+    fetched = await EmailRepository().get_email_by_id(session, str(email.id))
+    assert fetched.extraction is not None  # NOT collapsed to NULL
+    assert fetched.extraction["submission_numbers"] == []
+    assert fetched.extraction["method"] == "llm_distiller"
+
+
 async def test_extraction_is_serialized_with_model_dump(session):
     """Same pattern as classification/routing/draft — a plain dict, not a model."""
     result = await _pipeline().process_email(_EMAIL, session)
