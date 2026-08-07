@@ -32,6 +32,7 @@ from app.models.enums import EmailStatus
 from app.pipeline.classifier import ClassificationResult, IntentClassifier
 from app.pipeline.distiller import EmailDistiller
 from app.pipeline.drafter import DraftResponse, ResponseDrafter
+from app.pipeline.extractor import EmailExtractor
 from app.pipeline.retriever import (
     RetrievedChunk,
     get_retriever,
@@ -287,6 +288,10 @@ class EmailPipeline:
         # One model call producing retrieval queries + intent (E003). Only
         # consulted when QUERY_STRATEGY == "distill"; always best-effort.
         self.distiller = EmailDistiller()
+        # Which submission the email is about, and who it names. Pure CPU —
+        # reuses the distiller's output when there is one and falls back to
+        # regex over subject/body, so it adds NO model call and no I/O.
+        self.extractor = EmailExtractor()
         self.drafter = ResponseDrafter(provider=settings.MODEL_PROVIDER)
         self.email_repo = EmailRepository()
         self.chair_repo = ChairRepository()
@@ -369,6 +374,12 @@ class EmailPipeline:
         subject = email_data.get("subject", "")
         body = email_data.get("body", "")
         transcript_text = email_data.get("thread_transcript")
+        # Hoisted so the extractor and the persistence record cannot drift apart.
+        # Kept UNDEFAULTED here: the record's "unknown@unknown" is a storage
+        # placeholder for a NOT NULL column, and feeding it to identity
+        # extraction would fabricate an author out of a sentinel.
+        sender = email_data.get("from") or email_data.get("sender") or ""
+        sender_name = email_data.get("sender_name")
 
         # Per-email tracer: buffers a record per stage and flushes them once the
         # email is persisted (its id is known then). Additive only.
@@ -414,6 +425,34 @@ class EmailPipeline:
                     st.output_summary["calibrated_confidence"] = round(
                         float(classification.calibrated_confidence), 4
                     )
+
+            # Which submission this email is about, and who it names. Reuses the
+            # distiller output already in hand — no second model call — and falls
+            # back to regex over subject/body when distillation did not run.
+            #
+            # Deliberately OUTSIDE the classifier tracer stage: folding it in
+            # would inflate that stage's measured duration, and the trace
+            # contract is exactly classify→retrieve→draft→route. This follows the
+            # chair-assignment precedent, which is kept out of the tracer for the
+            # same reason.
+            #
+            # `extraction` has nowhere to go yet — persistence is a later piece.
+            # It is computed here because this is the only point where `distilled`
+            # and the raw sender fields are both in scope, and because every
+            # entry point (process_email / reprocess_email /
+            # reprocess_email_with_thread / the public `compute` seam used by
+            # per-follow-up processing) funnels through this method, so wiring it
+            # once here covers them all without duplicating the call.
+            extraction = self.extractor.extract(
+                subject, body, sender, sender_name, distilled
+            )
+            logger.debug(
+                "Extraction (%s): submission=%s forum_id=%s authors=%d",
+                extraction.method,
+                extraction.submission_number,
+                extraction.openreview_forum_id,
+                len(extraction.authors),
+            )
 
             # Query formulation (E003): distilled queries joined into one string,
             # with NO intent token (it hurts dense retrieval — E001). Distill-mode
@@ -568,8 +607,8 @@ class EmailPipeline:
         chair_assignment = await self._assign_chair(db, classification, routing)
 
         record = {
-            "sender": email_data.get("from") or email_data.get("sender") or "unknown@unknown",
-            "sender_name": email_data.get("sender_name"),
+            "sender": sender or "unknown@unknown",
+            "sender_name": sender_name,
             "subject": subject,
             "body": body,
             "status": _LIFECYCLE_STATUS[status],
