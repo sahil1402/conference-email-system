@@ -236,7 +236,7 @@ class EmailRepository:
         """Overwrite an existing email's pipeline outputs in place (retry/reprocess).
 
         Applies the fresh status + classification/routing/draft/assigned_chair_id/
-        retrieval_context from a re-run, and clears the transient ``redrafting``
+        retrieval_context/extraction from a re-run, and clears the transient ``redrafting``
         flag. Leaves id, received_at, and sender/subject/body untouched. Returns
         the refreshed row, or ``None`` if the id is missing/non-numeric.
         """
@@ -249,7 +249,7 @@ class EmailRepository:
             return None
         for key in (
             "status", "classification", "routing", "draft",
-            "assigned_chair_id", "retrieval_context",
+            "assigned_chair_id", "retrieval_context", "extraction",
         ):
             if key in record:
                 setattr(email, key, record[key])
@@ -455,6 +455,7 @@ class EmailRepository:
             routing=routing or None,
             draft=record.get("draft"),
             retrieval_context=record.get("retrieval_context"),
+            extraction=record.get("extraction"),
             lane=routing.get("lane"),
             confidence=classification.get("confidence"),
         )

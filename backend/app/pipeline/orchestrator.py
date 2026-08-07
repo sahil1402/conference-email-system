@@ -615,6 +615,7 @@ class EmailPipeline:
             "classification": classification.model_dump(),
             "routing": routing.model_dump(),
             "draft": draft.model_dump(),
+            "extraction": extraction.model_dump(),
             "assigned_chair_id": (
                 chair_assignment.chair_id if chair_assignment else None
             ),

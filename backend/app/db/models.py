@@ -55,6 +55,16 @@ class Email(Base):
     routing: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Which submission the email is about and who it names —
+    # {"submission_number": str|None, "openreview_forum_id": str|None,
+    #  "authors": [{"name", "email", "affiliation"}], "method": str}.
+    # ``method`` records WHICH path produced the values (llm_distiller /
+    # regex_fallback / none) so a weaker regex guess is never read as the
+    # model's answer. NULL for every row processed before this column existed;
+    # readers must treat NULL as "never looked", which is NOT the same as an
+    # ``extraction`` whose ``submission_number`` is null ("looked, found none").
+    extraction: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     # Re-evaluation (Phase G). ``retrieval_context`` captures the exact retriever
     # inputs at ingest — {"query": str, "intent": str, "retrieved_ids": [...]} —
     # so a KB-change sweep can re-run retrieval with no model call and compare the
@@ -216,7 +226,7 @@ class EmailProcessingResult(Base):
     the newest by ``created_at`` / ``id``. This table starts empty; only new
     processing (wired in a later piece) ever populates it. The JSON columns
     deliberately mirror the shapes the parent Email stores (``classification`` /
-    ``routing`` / ``draft`` / ``retrieval_context``) so the same Pydantic
+    ``routing`` / ``draft`` / ``retrieval_context`` / ``extraction``) so the same Pydantic
     serialization can be reused; ``lane`` and ``confidence`` are denormalized
     scalars for cheap filtering/sorting.
     """
@@ -238,6 +248,10 @@ class EmailProcessingResult(Base):
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # {"query": str, "intent": str, "retrieved_ids": [...]} — matches Email.
     retrieval_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # {"submission_number", "openreview_forum_id", "authors", "method"} —
+    # matches Email. A follow-up turn can name a different submission than the
+    # opening inquiry, so this is stored per-message rather than inherited.
+    extraction: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Denormalized scalars (also derivable from the JSON above): the routing lane
     # ("AUTO_REPLY" / "HUMAN_REVIEW") and the classifier confidence.
