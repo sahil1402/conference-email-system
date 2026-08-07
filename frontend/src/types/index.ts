@@ -122,6 +122,40 @@ export interface DraftHistoryEntry {
   triggering_comment_ids?: (number | null)[];
 }
 
+/**
+ * extractor.py::ExtractionResult — which submission an email is about and who
+ * it names, stored in the `emails.extraction` JSON column.
+ *
+ * `method` says WHICH path produced these values, so the UI can distinguish the
+ * model's answer from a weaker regex guess:
+ *   "llm_distiller"  — the distiller read the email and reported these
+ *   "regex_fallback" — the distiller did not run; matched off subject/body
+ *   "none"           — nothing identifying was found to go on
+ *
+ * NOTE the distinction `Email.extraction === null` carries: null means the row
+ * was never examined (it predates the feature), which is NOT the same as a
+ * present result whose `submission_number` is null (examined, found nothing).
+ * The backend preserves that difference deliberately — do not collapse them.
+ */
+export interface ExtractionData {
+  submission_number: string | null;
+  openreview_forum_id: string | null;
+  /** Deduplicated, in first-seen order (the sender leads on the regex path). */
+  authors: AuthorMention[];
+  method: "llm_distiller" | "regex_fallback" | "none";
+}
+
+/**
+ * extractor.py::AuthorMention — one person an email identifies, inside
+ * ExtractionData.authors. Every field is independently optional: a mention with
+ * only a name is still a real mention, so all three can be null at once.
+ */
+export interface AuthorMention {
+  name: string | null;
+  email: string | null;
+  affiliation: string | null;
+}
+
 /** One turn in a ticket's conversation — GET /emails/{id}/thread. */
 export interface EmailThreadMessage {
   comment_id: number | null;
@@ -292,6 +326,14 @@ export interface Email {
   classification: ClassificationResult | null;
   routing: RoutingResult | null;
   draft: DraftResult | null;
+  /**
+   * Which submission this email is about and who it names. Required-and-
+   * nullable like the three above (not `?`): `_email_to_dict` emits the key on
+   * EVERY email response, so it is always present. Null means the row was never
+   * examined — see ExtractionData for why that differs from an examined result
+   * that found nothing.
+   */
+  extraction: ExtractionData | null;
   /**
    * Transient re-evaluation state: true while a KB-change sweep is re-drafting
    * this ticket. Drives the "re-drafting…" badge; cleared when the new draft
