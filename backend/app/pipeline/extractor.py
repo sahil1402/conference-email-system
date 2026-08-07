@@ -13,12 +13,21 @@ normalization bug degrades to an empty result rather than breaking the pipeline
 that called it, since knowing which paper an email is about is an enrichment,
 never a precondition for drafting a reply.
 
-Scope note: only the LLM path (subtask 2a) is implemented. When the distiller
-did not run at all, this returns an empty ``method="none"`` result; the regex
-fallback that will fill that branch is subtask 2b.
+Two paths, and they are mutually exclusive by design. When the distiller ran,
+its answer is used outright; only when it did not run at all does a regex
+fallback read the raw subject/body. Regex is deliberately NOT a supplement that
+tops up a present LLM result — that would need per-field provenance to stay
+honest, and ``method`` is a clean three-value record of which path produced the
+whole result.
+
+The fallback is tuned for PRECISION over recall. Roughly half of real threads
+carry no submission reference at all, so returning nothing is the ordinary
+outcome, not a failure; attaching the WRONG paper to a ticket is far more
+costly to a chair than attaching none.
 """
 
 import logging
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -32,6 +41,81 @@ _AUTHOR_FIELD_SEPARATOR = "|"
 _AUTHOR_FIELD_COUNT = 3
 
 ExtractionMethod = Literal["llm_distiller", "regex_fallback", "none"]
+
+# --- regex-fallback patterns ------------------------------------------------
+# Real submission numbers are 4-5 digits and are only trustworthy next to a cue
+# word: an ungated \d{4,5} sweep pulls in years, dates, counts and phone
+# fragments. `filler` captures at most ONE intervening word so the cue stays
+# close, and is inspected afterwards — a number the cue introduces directly
+# ("Submission 2026") is believed, one reached across a word ("paper due 2026")
+# is not.
+_SUBMISSION_CUE_RE = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:paper|submission)s?"
+    r"(?:\s*(?:id|no\.?|number))?"
+    r"(?P<filler>(?:\s*[A-Za-z][A-Za-z.\-]{0,11}){0,1})"
+    r"\s*[#:\-]?\s*"
+    r"(?P<number>\d{4,5})"
+    r"(?!\d)",
+    re.IGNORECASE,
+)
+# A bare "#12345" is its own cue — no preceding word needed. The lookbehind
+# keeps it out of URL fragments and anchors.
+_HASH_NUMBER_RE = re.compile(r"(?<![\w/])#(?P<number>\d{4,5})(?!\d)")
+
+# Anchored to the two link shapes that actually carry a forum id. `?id=` alone
+# is NOT enough: AAAI's committee/group URLs (openreview.net/group?id=...) share
+# that shape and are confirmed false positives in real traffic. The trailing
+# lookahead rejects longer ids rather than silently truncating them to 10.
+_OPENREVIEW_FORUM_ID_RE = re.compile(
+    r"openreview\.net/(?:forum|pdf)\?id=(?P<forum_id>[A-Za-z0-9]{10})"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# A number sitting directly after a conference designator is that conference's
+# year (AAAI-26, AAAI 2026, IAAI-2027), never a submission number.
+_CONFERENCE_PREFIX_RE = re.compile(r"(?:AAAI|IAAI|EAAI)[-\s]*$", re.IGNORECASE)
+# Plausible conference years. Only consulted when a filler word separated the
+# cue from the number, so a genuine 4-digit submission number in this range
+# (they exist) still survives when the cue introduces it directly.
+_CONFERENCE_YEAR_MIN = 2020
+_CONFERENCE_YEAR_MAX = 2035
+
+
+def _reads_as_conference_year(value: str) -> bool:
+    return len(value) == 4 and _CONFERENCE_YEAR_MIN <= int(value) <= _CONFERENCE_YEAR_MAX
+
+
+def _accept_submission_match(match: re.Match[str], text: str) -> bool:
+    """Reject the two false-positive shapes real ticket traffic produces."""
+    if _CONFERENCE_PREFIX_RE.search(text[: match.start("number")]):
+        return False
+    filler = (match.groupdict().get("filler") or "").strip()
+    return not (filler and _reads_as_conference_year(match.group("number")))
+
+
+def _find_submission_number(subject: str, body: str) -> str | None:
+    """First trustworthy submission number in subject, else body.
+
+    Subject is searched FIRST because a number there usually came from the
+    conference's own notification, which the sender quoted or replied to — a
+    more reliable provenance than a number typed into prose.
+    """
+    for text in (subject or "", body or ""):
+        for pattern in (_SUBMISSION_CUE_RE, _HASH_NUMBER_RE):
+            for match in pattern.finditer(text):
+                if _accept_submission_match(match, text):
+                    return match.group("number")
+    return None
+
+
+def _find_openreview_forum_id(subject: str, body: str) -> str | None:
+    for text in (subject or "", body or ""):
+        match = _OPENREVIEW_FORUM_ID_RE.search(text)
+        if match is not None:
+            return match.group("forum_id")
+    return None
 
 
 class AuthorMention(BaseModel):
@@ -158,23 +242,19 @@ class EmailExtractor:
     ) -> ExtractionResult:
         """Best-effort extraction. Never raises.
 
-        ``subject`` / ``body`` / ``sender`` / ``sender_name`` are accepted now
-        and unused on the LLM path — the model already read the subject and body
-        itself. They are what the subtask-2b regex fallback will read, and they
-        are in the signature from the start so wiring this in does not later
-        require touching every call site.
+        ``subject`` / ``body`` / ``sender`` / ``sender_name`` feed the regex
+        fallback only. On the LLM path they are unused on purpose — the model
+        already read the subject and body itself.
 
         When ``distilled`` is present it is trusted outright, INCLUDING when it
         found nothing: the prompt directs the model to read both subject and
         body and to answer NONE when there is genuinely no identifier, so an
-        empty LLM result is an answer, not a failure to re-litigate.
+        empty LLM result is an answer, not a failure to re-litigate with a
+        strictly weaker tool.
         """
         try:
             if distilled is None:
-                # TODO(subtask 2b): regex fallback over subject/body/sender.
-                # Until then, no distiller output means nothing was examined,
-                # which is exactly what method="none" records.
-                return ExtractionResult(method="none")
+                return self._extract_by_regex(subject, body, sender, sender_name)
 
             authors = [
                 mention
@@ -194,3 +274,44 @@ class EmailExtractor:
                 exc,
             )
             return ExtractionResult(method="none")
+
+    def _extract_by_regex(
+        self,
+        subject: str,
+        body: str,
+        sender: str,
+        sender_name: str | None,
+    ) -> ExtractionResult:
+        """Fallback used only when the distiller did not run.
+
+        The author here is the SENDER, constructed directly rather than parsed:
+        the envelope already gives a clean name and address, so none of the
+        malformed-string salvage the LLM path needs applies. Signature-block
+        parsing is deliberately out of scope — co-authors named in the body are
+        exactly what the LLM path is for.
+
+        The "usable" bar for ``method``: at least one populated field, i.e. a
+        submission number, a forum id, or a sender mention with a name or an
+        address. ``none`` is therefore reserved for input carrying no
+        identifying trace whatsoever — in practice a malformed or synthetic
+        ingest, since a real email always has a sender. That is the intended
+        reading: ``none`` means "nothing to go on", not "regex found no
+        number", which is an ordinary outcome recorded as ``regex_fallback``
+        with an empty ``submission_number``.
+        """
+        submission_number = _find_submission_number(subject, body)
+        forum_id = _find_openreview_forum_id(subject, body)
+
+        authors: list[AuthorMention] = []
+        name = _field_or_none(sender_name or "")
+        email = _field_or_none(sender or "")
+        if name is not None or email is not None:
+            authors.append(AuthorMention(name=name, email=email))
+
+        found_anything = bool(submission_number or forum_id or authors)
+        return ExtractionResult(
+            submission_number=submission_number,
+            openreview_forum_id=forum_id,
+            authors=authors,
+            method="regex_fallback" if found_anything else "none",
+        )
