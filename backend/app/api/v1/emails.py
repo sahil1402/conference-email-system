@@ -337,6 +337,12 @@ def _email_to_dict(email: Email) -> dict:
         "classification": email.classification,
         "routing": email.routing,
         "draft": email.draft,
+        # Passed through verbatim, NULL included. A row processed before the
+        # extraction column existed serializes as null, which a consumer must
+        # read as "never examined" — distinct from a present object whose
+        # submission_number is null ("examined, found nothing"). Coercing null
+        # to {} here would erase that difference at the API boundary.
+        "extraction": email.extraction,
         "redrafting": bool(email.redrafting),
         "retrieval_context": email.retrieval_context,
         # Derived from retrieval_context (no column, no duplicated state). Sits

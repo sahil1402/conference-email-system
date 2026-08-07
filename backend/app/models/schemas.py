@@ -105,6 +105,51 @@ class DraftResponse(BaseModel):
     )
 
 
+class AuthorMention(BaseModel):
+    """One person an email identifies. Every field is independently optional.
+
+    Mirrors ``app.pipeline.extractor.AuthorMention``; see the note on
+    :class:`ExtractionResult` for why this is a mirror and not a re-export.
+    """
+
+    name: str | None = Field(default=None, description="Display name, if given.")
+    email: str | None = Field(default=None, description="Email address, if given.")
+    affiliation: str | None = Field(
+        default=None, description="Institution/affiliation, if given."
+    )
+
+
+class ExtractionResult(BaseModel):
+    """Which submission an email is about, and who it names.
+
+    Mirrors ``app.pipeline.extractor.ExtractionResult``, following the same
+    local-mirror convention the other pipeline sub-objects in this module use
+    (``ClassificationResult`` / ``DraftResponse``) rather than importing the
+    pipeline types: these are the wire contract, the pipeline's are the internal
+    one, and the two are free to move independently.
+
+    ``method`` is part of the contract, not decoration: it says WHICH path
+    produced these values, so a consumer can tell the model's answer from a
+    weaker regex guess. Note the distinction a null ``extraction`` carries —
+    absent means the row was never examined, whereas a present result with
+    ``submission_number`` null means it was examined and nothing was found.
+    """
+
+    submission_number: str | None = Field(
+        default=None, description="Submission/paper number as identified, or null."
+    )
+    openreview_forum_id: str | None = Field(
+        default=None, description="OpenReview forum id as identified, or null."
+    )
+    authors: list[AuthorMention] = Field(
+        default_factory=list,
+        description="People the email identifies, deduplicated, in first-seen order.",
+    )
+    method: Literal["llm_distiller", "regex_fallback", "none"] = Field(
+        default="none", description="Which path produced this result."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Persisted record
 # ---------------------------------------------------------------------------
@@ -124,6 +169,10 @@ class EmailRecord(BaseModel):
     classification: ClassificationResult | None = None
     routing: RoutingDecision | None = None
     draft: DraftResponse | None = None
+    # None means the row was never examined (it predates extraction), which is
+    # NOT the same as a present result that found nothing — hence optional with
+    # no default factory.
+    extraction: ExtractionResult | None = None
 
     created_at: datetime
     updated_at: datetime
