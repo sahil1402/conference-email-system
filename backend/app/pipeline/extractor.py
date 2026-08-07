@@ -82,24 +82,12 @@ _CONFERENCE_PREFIX_RE = re.compile(r"(?:AAAI|IAAI|EAAI)[-\s]*$", re.IGNORECASE)
 _CONFERENCE_YEAR_MIN = 2020
 _CONFERENCE_YEAR_MAX = 2035
 
-# A subject the sender is replying to or forwarding, rather than one they wrote.
-_REPLY_MARKER_RE = re.compile(r"^\s*(?:re|fwd|fw|aw|tr)\s*:", re.IGNORECASE)
-# Phrases that mark such a subject as a CONFERENCE NOTIFICATION. Mined from the
-# real corpus (frequency among reply-subjects carrying a number, n=430):
-# "paper number" 183 · "notification for your" 67 · "desk rejection" 61 ·
-# "decision notification" 61 · "desk-reject" 35 · "official review" 28 ·
-# "assigned paper" 26 · "update on your" 12 · "review posted" 9 ·
-# "restored by venue" 7.
-# "paper number" is DELIBERATELY EXCLUDED despite being the most frequent: it is
-# an identifier label, not a notification marker — a sender may write it in their
-# own subject, and including it would fire the exception on ~43% of replies,
-# which is no longer a narrow exception.
-_NOTIFICATION_PHRASE_RE = re.compile(
-    r"decision notification|notification for your|desk[-\s]?reject"
-    r"|official review|review posted|assigned paper|update on your"
-    r"|restored by venue",
-    re.IGNORECASE,
-)
+# NOTE: the quoted-notification tie-break (a reply-marker regex plus a mined
+# list of AAAI notification phrases) lived here and has been REMOVED, not
+# disabled. It existed solely to pick between a subject number and a
+# conflicting body number; now that both are reported there is nothing to pick,
+# so it was dead weight rather than a guard. Its acceptance logic was never
+# involved — that lives in _accept_submission_match below and is untouched.
 
 
 def _reads_as_conference_year(value: str) -> bool:
@@ -114,70 +102,46 @@ def _accept_submission_match(match: re.Match[str], text: str) -> bool:
     return not (filler and _reads_as_conference_year(match.group("number")))
 
 
-def _first_cue_number(text: str) -> str | None:
-    """First accepted CUE-WORDED number in ``text`` (the bare ``#`` form aside)."""
-    for match in _SUBMISSION_CUE_RE.finditer(text):
-        if _accept_submission_match(match, text):
-            return match.group("number")
-    return None
+def _find_submission_numbers(subject: str, body: str) -> list[str]:
+    """EVERY trustworthy submission number, subject first, deduplicated.
 
+    Scanning no longer stops at the first hit: an email may name several
+    submissions, and returning one silently discarded the rest. WHAT counts as
+    a match is unchanged — every candidate still passes
+    :func:`_accept_submission_match`, so the cue-word gate, the
+    conference-designator rejection and the year rule all still apply.
 
-def _is_quoted_notification_subject(subject: str) -> bool:
-    """Is this subject a conference notification the sender replied to/forwarded?
+    Order is the existing traversal, kept deliberately: subject before body
+    (discovery found the subject usually carries the conference's own,
+    highest-value id), and within each, cue-worded matches before the bare
+    ``#NNNNN`` form (the stronger signal first). That was the old precedence
+    chain; it now decides list ORDER rather than which single value survives.
 
-    Requires BOTH a reply/forward marker and a notification phrase, because
-    either alone is far too common: plenty of ordinary replies open with "Re:",
-    and a sender may legitimately write these words themselves. Together they
-    identify a subject line the CONFERENCE wrote, not the sender.
+    Note this replaces the quoted-notification tie-break outright. That existed
+    only to choose between a subject number and a conflicting body number —
+    with both reported there is nothing left to disambiguate.
     """
-    return bool(
-        _REPLY_MARKER_RE.match(subject) and _NOTIFICATION_PHRASE_RE.search(subject)
-    )
-
-
-def _find_submission_number(subject: str, body: str) -> str | None:
-    """First trustworthy submission number in subject, else body.
-
-    Subject is searched FIRST because a number there usually came from the
-    conference's own notification, which the sender quoted or replied to — a
-    more reliable provenance than a number typed into prose.
-
-    ONE narrow exception, and it is the same fact turned around: when the
-    subject is a quoted notification, its number is what the conference wrote
-    about back THEN, which is not necessarily what the sender is asking about
-    NOW. So if such a subject and the body each yield a valid cue-worded number
-    and they DISAGREE, the body wins — that is the current request. Observed in
-    real traffic: a reply under an old decision-notification subject for one
-    paper whose actual ask is to be unassigned from a different one.
-
-    Deliberately narrow. It requires a quoted-notification subject AND a
-    cue-worded body number AND the two to differ; miss any one and the original
-    subject-first order runs unchanged. It is also cue-vs-cue only: the bare
-    ``#NNNNN`` form never triggers it, so hash-vs-cue precedence is untouched.
-    """
-    subject = subject or ""
-    body = body or ""
-
-    subject_cue = _first_cue_number(subject)
-    if subject_cue is not None and _is_quoted_notification_subject(subject):
-        body_cue = _first_cue_number(body)
-        if body_cue is not None and body_cue != subject_cue:
-            return body_cue
-
-    for text in (subject, body):
+    found: list[str] = []
+    for text in (subject or "", body or ""):
         for pattern in (_SUBMISSION_CUE_RE, _HASH_NUMBER_RE):
             for match in pattern.finditer(text):
                 if _accept_submission_match(match, text):
-                    return match.group("number")
-    return None
+                    found.append(match.group("number"))
+    return _dedupe_identifiers(found)
 
 
-def _find_openreview_forum_id(subject: str, body: str) -> str | None:
+def _find_openreview_forum_ids(subject: str, body: str) -> list[str]:
+    """EVERY valid forum id, subject first, deduplicated.
+
+    Dedup is case-SENSITIVE (via :func:`_dedupe_identifiers`) because forum ids
+    are case-sensitive tokens — two ids differing only in case are two
+    different papers.
+    """
+    found: list[str] = []
     for text in (subject or "", body or ""):
-        match = _OPENREVIEW_FORUM_ID_RE.search(text)
-        if match is not None:
-            return match.group("forum_id")
-    return None
+        for match in _OPENREVIEW_FORUM_ID_RE.finditer(text):
+            found.append(match.group("forum_id"))
+    return _dedupe_identifiers(found)
 
 
 class AuthorMention(BaseModel):
@@ -388,17 +352,18 @@ class EmailExtractor:
         parsing is deliberately out of scope — co-authors named in the body are
         exactly what the LLM path is for.
 
-        The "usable" bar for ``method``: at least one populated field, i.e. a
-        submission number, a forum id, or a sender mention with a name or an
-        address. ``none`` is therefore reserved for input carrying no
-        identifying trace whatsoever — in practice a malformed or synthetic
-        ingest, since a real email always has a sender. That is the intended
-        reading: ``none`` means "nothing to go on", not "regex found no
-        number", which is an ordinary outcome recorded as ``regex_fallback``
-        with an empty ``submission_number``.
+        The "usable" bar for ``method``, restated for lists: at least one
+        populated field, i.e. a NON-EMPTY submission-number list, OR a non-empty
+        forum-id list, OR a sender mention with a name or an address. Same rule
+        as before, with "non-empty list" where "non-None scalar" used to be.
+        ``none`` is therefore still reserved for input carrying no identifying
+        trace whatsoever — in practice a malformed or synthetic ingest, since a
+        real email always has a sender. That is the intended reading: ``none``
+        means "nothing to go on", not "regex found no number", which is an
+        ordinary outcome recorded as ``regex_fallback`` with empty lists.
         """
-        submission_number = _find_submission_number(subject, body)
-        forum_id = _find_openreview_forum_id(subject, body)
+        submission_numbers = _find_submission_numbers(subject, body)
+        forum_ids = _find_openreview_forum_ids(subject, body)
 
         authors: list[AuthorMention] = []
         name = _field_or_none(sender_name or "")
@@ -406,14 +371,10 @@ class EmailExtractor:
         if name is not None or email is not None:
             authors.append(AuthorMention(name=name, email=email))
 
-        found_anything = bool(submission_number or forum_id or authors)
-        # CONSTRUCTION SITE ONLY — adapted to the widened list fields so the
-        # module stays coherent. The finding logic above is untouched and still
-        # returns AT MOST ONE of each, so these lists hold 0 or 1 element.
-        # Widening the regex path to collect every match is the next piece.
+        found_anything = bool(submission_numbers or forum_ids or authors)
         return ExtractionResult(
-            submission_numbers=[submission_number] if submission_number else [],
-            openreview_forum_ids=[forum_id] if forum_id else [],
+            submission_numbers=submission_numbers,
+            openreview_forum_ids=forum_ids,
             authors=authors,
             method="regex_fallback" if found_anything else "none",
         )

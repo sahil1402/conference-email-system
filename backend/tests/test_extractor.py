@@ -1,10 +1,11 @@
-"""Tests for the paper/author extractor (LLM path).
+"""Tests for the paper/author extractor — both paths.
 
-SCOPE LIMIT: subtask 2a implements only the branch where the distiller ran.
-Everything here drives ``extract`` through a constructed ``DistillResult`` — no
-model call, no HTTP, no regex. The ``distilled is None`` branch is asserted only
-to pin its current stub contract (``method="none"``); the regex fallback that
-will replace it is subtask 2b.
+The LLM path drives ``extract`` through a constructed ``DistillResult``; the
+regex path drives it with ``distilled=None``. No model call, no HTTP.
+
+Both paths now report LISTS: every submission number and forum id an email
+names, not just the first. Regex examples are synthetic, modelled on shapes
+found in the real corpus.
 """
 
 from app.pipeline.distiller import DistillResult
@@ -453,7 +454,7 @@ def _regex_extract(
 # --- submission number -----------------------------------------------------
 def test_regex_submission_number_with_cue_word():
     result = _regex_extract(body="We are writing about submission 12345.")
-    assert result.submission_number == "12345"
+    assert result.submission_numbers == ["12345"]
     assert result.method == "regex_fallback"
 
 
@@ -468,12 +469,12 @@ def test_regex_submission_number_accepts_common_cue_shapes():
         ("our submissions 13276 and others", "13276"),
         ("regarding #18898", "18898"),
     ]:
-        assert _regex_extract(body=text).submission_number == expected, text
+        assert _regex_extract(body=text).submission_numbers == [expected], text
 
 
 def test_regex_submission_number_requires_a_cue_word():
     """A bare number with no cue is not a submission number."""
-    assert _regex_extract(body="We waited 12345 seconds.").submission_number is None
+    assert _regex_extract(body="We waited 12345 seconds.").submission_numbers == []
 
 
 def test_regex_submission_number_rejects_conference_designator_year():
@@ -483,7 +484,7 @@ def test_regex_submission_number_rejects_conference_designator_year():
         "our submission AAAI-2026 was rejected",
         "the paper IAAI 2027 track",
     ]:
-        assert _regex_extract(body=text).submission_number is None, text
+        assert _regex_extract(body=text).submission_numbers == [], text
 
 
 def test_regex_submission_number_rejects_any_number_directly_after_designator():
@@ -494,31 +495,31 @@ def test_regex_submission_number_rejects_any_number_directly_after_designator():
     its year, never by the submission number (that follows a cue like
     `Submission` / `Paper ID`), so the adjacency itself is the signal.
     """
-    assert _regex_extract(body="our submission AAAI 12345 here").submission_number is None
-    assert _regex_extract(body="the paper EAAI-31337 track").submission_number is None
+    assert _regex_extract(body="our submission AAAI 12345 here").submission_numbers == []
+    assert _regex_extract(body="the paper EAAI-31337 track").submission_numbers == []
 
 
 def test_regex_submission_number_keeps_scanning_past_a_rejected_match():
     """A rejected candidate must not abort the search for a real one."""
     result = _regex_extract(body="our submission AAAI 12345 concerns paper 22336")
-    assert result.submission_number == "22336"
+    assert result.submission_numbers == ["22336"]
 
 
 def test_regex_submission_number_rejects_year_reached_across_a_word():
     """`paper due 2026` is a deadline; the cue does not introduce the number."""
     for text in ["the paper due 2026", "our submission deadline 2026"]:
-        assert _regex_extract(body=text).submission_number is None, text
+        assert _regex_extract(body=text).submission_numbers == [], text
 
 
 def test_regex_submission_number_accepts_year_like_value_adjacent_to_cue():
     """Genuine 4-digit numbers in the year range exist; a direct cue believes them."""
-    assert _regex_extract(body="Submission 2026 was desk rejected.").submission_number == "2026"
+    assert _regex_extract(body="Submission 2026 was desk rejected.").submission_numbers == ["2026"]
 
 
 def test_regex_submission_number_conference_year_not_taken_from_surrounding_text():
     """The designator year must lose to the real number later in the line."""
     result = _regex_extract(subject="Update on your AAAI 2026 Submission 22336")
-    assert result.submission_number == "22336"
+    assert result.submission_numbers == ["22336"]
 
 
 def test_regex_submission_number_found_in_subject_only():
@@ -526,185 +527,148 @@ def test_regex_submission_number_found_in_subject_only():
         subject="Re: Desk Rejection of Your Submission 15357",
         body="Dear chairs, please reconsider.",
     )
-    assert result.submission_number == "15357"
+    assert result.submission_numbers == ["15357"]
 
 
 def test_regex_submission_number_found_in_body_only():
     result = _regex_extract(
         subject="Appeal request", body="This concerns submission 15357."
     )
-    assert result.submission_number == "15357"
+    assert result.submission_numbers == ["15357"]
 
 
-def test_regex_submission_number_prefers_subject_over_body():
-    """Subject numbers usually come from the conference's own notification."""
-    result = _regex_extract(
-        subject="Re: Your Submission 11111", body="Also see submission 22222."
-    )
-    assert result.submission_number == "11111"
+# NOTE: `test_regex_submission_number_prefers_subject_over_body` lived here and
+# is GONE, not adapted. It pinned that a subject number BEAT a body number —
+# a claim that no longer exists now that both are reported. Its exact scenario
+# is covered by `test_regex_collects_from_subject_AND_body_subject_first`
+# below, which asserts the surviving property: subject-first ORDER.
 
 
-# --- quoted-notification subject vs. the body's current ask -----------------
-# A reply under a conference notification's subject carries the number that
-# notification was about, which is not necessarily what the sender is asking
-# about now. Synthetic subjects modelled on the real shapes; no ticket text.
-def test_regex_body_wins_when_quoted_notification_subject_disagrees():
-    """THE defect: subject quotes an old notification for A, body asks about B."""
-    result = _regex_extract(
-        subject="Re: [AAAI-26] Decision notification for your submission 11111",
-        body="Please remove me from paper 22222 — it is outside my area.",
-    )
-    assert result.submission_number == "22222"
+# --- collecting EVERY match, not just the first -----------------------------
+def test_regex_collects_two_numbers_each_with_its_own_cue():
+    """Repeating the cue makes both numbers independently valid — both returned."""
+    result = _regex_extract(body="See paper 11111 and paper 22222 for context.")
+    assert result.submission_numbers == ["11111", "22222"]
 
 
-def test_regex_quoted_notification_exception_covers_the_observed_phrasings():
-    """Each mined notification phrase must trigger the exception."""
-    for subject in [
-        "Re: [AAAI-26] Decision notification for your submission 11111",
-        "Re: Regarding the Desk Rejection of Your AAAI-2026 Submission 11111",
-        "Re: [AAAI-26] Official Review posted to your assigned Paper 11111",
-        "Fwd: Update on your AAAI 2026 Submission 11111",
-        "Re: [AAAI-26]: Paper 11111 restored by venue organizers",
-    ]:
-        result = _regex_extract(
-            subject=subject, body="This is about paper 22222 instead."
-        )
-        assert result.submission_number == "22222", subject
+def test_regex_collects_two_hash_numbers():
+    """The bare `#` is its own cue, so each item in the list qualifies."""
+    result = _regex_extract(body="Please reassign submissions #5458 and #21675.")
+    assert result.submission_numbers == ["5458", "21675"]
 
 
-def test_regex_keeps_subject_number_when_body_has_none():
-    """Nothing to conflict with — the subject's number stands."""
-    result = _regex_extract(
-        subject="Re: [AAAI-26] Decision notification for your submission 11111",
-        body="Thank you for the update, I have no further questions.",
-    )
-    assert result.submission_number == "11111"
+def test_regex_collects_numbers_across_separate_sentences():
+    result = _regex_extract(body="This is submission 11111. Also submission 22222.")
+    assert result.submission_numbers == ["11111", "22222"]
 
 
-def test_regex_keeps_subject_number_when_body_reinforces_it():
-    """The body repeating the SAME number is agreement, not a conflict."""
-    result = _regex_extract(
-        subject="Re: [AAAI-26] Decision notification for your submission 11111",
-        body="I am writing about submission 11111 and would like to appeal.",
-    )
-    assert result.submission_number == "11111"
+def test_regex_collects_from_subject_AND_body_subject_first():
+    """Replaces the old subject-precedence tie-break: both are reported now.
 
-
-def test_regex_ordinary_subject_keeps_subject_first_precedence():
-    """The exception must NOT fire on plain subject/body disagreement.
-
-    A fresh, sender-written subject is not a quoted notification, so the
-    original subject-first rule still governs.
+    There is no longer a winner to choose, so the subject/body disagreement the
+    quoted-notification exception existed to arbitrate simply does not arise —
+    which is why that exception (and its tests) are gone rather than adapted.
     """
     result = _regex_extract(
-        subject="Question about submission 11111",
-        body="Also, what about paper 22222?",
+        subject="Re: Your Submission 11111", body="Please also see paper 22222."
     )
-    assert result.submission_number == "11111"
+    assert result.submission_numbers == ["11111", "22222"]
 
 
-def test_regex_reply_marker_alone_does_not_trigger_the_exception():
-    """`Re:` without a notification phrase is just an ordinary reply."""
+def test_regex_dedupes_the_same_number_in_subject_and_body():
     result = _regex_extract(
-        subject="Re: Question about submission 11111",
-        body="Also, what about paper 22222?",
+        subject="Re: Your Submission 11111",
+        body="I am writing about submission 11111 to appeal.",
     )
-    assert result.submission_number == "11111"
+    assert result.submission_numbers == ["11111"]
 
 
-def test_regex_notification_phrase_alone_does_not_trigger_the_exception():
-    """A sender writing the phrase in their OWN fresh subject is not a quote."""
+def test_regex_keeps_rejecting_bad_candidates_alongside_good_ones():
+    """Collecting all must not smuggle in candidates the guards reject."""
     result = _regex_extract(
-        subject="Desk rejection query for submission 11111",
-        body="Also, what about paper 22222?",
+        body="our submission AAAI 12345 concerns paper 22336 and paper due 2026"
     )
-    assert result.submission_number == "11111"
+    # 12345 sits after a conference designator; 2026 is a year across a filler.
+    assert result.submission_numbers == ["22336"]
 
 
-def test_regex_reply_marker_must_be_at_the_START_of_the_subject():
-    """The marker is anchored, and that anchoring is load-bearing.
-
-    Unanchored, `re\\s*:` matches INSIDE ordinary words that happen to end in
-    "re" before a colon — "Score:", "More:", "Failure:" — which would fire the
-    exception on subjects that are not replies at all.
-    """
+def test_regex_collects_two_forum_ids_across_subject_and_body():
     result = _regex_extract(
-        subject="Score: 9 — desk rejection of submission 11111",
-        body="Also see paper 22222.",
+        subject="Re: openreview.net/forum?id=Ab3xY9kLm2",
+        body="and the other is https://openreview.net/pdf?id=Zz9QwErTy1",
     )
-    assert result.submission_number == "11111"
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2", "Zz9QwErTy1"]
 
 
-def test_regex_paper_number_label_alone_does_not_trigger_the_exception():
-    """`Paper number:` is an id label, not a notification marker.
-
-    It is the most frequent phrase in real reply-subjects, so treating it as a
-    notification marker would fire the exception on a large share of ordinary
-    replies — the opposite of a narrow exception.
-    """
+def test_regex_dedupes_a_forum_id_repeated_in_the_body():
     result = _regex_extract(
-        subject="Re: Paper number: 11111",
-        body="Also, what about paper 22222?",
-    )
-    assert result.submission_number == "11111"
-
-
-def test_regex_known_limitation_body_quoting_the_notification_defeats_the_fix():
-    """KNOWN LIMITATION, pinned deliberately — not an assertion that this is right.
-
-    When the body also QUOTES the notification, the body's first cue-worded
-    number is that same quoted number, so no disagreement is detected and the
-    subject's number stands even though the sender's real ask names a different
-    paper further down.
-
-    Measured on the real corpus, this is why the motivating ticket is not fixed
-    by this change. The obvious widening — take the first body number that
-    DIFFERS — was tried and rejected: it fixes that ticket but pulls numbers out
-    of quoted foreign-conference notifications and cited evidence, a worse trade.
-    Doing this properly needs quote-stripping (telling the sender's own prose
-    apart from quoted blocks), which is a separate piece.
-    """
-    result = _regex_extract(
-        subject="Re: [AAAI-26] Decision notification for your submission 11111",
         body=(
-            "On Mon, AAAI wrote:\n"
-            "> Subject: Decision notification for your submission 11111\n"
-            "Please remove me from paper 22222 instead."
+            "See https://openreview.net/forum?id=Ab3xY9kLm2 — again, "
+            "https://openreview.net/forum?id=Ab3xY9kLm2"
+        )
+    )
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+
+
+def test_regex_forum_id_collection_still_rejects_group_links():
+    """A group link beside a real forum link must not be collected."""
+    result = _regex_extract(
+        body=(
+            "Roster: https://openreview.net/group?id=AAAI.org/2026/Conference "
+            "Paper: https://openreview.net/forum?id=Ab3xY9kLm2"
+        )
+    )
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+
+
+def test_regex_collects_several_of_both_kinds_together():
+    result = _regex_extract(
+        subject="Re: Submissions #11111 and #22222",
+        body=(
+            "Forums: https://openreview.net/forum?id=Ab3xY9kLm2 and "
+            "https://openreview.net/pdf?id=Zz9QwErTy1"
         ),
     )
-    # Today: the quoted 11111 is seen first, so the exception does not fire.
-    assert result.submission_number == "11111"
+    assert result.submission_numbers == ["11111", "22222"]
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2", "Zz9QwErTy1"]
+    assert result.method == "regex_fallback"
 
 
-def test_regex_exception_is_cue_vs_cue_only():
-    """A bare `#NNNNN` in the body must not displace the subject's number.
+def test_regex_known_limitation_bare_conjunction_second_item_still_missed():
+    """KNOWN LIMITATION, pinned deliberately — not an assertion that this is right.
 
-    Hash-vs-cue precedence is a separate, deliberate rule; this fix is only
-    about two independently valid CUE-WORDED matches disagreeing.
+    "papers 11111 and 22222" yields only 11111. Collecting every match does NOT
+    fix this: the second number is never a CANDIDATE, because the cue-word gate
+    requires a cue adjacent to each number and "and 22222" carries none. That is
+    an acceptance rule, not an early return, and acceptance was deliberately
+    left untouched here.
+
+    Measured on the real corpus: of the trailing items in "X and Y" / "X, Y"
+    shapes, 76 are now captured (their second item carried its own cue, usually
+    "#") and 62 remain missed like this one. Widening the cue gate to reach
+    across a conjunction is a separate decision with its own false-positive
+    risk.
     """
-    result = _regex_extract(
-        subject="Re: [AAAI-26] Decision notification for your submission 11111",
-        body="See also #22222 for context.",
-    )
-    assert result.submission_number == "11111"
+    assert _regex_extract(body="papers 11111 and 22222").submission_numbers == ["11111"]
+    assert _regex_extract(body="Paper IDs 3157, 17066").submission_numbers == ["3157"]
 
 
 def test_regex_submission_number_rejects_wrong_length():
     """4-5 digits only: shorter is a count, longer is not a submission number."""
-    assert _regex_extract(body="paper 123").submission_number is None
-    assert _regex_extract(body="paper 123456").submission_number is None
+    assert _regex_extract(body="paper 123").submission_numbers == []
+    assert _regex_extract(body="paper 123456").submission_numbers == []
 
 
 # --- OpenReview forum id ---------------------------------------------------
 def test_regex_forum_id_from_forum_link():
     result = _regex_extract(body="See https://openreview.net/forum?id=Ab3xY9kLm2 please.")
-    assert result.openreview_forum_id == "Ab3xY9kLm2"
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
     assert result.method == "regex_fallback"
 
 
 def test_regex_forum_id_from_pdf_link():
     result = _regex_extract(body="PDF: https://openreview.net/pdf?id=Zz9QwErTy1")
-    assert result.openreview_forum_id == "Zz9QwErTy1"
+    assert result.openreview_forum_ids == ["Zz9QwErTy1"]
 
 
 def test_regex_forum_id_rejects_group_link():
@@ -712,7 +676,7 @@ def test_regex_forum_id_rejects_group_link():
     result = _regex_extract(
         body="Join https://openreview.net/group?id=AAAI.org/2026/Conference today."
     )
-    assert result.openreview_forum_id is None
+    assert result.openreview_forum_ids == []
 
 
 def test_regex_forum_id_rejects_bare_id_parameter():
@@ -722,29 +686,29 @@ def test_regex_forum_id_rejects_bare_id_parameter():
         "https://openreview.net/profile?id=Ab3xY9kLm2",
         "see ?id=Ab3xY9kLm2",
     ]:
-        assert _regex_extract(body=text).openreview_forum_id is None, text
+        assert _regex_extract(body=text).openreview_forum_ids == [], text
 
 
 def test_regex_forum_id_rejects_wrong_length():
     """Exactly 10 chars — a longer id must not be truncated into a false match."""
     assert _regex_extract(
         body="https://openreview.net/forum?id=Ab3xY9kLm2Extra24Chars"
-    ).openreview_forum_id is None
+    ).openreview_forum_ids == []
     assert _regex_extract(
         body="https://openreview.net/forum?id=Short1"
-    ).openreview_forum_id is None
+    ).openreview_forum_ids == []
 
 
 def test_regex_forum_id_found_in_subject():
     result = _regex_extract(subject="Re: openreview.net/forum?id=Ab3xY9kLm2")
-    assert result.openreview_forum_id == "Ab3xY9kLm2"
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
 
 
 def test_regex_forum_id_preserves_case():
     """The id is opaque and case-sensitive; matching must not normalize it."""
     assert (
-        _regex_extract(body="openreview.net/forum?id=aB3Xy9KlM2").openreview_forum_id
-        == "aB3Xy9KlM2"
+        _regex_extract(body="openreview.net/forum?id=aB3Xy9KlM2").openreview_forum_ids
+        == ["aB3Xy9KlM2"]
     )
 
 
@@ -762,7 +726,7 @@ def test_regex_sender_only_still_counts_as_found():
         body="Please advise on my situation.", sender=_SENDER, sender_name=_SENDER_NAME
     )
     assert result.method == "regex_fallback"
-    assert result.submission_number is None
+    assert result.submission_numbers == []
     assert len(result.authors) == 1
 
 
@@ -794,8 +758,8 @@ def test_regex_nothing_usable_is_method_none():
     """No sender and no regex hit: nothing to go on at all."""
     result = _regex_extract(subject="Question", body="Can you help?", sender="")
     assert result.method == "none"
-    assert result.submission_number is None
-    assert result.openreview_forum_id is None
+    assert result.submission_numbers == []
+    assert result.openreview_forum_ids == []
     assert result.authors == []
 
 
@@ -811,8 +775,8 @@ def test_regex_fallback_finds_both_identifiers_together():
         sender=_SENDER,
         sender_name=_SENDER_NAME,
     )
-    assert result.submission_number == "22336"
-    assert result.openreview_forum_id == "Ab3xY9kLm2"
+    assert result.submission_numbers == ["22336"]
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
     assert len(result.authors) == 1
     assert result.method == "regex_fallback"
 

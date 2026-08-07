@@ -256,22 +256,15 @@ async def test_extraction_runs_on_thread_followup_reprocess(session):
     # extractor sees the CURRENT ask, not the original inquiry.
     assert "44444" in call["body"]
     assert call["subject"] == _EMAIL["subject"]
-    # ⚠️ BEHAVIOUR CHANGE — this assertion was "22336" until the quoted-
-    # notification tie-break landed, and the comment here used to argue that the
-    # ticket's subject identifies the submission the whole thread is about, so a
-    # follow-up could not retarget it.
+    # BOTH are reported: the ticket's own subject (22336) and the submission the
+    # follow-up turn names (44444), subject first.
     #
-    # This fixture's subject ("Re: Desk Rejection of Your Submission 22336") is
-    # exactly the shape the tie-break targets — a reply marker plus a
-    # notification phrase — and the follow-up names a different submission. So
-    # the rule now fires on the THREAD path too, not just within one email, and
-    # the current turn wins.
-    #
-    # Defensible: a requester writing "following up on submission 44444" is
-    # asking about 44444. But it is a wider consequence than the tie-break was
-    # scoped for, so it is flagged rather than quietly absorbed. To restore the
-    # old behaviour, gate the tie-break off when a thread transcript is present.
-    assert call["result"].submission_numbers == ["44444"]
+    # This resolves the design collision flagged when the quoted-notification
+    # tie-break briefly lived here. That rule had to CHOOSE, which forced a
+    # contested answer — either the follow-up silently retargeted the ticket, or
+    # the subject silently suppressed the current ask. Collecting every match
+    # dissolves the question: nothing is discarded, so nothing has to win.
+    assert call["result"].submission_numbers == ["22336", "44444"]
 
 
 # ---------------------------------------------------------------------------
