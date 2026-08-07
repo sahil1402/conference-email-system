@@ -123,8 +123,12 @@ export interface DraftHistoryEntry {
 }
 
 /**
- * extractor.py::ExtractionResult — which submission an email is about and who
+ * extractor.py::ExtractionResult — which submissions an email refers to and who
  * it names, stored in the `emails.extraction` JSON column.
+ *
+ * Every identifier field is an ARRAY: an email may legitimately name several
+ * submissions (an appeal covering two desk rejections, a reviewer asking to be
+ * unassigned from four papers), and reporting one silently discarded the rest.
  *
  * `method` says WHICH path produced these values, so the UI can distinguish the
  * model's answer from a weaker regex guess:
@@ -133,13 +137,16 @@ export interface DraftHistoryEntry {
  *   "none"           — nothing identifying was found to go on
  *
  * NOTE the distinction `Email.extraction === null` carries: null means the row
- * was never examined (it predates the feature), which is NOT the same as a
- * present result whose `submission_number` is null (examined, found nothing).
- * The backend preserves that difference deliberately — do not collapse them.
+ * was never examined (it predates the feature). An EMPTY ARRAY here means
+ * something different — the email WAS examined and named none. "Not examined"
+ * is only ever `Email.extraction` itself being null, never an empty array. The
+ * backend preserves that difference deliberately — do not collapse them.
  */
 export interface ExtractionData {
-  submission_number: string | null;
-  openreview_forum_id: string | null;
+  /** Deduplicated, in first-seen order. Empty when the email named none. */
+  submission_numbers: string[];
+  /** Deduplicated (case-SENSITIVE — case distinguishes different papers). */
+  openreview_forum_ids: string[];
   /** Deduplicated, in first-seen order (the sender leads on the regex path). */
   authors: AuthorMention[];
   method: "llm_distiller" | "regex_fallback" | "none";
