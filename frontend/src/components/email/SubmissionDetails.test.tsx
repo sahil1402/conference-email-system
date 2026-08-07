@@ -2,11 +2,9 @@
  * SubmissionDetails (2a) — the panel's render / don't-render contract, plus
  * submission_number output.
  *
- * SCOPE LIMIT: submission_number (2a) and the OpenReview link (2b) have UI.
- * `authors` does NOT yet — the emptiness check already counts it, so the
- * "renders on authors alone" case below asserts only that the CONTAINER
- * appears, deliberately not any author output, which is 2c's job. That test is
- * what stops 2c from having to revisit this component's render decision.
+ * All three fields now have UI: submission_number (2a), the OpenReview link
+ * (2b) and authors (2c). The 2a/2b container-only placeholders for authors have
+ * been replaced by real output assertions below.
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -85,11 +83,22 @@ describe("SubmissionDetails — submission number", () => {
     expect(screen.getByText("22336")).toBeInTheDocument();
   });
 
-  it("exposes the panel as a labelled group", () => {
+  it("exposes the panel as a group named by its visible heading", () => {
+    // The accessible name comes from the <h3> via aria-labelledby, not a
+    // duplicated aria-label string — one source of truth, so the name shown on
+    // screen and the name announced can never drift apart.
     render(
       <SubmissionDetails extraction={extraction({ submission_number: "22336" })} />
     );
-    expect(panel()).toBeInTheDocument();
+    const group = panel()!;
+    expect(group).toBeInTheDocument();
+    expect(group).toHaveAccessibleName("Submission Details");
+
+    const heading = screen.getByRole("heading", { name: "Submission Details" });
+    expect(group.getAttribute("aria-labelledby")).toBe(heading.id);
+    expect(heading.id).not.toBe("");
+    // No competing label: aria-label would silently win over aria-labelledby.
+    expect(group).not.toHaveAttribute("aria-label");
   });
 
   it("renders the number verbatim, without adding a # prefix", () => {
@@ -257,24 +266,269 @@ describe("SubmissionDetails — OpenReview link", () => {
   });
 });
 
-describe("SubmissionDetails — other fields keep the panel alive (2b/2c)", () => {
-  it("still renders when only authors are present", () => {
+describe("SubmissionDetails — authors", () => {
+  /** The authors cell (the grid's second column for that row). */
+  function authorsCell(): HTMLElement {
+    return screen.getByText("Authors").nextElementSibling as HTMLElement;
+  }
+
+  it("renders a fully populated mention: name, email, affiliation", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [
+            author({
+              name: "Jane Roe",
+              email: "jane@example.edu",
+              affiliation: "Example University",
+            }),
+          ],
+        })}
+      />
+    );
+    expect(screen.getByText("Authors")).toBeInTheDocument();
+    expect(screen.getByText("Jane Roe")).toBeInTheDocument();
+    expect(screen.getByText("jane@example.edu")).toBeInTheDocument();
+    expect(screen.getByText("Example University")).toBeInTheDocument();
+  });
+
+  it("renders a name-only mention", () => {
     render(
       <SubmissionDetails
         extraction={extraction({ authors: [author({ name: "Jane Roe" })] })}
       />
     );
-    expect(panel()).toBeInTheDocument();
+    expect(screen.getByText("Jane Roe")).toBeInTheDocument();
     expect(screen.queryByText("Number")).toBeNull();
   });
 
-  it("treats a mention with only an email or only an affiliation as present", () => {
-    for (const only of [author({ email: "jane@example.edu" }), author({ affiliation: "Example University" })]) {
-      const { unmount } = render(
-        <SubmissionDetails extraction={extraction({ authors: [only] })} />
-      );
-      expect(panel()).toBeInTheDocument();
-      unmount();
+  it("renders an email-only mention", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({ authors: [author({ email: "jane@example.edu" })] })}
+      />
+    );
+    expect(screen.getByText("jane@example.edu")).toBeInTheDocument();
+  });
+
+  it("renders an affiliation-only mention", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [author({ affiliation: "Example University" })],
+        })}
+      />
+    );
+    expect(screen.getByText("Example University")).toBeInTheDocument();
+  });
+
+  it("emits no stray separator for a partial mention", () => {
+    // A missing field must contribute neither text nor a dangling middot.
+    render(
+      <SubmissionDetails
+        extraction={extraction({ authors: [author({ name: "Jane Roe" })] })}
+      />
+    );
+    const text = authorsCell().textContent ?? "";
+    expect(text).toBe("Jane Roe");
+    expect(text).not.toContain("·");
+  });
+
+  it("separates the parts of a full mention", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [
+            author({
+              name: "Jane Roe",
+              email: "jane@example.edu",
+              affiliation: "Example University",
+            }),
+          ],
+        })}
+      />
+    );
+    expect(authorsCell().textContent).toBe(
+      "Jane Roe·jane@example.edu·Example University"
+    );
+  });
+
+  it("renders nothing for a blank-string field rather than an empty fragment", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [author({ name: "Jane Roe", email: "   ", affiliation: "" })],
+        })}
+      />
+    );
+    expect(authorsCell().textContent).toBe("Jane Roe");
+  });
+
+  it("skips a BLANK leading field without a dangling separator", () => {
+    // A blank `name` must not occupy the first slot — otherwise the email
+    // becomes the second part and picks up a leading middot.
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [author({ name: "   ", email: "jane@example.edu" })],
+        })}
+      />
+    );
+    expect(authorsCell().textContent).toBe("jane@example.edu");
+  });
+
+  it("renders multiple authors, each on its own line", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [
+            author({ name: "Jane Roe", email: "jane@example.edu" }),
+            author({ name: "John Doe", affiliation: "Other Institute" }),
+          ],
+        })}
+      />
+    );
+    expect(screen.getByText("Jane Roe")).toBeInTheDocument();
+    expect(screen.getByText("John Doe")).toBeInTheDocument();
+    // Stacked, not comma-joined: one child element per person, in a column.
+    // SCOPE LIMIT: jsdom does no layout, so the column is pinned by its class —
+    // the same approach the repo uses for other layout-only declarations.
+    expect(authorsCell().children).toHaveLength(2);
+    expect(authorsCell()).toHaveClass("flex", "flex-col");
+  });
+
+  it("keeps a full mention intact among partial ones", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [
+            author({ name: "Solo Name" }),
+            author({
+              name: "Jane Roe",
+              email: "jane@example.edu",
+              affiliation: "Example University",
+            }),
+            author({ email: "silent@example.edu" }),
+          ],
+        })}
+      />
+    );
+    const lines = Array.from(authorsCell().children).map((el) => el.textContent);
+    expect(lines).toEqual([
+      "Solo Name",
+      "Jane Roe·jane@example.edu·Example University",
+      "silent@example.edu",
+    ]);
+  });
+
+  it("preserves the order the backend supplied", () => {
+    // The extractor dedupes and returns first-seen order (sender first on the
+    // regex path); re-sorting here would discard that signal.
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [author({ name: "Zoe Last" }), author({ name: "Aaron First" })],
+        })}
+      />
+    );
+    const lines = Array.from(authorsCell().children).map((el) => el.textContent);
+    expect(lines).toEqual(["Zoe Last", "Aaron First"]);
+  });
+
+  it("does NOT render the email as a mailto link", () => {
+    // Replies must travel through Zendesk; a mailto invites answering
+    // out-of-band, losing the ticket's audit trail and its send-path tagging.
+    render(
+      <SubmissionDetails
+        extraction={extraction({ authors: [author({ email: "jane@example.edu" })] })}
+      />
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(
+      screen.getByText("jane@example.edu").closest("a")
+    ).toBeNull();
+  });
+
+  it("hides the separator from assistive tech", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [author({ name: "Jane Roe", email: "jane@example.edu" })],
+        })}
+      />
+    );
+    const separators = Array.from(authorsCell().querySelectorAll("span")).filter(
+      (el) => el.textContent === "·"
+    );
+    expect(separators).toHaveLength(1);
+    expect(separators[0]).toHaveAttribute("aria-hidden");
+  });
+
+  it("skips a mention with no populated field without leaving a blank line", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          authors: [author({ name: "Jane Roe" }), author()],
+        })}
+      />
+    );
+    expect(authorsCell().textContent).toBe("Jane Roe");
+    // Asserted on ELEMENTS, not text: an empty <span> contributes no text but
+    // would still render as a blank line, which textContent alone cannot see.
+    expect(authorsCell().children).toHaveLength(1);
+  });
+});
+
+describe("SubmissionDetails — all three rows together", () => {
+  it("renders number, forum id and authors in one grid, in order", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_number: "22336",
+          openreview_forum_id: "Ab3xY9kLm2",
+          authors: [author({ name: "Jane Roe", email: "jane@example.edu" })],
+        })}
+      />
+    );
+    const grid = panel()!.querySelector(".grid")!;
+    expect(grid).not.toBeNull();
+
+    // All three labels live in the SAME grid, so the value column stays aligned.
+    for (const label of ["Number", "OpenReview", "Authors"]) {
+      expect(grid).toContainElement(screen.getByText(label));
     }
+
+    const labels = Array.from(grid.children)
+      .map((el) => el.textContent)
+      .filter((text) => ["Number", "OpenReview", "Authors"].includes(text ?? ""));
+    expect(labels).toEqual(["Number", "OpenReview", "Authors"]);
+  });
+
+  it("keeps 2b's grid assumption: one label and one value cell per row", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_number: "22336",
+          openreview_forum_id: "Ab3xY9kLm2",
+          authors: [author({ name: "Jane Roe" })],
+        })}
+      />
+    );
+    // 3 rows x 2 columns — a stray wrapper would break the column alignment
+    // the shared grid exists to provide.
+    expect(panel()!.querySelector(".grid")!.children).toHaveLength(6);
+  });
+
+  it("still renders every other row when authors are absent", () => {
+    render(
+      <SubmissionDetails
+        extraction={extraction({
+          submission_number: "22336",
+          openreview_forum_id: "Ab3xY9kLm2",
+        })}
+      />
+    );
+    expect(screen.queryByText("Authors")).toBeNull();
+    expect(panel()!.querySelector(".grid")!.children).toHaveLength(4);
   });
 });
