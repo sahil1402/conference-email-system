@@ -43,6 +43,7 @@ import { ConversationThread } from "./ConversationThread";
 // AAAI (2026-08): visibility toggle soft-removed — see REPLY_PUBLIC_BY_STATUS.
 // import { SendVisibilityToggle } from "./SendVisibilityToggle";
 import { SetTicketStatusButton, type NoReplyStatus } from "./SetTicketStatusButton";
+import { SubmissionDetails } from "./SubmissionDetails";
 import { ZendeskLinkButton } from "./ZendeskLinkButton";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { ShortcutsHintPopover } from "./ShortcutsHintPopover";
@@ -437,6 +438,15 @@ export function EmailDetail({
               </div>
             </div>
           )}
+
+          {/* Which submission this email is about, and who it names. No
+              conditional wrapper: the panel self-suppresses when the extraction
+              is null or carries nothing, so an email with nothing to show
+              renders exactly as it did before this was added. Inside <header>
+              so it picks up the same space-y-3 rhythm and full width as the
+              Intent row it sits under, and shares that row's surface/rounded/
+              px-3 shell. */}
+          <SubmissionDetails extraction={email.extraction} />
         </header>
 
         {/* CONVERSATION (multi-turn). Replaces the old single-body box: no
