@@ -197,21 +197,29 @@ class AuthorMention(BaseModel):
 
 
 class ExtractionResult(BaseModel):
-    """Which submission an email is about, and who it names.
+    """Which submissions an email refers to, and who it names.
+
+    Every field is a LIST: an email may legitimately name several submissions
+    (an appeal covering two desk rejections, a reviewer asking to be unassigned
+    from four papers), and reporting only one silently discarded the rest.
 
     ``method`` records HOW the values were obtained, not how well: an
     ``llm_distiller`` result with everything empty means the model looked and
     found nothing, which is a real finding and distinct from ``none`` (nothing
-    looked at all).
+    looked at all). That distinction lives in ``method`` and in whether the
+    whole result is stored at all — an EMPTY LIST means "examined, found none",
+    never "not examined".
     """
 
-    submission_number: str | None = Field(
-        default=None,
-        description="Submission/paper number as identified, or None.",
+    submission_numbers: list[str] = Field(
+        default_factory=list,
+        description="Submission/paper numbers as identified, deduplicated, in "
+        "first-seen order. Empty when the email named none.",
     )
-    openreview_forum_id: str | None = Field(
-        default=None,
-        description="OpenReview forum id as identified, or None.",
+    openreview_forum_ids: list[str] = Field(
+        default_factory=list,
+        description="OpenReview forum ids as identified, deduplicated, in "
+        "first-seen order. Empty when the email named none.",
     )
     authors: list[AuthorMention] = Field(
         default_factory=list,
@@ -222,6 +230,29 @@ class ExtractionResult(BaseModel):
         default="none",
         description="Which path produced this result.",
     )
+
+
+def _dedupe_identifiers(values: list[str]) -> list[str]:
+    """Strip blanks and exact repeats from raw identifiers, first-seen order.
+
+    EXACT match, deliberately — not the ``casefold`` used for author names.
+    These are opaque tokens rather than free text, so there is no casing or
+    spacing variation to fold, and folding case would be actively WRONG for an
+    OpenReview forum id: ``Ab3xY9kLm2`` and ``ab3xy9klm2`` are different ids.
+
+    Blanks are dropped defensively. The distiller already filters them, but a
+    model's output shape is never fully trusted here, and one stray empty line
+    would otherwise render as a blank row in the panel.
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        cleaned = value.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        unique.append(cleaned)
+    return unique
 
 
 def _field_or_none(value: str) -> str | None:
@@ -308,11 +339,12 @@ class EmailExtractor:
         fallback only. On the LLM path they are unused on purpose — the model
         already read the subject and body itself.
 
-        When ``distilled`` is present it is trusted outright, INCLUDING when it
-        found nothing: the prompt directs the model to read both subject and
-        body and to answer NONE when there is genuinely no identifier, so an
-        empty LLM result is an answer, not a failure to re-litigate with a
-        strictly weaker tool.
+        When ``distilled`` is present it is trusted outright, INCLUDING when
+        ALL THREE of its lists are empty: the prompt directs the model to read
+        both subject and body and to emit no line when there is genuinely no
+        identifier, so an empty LLM result is an answer, not a failure to
+        re-litigate with a strictly weaker tool. It stays ``llm_distiller``
+        with empty lists rather than falling through to regex.
         """
         try:
             if distilled is None:
@@ -324,8 +356,12 @@ class EmailExtractor:
                 if (mention := _parse_author(raw)) is not None
             ]
             return ExtractionResult(
-                submission_number=distilled.submission_number_raw,
-                openreview_forum_id=distilled.openreview_id_raw,
+                submission_numbers=_dedupe_identifiers(
+                    distilled.submission_numbers_raw
+                ),
+                openreview_forum_ids=_dedupe_identifiers(
+                    distilled.openreview_ids_raw
+                ),
                 authors=_dedupe_authors(authors),
                 method="llm_distiller",
             )
@@ -371,9 +407,13 @@ class EmailExtractor:
             authors.append(AuthorMention(name=name, email=email))
 
         found_anything = bool(submission_number or forum_id or authors)
+        # CONSTRUCTION SITE ONLY — adapted to the widened list fields so the
+        # module stays coherent. The finding logic above is untouched and still
+        # returns AT MOST ONE of each, so these lists hold 0 or 1 element.
+        # Widening the regex path to collect every match is the next piece.
         return ExtractionResult(
-            submission_number=submission_number,
-            openreview_forum_id=forum_id,
+            submission_numbers=[submission_number] if submission_number else [],
+            openreview_forum_ids=[forum_id] if forum_id else [],
             authors=authors,
             method="regex_fallback" if found_anything else "none",
         )

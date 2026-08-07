@@ -110,7 +110,7 @@ async def test_extraction_computed_via_regex_when_distillation_returns_none(sess
     result = call["result"]
     assert result.method == "regex_fallback"
     # The real submission number, read out of the SUBJECT line.
-    assert result.submission_number == "22336"
+    assert result.submission_numbers == ["22336"]
     assert [a.email for a in result.authors] == ["jane@example.edu"]
 
 
@@ -123,8 +123,8 @@ async def test_extraction_computed_via_llm_path_when_distillation_succeeds(
             queries=["desk rejection appeal procedure"],
             intent="desk_reject_appeal",
             confidence=0.9,
-            submission_number_raw="99999",
-            openreview_id_raw="Ab3xY9kLm2",
+            submission_numbers_raw=["99999"],
+            openreview_ids_raw=["Ab3xY9kLm2"],
             authors_raw=["Jane Roe | jane@example.edu | Example University"],
         ),
         stub_distiller=True,
@@ -135,8 +135,8 @@ async def test_extraction_computed_via_llm_path_when_distillation_succeeds(
     assert result.method == "llm_distiller"
     # The distiller's answer wins over the 22336 sitting in the subject line —
     # regex is a fallback, never a supplement.
-    assert result.submission_number == "99999"
-    assert result.openreview_forum_id == "Ab3xY9kLm2"
+    assert result.submission_numbers == ["99999"]
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
     assert result.authors[0].affiliation == "Example University"
 
 
@@ -211,7 +211,7 @@ async def test_extraction_runs_on_the_public_compute_seam(session):
     await pipeline.compute(_EMAIL, session)
 
     assert len(pipeline.extractor.calls) == 1
-    assert pipeline.extractor.calls[0]["result"].submission_number == "22336"
+    assert pipeline.extractor.calls[0]["result"].submission_numbers == ["22336"]
 
 
 async def test_extraction_runs_on_reprocess_email(session):
@@ -222,7 +222,7 @@ async def test_extraction_runs_on_reprocess_email(session):
     await pipeline.reprocess_email(session, email)
 
     assert len(pipeline.extractor.calls) == 2  # once to create, once to redraft
-    assert pipeline.extractor.calls[1]["result"].submission_number == "22336"
+    assert pipeline.extractor.calls[1]["result"].submission_numbers == ["22336"]
 
 
 async def test_extraction_runs_on_thread_followup_reprocess(session):
@@ -271,7 +271,7 @@ async def test_extraction_runs_on_thread_followup_reprocess(session):
     # asking about 44444. But it is a wider consequence than the tie-break was
     # scoped for, so it is flagged rather than quietly absorbed. To restore the
     # old behaviour, gate the tie-break off when a thread transcript is present.
-    assert call["result"].submission_number == "44444"
+    assert call["result"].submission_numbers == ["44444"]
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +304,7 @@ async def test_classification_routing_and_draft_are_unchanged(session):
     # leaked into any persisted column.
     for column in (email.classification, email.routing, email.draft,
                    email.retrieval_context):
-        assert "submission_number" not in column
+        assert "submission_numbers" not in column
         assert "extraction" not in column
 
 

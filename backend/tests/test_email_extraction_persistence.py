@@ -160,8 +160,8 @@ async def test_processed_email_persists_extraction(session):
 
     email = await EmailRepository().get_email_by_id(session, result.email_id)
     assert email.extraction is not None
-    assert email.extraction["submission_number"] == "22336"
-    assert email.extraction["openreview_forum_id"] is None
+    assert email.extraction["submission_numbers"] == ["22336"]
+    assert email.extraction["openreview_forum_ids"] == []
     assert email.extraction["method"] == "regex_fallback"
     assert email.extraction["authors"] == [
         {"name": "Jane Roe", "email": "jane@example.edu", "affiliation": None}
@@ -179,8 +179,8 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
             queries=["q"],
             intent="desk_reject_appeal",
             confidence=0.9,
-            submission_number_raw="99999",
-            openreview_id_raw="Ab3xY9kLm2",
+            submission_numbers_raw=["99999"],
+            openreview_ids_raw=["Ab3xY9kLm2"],
             authors_raw=[
                 "Jane Roe | jane@example.edu | Example University",
                 "John Doe | NONE | NONE",
@@ -191,8 +191,8 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
 
     stored = (await EmailRepository().get_email_by_id(session, result.email_id)).extraction
     assert stored == {
-        "submission_number": "99999",
-        "openreview_forum_id": "Ab3xY9kLm2",
+        "submission_numbers": ["99999"],
+        "openreview_forum_ids": ["Ab3xY9kLm2"],
         "authors": [
             {
                 "name": "Jane Roe",
@@ -211,8 +211,8 @@ async def test_extraction_is_serialized_with_model_dump(session):
     email = await EmailRepository().get_email_by_id(session, result.email_id)
     assert isinstance(email.extraction, dict)
     assert set(email.extraction) == {
-        "submission_number",
-        "openreview_forum_id",
+        "submission_numbers",
+        "openreview_forum_ids",
         "authors",
         "method",
     }
@@ -224,14 +224,14 @@ async def test_reprocess_updates_the_stored_extraction(session):
     pipeline = _pipeline()
     created = await pipeline.process_email(_EMAIL, session)
     email = await EmailRepository().get_email_by_id(session, created.email_id)
-    email.extraction = {"submission_number": "00000", "method": "none",
-                        "openreview_forum_id": None, "authors": []}
+    email.extraction = {"submission_numbers": ["00000"], "method": "none",
+                        "openreview_forum_ids": [], "authors": []}
     await session.commit()
 
     await pipeline.reprocess_email(session, email)
 
     refreshed = await EmailRepository().get_email_by_id(session, created.email_id)
-    assert refreshed.extraction["submission_number"] == "22336"
+    assert refreshed.extraction["submission_numbers"] == ["22336"]
     assert refreshed.extraction["method"] == "regex_fallback"
 
 
@@ -268,7 +268,7 @@ async def test_processing_result_persists_extraction(session):
     )
 
     assert row.extraction is not None
-    assert row.extraction["submission_number"] == "44444"
+    assert row.extraction["submission_numbers"] == ["44444"]
     assert row.extraction["method"] == "regex_fallback"
 
 
@@ -297,8 +297,8 @@ async def test_processing_result_extraction_is_independent_of_the_parent(session
         session, message.id, computed.record
     )
 
-    assert parent.extraction["submission_number"] == "22336"
-    assert row.extraction["submission_number"] == "44444"
+    assert parent.extraction["submission_numbers"] == ["22336"]
+    assert row.extraction["submission_numbers"] == ["44444"]
 
 
 # ---------------------------------------------------------------------------

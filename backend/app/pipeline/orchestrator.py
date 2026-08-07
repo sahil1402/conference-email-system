@@ -447,10 +447,10 @@ class EmailPipeline:
                 subject, body, sender, sender_name, distilled
             )
             logger.debug(
-                "Extraction (%s): submission=%s forum_id=%s authors=%d",
+                "Extraction (%s): submissions=%d forum_ids=%d authors=%d",
                 extraction.method,
-                extraction.submission_number,
-                extraction.openreview_forum_id,
+                len(extraction.submission_numbers),
+                len(extraction.openreview_forum_ids),
                 len(extraction.authors),
             )
 

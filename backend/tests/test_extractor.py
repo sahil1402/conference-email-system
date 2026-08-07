@@ -44,8 +44,8 @@ def _extract(distilled: DistillResult | None) -> ExtractionResult:
 def test_extract_full_data():
     result = _extract(
         _distilled(
-            submission_number_raw="12345",
-            openreview_id_raw="Ab3xY9kLm2",
+            submission_numbers_raw=["12345"],
+            openreview_ids_raw=["Ab3xY9kLm2"],
             authors_raw=[
                 "Jane Roe | jane@example.edu | Example University",
                 "John Doe | john@example.org | Other Institute",
@@ -53,8 +53,8 @@ def test_extract_full_data():
         )
     )
     assert result.method == "llm_distiller"
-    assert result.submission_number == "12345"
-    assert result.openreview_forum_id == "Ab3xY9kLm2"
+    assert result.submission_numbers == ["12345"]
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
     assert result.authors == [
         AuthorMention(
             name="Jane Roe",
@@ -90,24 +90,115 @@ def test_extract_none_sentinel_is_case_insensitive_per_field():
 
 def test_extract_submission_number_and_forum_id_pass_through_independently():
     """Either identifier may be present without the other."""
-    only_number = _extract(_distilled(submission_number_raw="12345"))
-    assert only_number.submission_number == "12345"
-    assert only_number.openreview_forum_id is None
+    only_number = _extract(_distilled(submission_numbers_raw=["12345"]))
+    assert only_number.submission_numbers == ["12345"]
+    assert only_number.openreview_forum_ids == []
 
-    only_forum = _extract(_distilled(openreview_id_raw="Ab3xY9kLm2"))
-    assert only_forum.submission_number is None
-    assert only_forum.openreview_forum_id == "Ab3xY9kLm2"
+    only_forum = _extract(_distilled(openreview_ids_raw=["Ab3xY9kLm2"]))
+    assert only_forum.submission_numbers == []
+    assert only_forum.openreview_forum_ids == ["Ab3xY9kLm2"]
 
 
 def test_extract_does_not_revalidate_identifier_shape():
     """Pass-through is verbatim: shape enforcement is the prompt's job, and a
     value the model insisted on must stay visible rather than be silently
-    nulled here."""
+    dropped here."""
     result = _extract(
-        _distilled(submission_number_raw="AAAI-2026", openreview_id_raw="short")
+        _distilled(
+            submission_numbers_raw=["AAAI-2026"], openreview_ids_raw=["short"]
+        )
     )
-    assert result.submission_number == "AAAI-2026"
-    assert result.openreview_forum_id == "short"
+    assert result.submission_numbers == ["AAAI-2026"]
+    assert result.openreview_forum_ids == ["short"]
+
+
+# ---------------------------------------------------------------------------
+# Multiple identifiers — the point of the list shape
+# ---------------------------------------------------------------------------
+def test_extract_multiple_submission_numbers():
+    """An appeal covering two desk rejections names both; both are reported."""
+    result = _extract(_distilled(submission_numbers_raw=["11111", "22222"]))
+    assert result.submission_numbers == ["11111", "22222"]
+
+
+def test_extract_multiple_openreview_forum_ids():
+    result = _extract(
+        _distilled(openreview_ids_raw=["Ab3xY9kLm2", "Zz9QwErTy1"])
+    )
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2", "Zz9QwErTy1"]
+
+
+def test_extract_multiple_of_both_kinds_at_once():
+    result = _extract(
+        _distilled(
+            submission_numbers_raw=["11111", "22222", "33333"],
+            openreview_ids_raw=["Ab3xY9kLm2", "Zz9QwErTy1"],
+        )
+    )
+    assert result.submission_numbers == ["11111", "22222", "33333"]
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2", "Zz9QwErTy1"]
+
+
+def test_extract_preserves_the_order_the_model_reported():
+    """Order is the model's; re-sorting would discard which it named first."""
+    result = _extract(_distilled(submission_numbers_raw=["99999", "11111"]))
+    assert result.submission_numbers == ["99999", "11111"]
+
+
+def test_extract_dedupes_exact_duplicate_identifiers():
+    """The distiller forwards duplicates verbatim; dedup happens here."""
+    result = _extract(
+        _distilled(
+            submission_numbers_raw=["12345", "12345", "67890"],
+            openreview_ids_raw=["Ab3xY9kLm2", "Ab3xY9kLm2"],
+        )
+    )
+    assert result.submission_numbers == ["12345", "67890"]
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+
+
+def test_extract_dedupe_keeps_the_first_occurrence():
+    result = _extract(_distilled(submission_numbers_raw=["11111", "22222", "11111"]))
+    assert result.submission_numbers == ["11111", "22222"]
+
+
+def test_extract_forum_id_dedupe_is_case_SENSITIVE():
+    """Casefolding would be WRONG here — forum ids are case-sensitive tokens,
+    so two ids differing only in case are two different papers."""
+    result = _extract(
+        _distilled(openreview_ids_raw=["Ab3xY9kLm2", "ab3xy9klm2"])
+    )
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2", "ab3xy9klm2"]
+
+
+def test_extract_strips_blank_identifier_entries():
+    """Defensive: the distiller filters blanks, but model shape is not trusted.
+
+    An unfiltered blank would otherwise render as an empty row in the panel.
+    """
+    result = _extract(
+        _distilled(
+            submission_numbers_raw=["", "  ", "12345"],
+            openreview_ids_raw=["   ", "Ab3xY9kLm2"],
+        )
+    )
+    assert result.submission_numbers == ["12345"]
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+
+
+def test_extract_trims_surrounding_whitespace_on_identifiers():
+    result = _extract(_distilled(submission_numbers_raw=["  12345  "]))
+    assert result.submission_numbers == ["12345"]
+
+
+def test_extract_all_blank_identifiers_collapse_to_empty_lists():
+    result = _extract(
+        _distilled(submission_numbers_raw=["", " "], openreview_ids_raw=[""])
+    )
+    assert result.submission_numbers == []
+    assert result.openreview_forum_ids == []
+    # Still the model's answer, not a reason to fall through to regex.
+    assert result.method == "llm_distiller"
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +339,7 @@ def test_extract_same_name_different_email_are_distinct_mentions():
 # Empty / absent input
 # ---------------------------------------------------------------------------
 def test_extract_empty_authors_raw():
-    result = _extract(_distilled(submission_number_raw="12345"))
+    result = _extract(_distilled(submission_numbers_raw=["12345"]))
     assert result.authors == []
     assert result.method == "llm_distiller"
 
@@ -258,12 +349,13 @@ def test_extract_distilled_with_all_fields_empty_is_still_llm_distiller():
 
     That is an ANSWER, not a failure — the prompt directs it to read both
     subject and body — so it must not be recorded as `none` (nothing looked)
-    and, once subtask 2b lands, must not fall through to the regex path.
+    and must not fall through to the regex path. Restated for the list shape:
+    ALL THREE lists empty is still the model's answer.
     """
     result = _extract(_distilled())
     assert result.method == "llm_distiller"
-    assert result.submission_number is None
-    assert result.openreview_forum_id is None
+    assert result.submission_numbers == []
+    assert result.openreview_forum_ids == []
     assert result.authors == []
 
 
@@ -276,7 +368,9 @@ def test_extract_without_distilled_routes_to_the_regex_fallback():
     result = _extract(None)
     assert result.method == "regex_fallback"
     # `_SUBJECT` carries a cue-worded number, so the fallback really ran.
-    assert result.submission_number == "12345"
+    # Single-element for now: the regex path still finds at most one of each
+    # until it is widened in the next piece.
+    assert result.submission_numbers == ["12345"]
 
 
 def test_extract_with_distilled_never_consults_the_regex_fallback():
@@ -287,8 +381,8 @@ def test_extract_with_distilled_never_consults_the_regex_fallback():
     """
     result = _extract(_distilled())
     assert result.method == "llm_distiller"
-    assert result.submission_number is None
-    assert result.openreview_forum_id is None
+    assert result.submission_numbers == []
+    assert result.openreview_forum_ids == []
     assert result.authors == []
 
 
@@ -304,8 +398,8 @@ def test_extract_never_raises_on_bad_input():
 
     class _Exploding:
         queries = ["q"]
-        submission_number_raw = "12345"
-        openreview_id_raw = None
+        submission_numbers_raw = ["12345"]
+        openreview_ids_raw = []
 
         @property
         def authors_raw(self):
@@ -323,8 +417,8 @@ def test_extract_never_raises_on_bad_input():
 # ---------------------------------------------------------------------------
 def test_extraction_result_defaults_are_empty():
     result = ExtractionResult()
-    assert result.submission_number is None
-    assert result.openreview_forum_id is None
+    assert result.submission_numbers == []
+    assert result.openreview_forum_ids == []
     assert result.authors == []
     assert result.method == "none"
 
