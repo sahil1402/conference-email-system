@@ -21,11 +21,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import httpx
+from dotenv import load_dotenv
 
 _ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_ROOT / "backend"))
@@ -33,12 +36,51 @@ sys.path.insert(0, str(_ROOT / "backend"))
 from app.core.config import settings  # noqa: E402
 from app.pipeline.openai_compat import post_chat  # noqa: E402
 
+# --- Mining credential (deliberately NOT the app's key) ----------------------
+# Mining runs thousands of calls over historical tickets; billing that to the
+# same credential the live app depends on makes spend impossible to attribute
+# and puts production at risk of a rate limit caused by an offline batch. So
+# this script — and only this script — reads its key from backend/.env.mining.
+# No pipeline module reads this file, and there is deliberately NO fallback to
+# settings.LOCAL_MODEL_API_KEY: a missing mining key must fail loudly, never
+# quietly spend the app's key.
+#
+# Endpoint and model still come from backend/.env (LOCAL_MODEL_BASE_URL /
+# LOCAL_MODEL_NAME) — only the credential is isolated.
+_MINING_ENV = _ROOT / "backend" / ".env.mining"
+_PLACEHOLDER = "REPLACE_ME"
+
+
+def load_mining_api_key() -> str:
+    """Return the mining OPENAI_API_KEY, or exit with actionable guidance."""
+    if not _MINING_ENV.exists():
+        raise SystemExit(
+            f"Missing mining credential file: {_MINING_ENV}\n"
+            f"Create it containing a single line:\n"
+            f"    OPENAI_API_KEY=<your key>\n"
+            f"It is gitignored and is used only by this script."
+        )
+    # override=True so a stale OPENAI_API_KEY already in the shell cannot win.
+    load_dotenv(_MINING_ENV, override=True)
+    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if not key or key == _PLACEHOLDER:
+        raise SystemExit(
+            f"OPENAI_API_KEY is {'still the placeholder' if key else 'empty'} in {_MINING_ENV}\n"
+            f"Replace {_PLACEHOLDER} with the real mining key before running.\n"
+            f"This script will NOT fall back to the app's LOCAL_MODEL_API_KEY."
+        )
+    return key
+
 _OUT_DIR = _ROOT / "data" / "mining" / "stage1_test"
 _SAMPLE = _OUT_DIR / "sample.json"
 
 _TIMEOUT_SECONDS = 120.0
 _MAX_TOKENS = 2000  # reasoning models spend budget before visible text
 _CONCURRENCY = 4
+# Flush partial results to disk this often. A full-corpus run is hours long; without
+# checkpointing, one crash at 90% loses every call paid for. With it, --resume picks
+# up from the last flush.
+_CHECKPOINT_EVERY = 100
 # Per-comment body cap. Quoted email chains balloon these; the workflow signal is
 # in the opening lines, so truncate rather than pay for the quote tail.
 _BODY_CAP = 3000
@@ -121,11 +163,13 @@ _SYSTEM_PROMPT = (
     "made the change in the system. Describe actions, not sentences of the "
     "reply. Use an empty list only if the chair did nothing.\n"
     "- policy_or_reference_used: only things actually cited or pointed to — a "
-    "named policy, a specific deadline or date, a URL, a form. Do not include "
-    "internal ticket/request cross-references (e.g. 'Request #19161', "
-    "'ticket #X') — only external policies, named rules, specific "
-    "dates/deadlines, URLs, or forms. Use null (not an empty list, not a guess) "
-    "if the chair cited nothing specific.\n"
+    "named policy, a specific deadline or date, a URL, a form, or a specific "
+    "paper/submission the chair pointed at. Exclude ONLY internal support-desk "
+    "cross-references — a Zendesk ticket or request number, e.g. "
+    "'Request #19161' or 'ticket #12345'. A paper or submission number (e.g. "
+    "'Paper #6019', 'submission 18847') is NOT a ticket reference: keep it. "
+    "Use null (not an empty list, not a guess) if the chair cited nothing "
+    "specific.\n"
     "- outcome_type: choose exactly one.\n"
     "    resolved_directly  — the chair answered or fixed it within this thread "
     "and nothing was left outstanding.\n"
@@ -232,7 +276,7 @@ def _normalize(data: dict) -> dict:
     }
 
 
-async def _call_local(client: httpx.AsyncClient, user_prompt: str) -> str:
+async def _call_local(client: httpx.AsyncClient, user_prompt: str, api_key: str) -> str:
     base = settings.LOCAL_MODEL_BASE_URL.rstrip("/")
     payload = {
         "model": settings.LOCAL_MODEL_NAME,
@@ -245,17 +289,16 @@ async def _call_local(client: httpx.AsyncClient, user_prompt: str) -> str:
         "seed": settings.DRAFTER_SEED,
         "stream": False,
     }
-    headers = (
-        {"Authorization": f"Bearer {settings.LOCAL_MODEL_API_KEY}"}
-        if settings.LOCAL_MODEL_API_KEY
-        else None
-    )
+    # Key is passed in, never read from settings — see load_mining_api_key().
+    headers = {"Authorization": f"Bearer {api_key}"}
     resp = await post_chat(client, f"{base}/chat/completions", payload, headers)
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
 
 
-async def extract_one(client: httpx.AsyncClient, thread: dict, sem: asyncio.Semaphore) -> dict:
+async def extract_one(
+    client: httpx.AsyncClient, thread: dict, sem: asyncio.Semaphore, api_key: str
+) -> dict:
     base = {
         "ticket_id": thread["ticket_id"],
         "subject": thread.get("subject"),
@@ -264,7 +307,7 @@ async def extract_one(client: httpx.AsyncClient, thread: dict, sem: asyncio.Sema
     }
     async with sem:
         try:
-            raw = await _call_local(client, build_user_prompt(thread))
+            raw = await _call_local(client, build_user_prompt(thread), api_key)
         except Exception as exc:  # noqa: BLE001 - research script, record and continue
             return {**base, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -296,7 +339,25 @@ def load_done(out_path: Path) -> dict[int, dict]:
     return {r["ticket_id"]: r for r in rows if isinstance(r, dict) and "error" not in r}
 
 
-async def run(threads: list[dict], done: dict[int, dict]) -> list[dict]:
+def _write(out_path: Path, rows: list[dict]) -> None:
+    """Atomic-ish checkpoint write: temp file then replace, so a crash mid-write
+    cannot leave a truncated results.json that --resume would then misread."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps(sorted(rows, key=lambda r: r["ticket_id"]), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    tmp.replace(out_path)
+
+
+async def run(
+    threads: list[dict],
+    done: dict[int, dict],
+    api_key: str,
+    out_path: Path | None = None,
+    concurrency: int = _CONCURRENCY,
+) -> list[dict]:
     out: list[dict] = []
     pending: list[dict] = []
     reused = 0
@@ -315,19 +376,38 @@ async def run(threads: list[dict], done: dict[int, dict]) -> list[dict]:
             continue
         pending.append(t)
 
+    merged = len(out) - reused
     if reused:
         print(f"[resume] reused {reused} existing result(s)", flush=True)
+    if merged:
+        print(f"[skip] {merged} merge-closure thread(s) — no model call", flush=True)
     print(f"calling model for {len(pending)} thread(s)\n", flush=True)
 
     if pending:
-        sem = asyncio.Semaphore(_CONCURRENCY)
+        started = time.monotonic()
+        errors = 0
+        sem = asyncio.Semaphore(concurrency)
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-            tasks = [extract_one(client, t, sem) for t in pending]
+            tasks = [extract_one(client, t, sem, api_key) for t in pending]
             for i, coro in enumerate(asyncio.as_completed(tasks), start=1):
                 res = await coro
-                flag = "ERR " if "error" in res else "ok  "
-                print(f"[{i:>2}/{len(tasks)}] {flag} ticket {res['ticket_id']}", flush=True)
+                if "error" in res:
+                    errors += 1
+                    print(f"  ERR ticket {res['ticket_id']}: {res['error'][:90]}", flush=True)
                 out.append(res)
+
+                if i % _CHECKPOINT_EVERY == 0 or i == len(tasks):
+                    if out_path is not None:
+                        _write(out_path, out)
+                    elapsed = time.monotonic() - started
+                    rate = i / elapsed if elapsed else 0.0
+                    remaining = (len(tasks) - i) / rate if rate else 0.0
+                    print(
+                        f"[{i:>5}/{len(tasks)}] {100 * i / len(tasks):5.1f}%  "
+                        f"errors={errors}  {rate:.2f} calls/s  "
+                        f"elapsed={elapsed / 60:.1f}m  eta={remaining / 60:.1f}m",
+                        flush=True,
+                    )
     return sorted(out, key=lambda r: r["ticket_id"])
 
 
@@ -336,6 +416,7 @@ def main() -> None:
     ap.add_argument("--sample", type=Path, default=_SAMPLE)
     ap.add_argument("--out", type=Path, default=_OUT_DIR / "results.json")
     ap.add_argument("--limit", type=int, default=25, help="hard cap; test runs only")
+    ap.add_argument("--concurrency", type=int, default=_CONCURRENCY)
     ap.add_argument("--dry-run", action="store_true", help="print prompt for 1 thread, no call")
     ap.add_argument(
         "--resume",
@@ -344,7 +425,13 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    threads = json.loads(args.sample.read_text(encoding="utf-8"))[: args.limit]
+    # Accepts either the curated test sample (.json array) or the raw corpus (.jsonl).
+    if args.sample.suffix == ".jsonl":
+        with args.sample.open(encoding="utf-8") as fh:
+            threads = [json.loads(line) for line in fh]
+    else:
+        threads = json.loads(args.sample.read_text(encoding="utf-8"))
+    threads = threads[: args.limit]
 
     if args.dry_run:
         print(_SYSTEM_PROMPT)
@@ -354,13 +441,20 @@ def main() -> None:
 
     if settings.MODEL_PROVIDER != "local":
         raise SystemExit(f"expected MODEL_PROVIDER=local, got {settings.MODEL_PROVIDER!r}")
+
+    # Fail before any thread is read or any call is made.
+    api_key = load_mining_api_key()
+
     print(f"provider={settings.MODEL_PROVIDER} model={settings.LOCAL_MODEL_NAME} "
-          f"threads={len(threads)} concurrency={_CONCURRENCY}")
+          f"threads={len(threads)} concurrency={args.concurrency}")
+    print(f"credential: OPENAI_API_KEY from {_MINING_ENV.name} (isolated from the app key)")
+    print(f"source: {args.sample.name}  ->  out: {args.out}")
 
     done = load_done(args.out) if args.resume else {}
-    results = asyncio.run(run(threads, done))
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    started = time.monotonic()
+    results = asyncio.run(run(threads, done, api_key, args.out, args.concurrency))
+    _write(args.out, results)
+    print(f"\nwall clock: {(time.monotonic() - started) / 60:.1f} min")
 
     errs = [r for r in results if "error" in r]
     merges = [r for r in results if r.get("category") == "merge_closure"]
