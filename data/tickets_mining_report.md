@@ -32,6 +32,14 @@ suggestions and auto-draft quality.
 - For context only (not used to filter): Marc is the assigned owner on 4,024/4,094 threads; 136 threads (3.3%) also have a public reply from another agent
 - Zendesk's built-in demo ticket (id `1`, 2021-07-13, "Sample ticket: Meet the ticket") **confirmed absent** from `marc_threads.jsonl` — verified by subject/tag search across all 21,219 tickets, not just an ID lookup. Marc's corpus has a hard floor at ticket `12449` / 2024-08-09, spanning **2024-08-09 to 2026-07-16 (~2 years)**, not the export's full 5-year range
 
+## Cost & Credential Isolation
+- Stage 1 extraction is billed to a **dedicated AAAI OpenAI API key** held in `backend/.env.mining` (gitignored), read **only** by `backend/scripts/data_mining/stage1_extract.py`. It is deliberately separate from the key in `backend/.env` (`LOCAL_MODEL_API_KEY`) that the live ConfMail pipeline uses, so mining spend for the 4,094-thread run does not bill to the same credential as production traffic — and an offline batch cannot exhaust a rate limit the live app depends on. The script has no fallback: if the mining key is missing or unfilled it exits immediately rather than quietly using the app's key.
+- Only the *credential* is isolated. The endpoint and model (`LOCAL_MODEL_BASE_URL`, `LOCAL_MODEL_NAME`) still come from `backend/.env`.
+
+## Reproducibility Caveat
+- **Extraction is not fully reproducible, even at `temperature=0` with a fixed seed** — the hosted model does not honor determinism settings. Verified directly: the same ticket sent the same prompt back-to-back returned different JSON on 3 of 3 attempts, including a change in the number of `steps_taken`.
+- Practical consequence: aggregate Stage 2 pattern counts should be stable, but **no single Stage 1 record should be treated as ground truth**, and re-running the corpus will not reproduce identical output. Occasional `outcome_type` flips between adjacent labels (e.g. `resolved_directly` ↔ `escalated`) sit inside the model's normal variance band and are not evidence of a code change.
+
 ## Open Items / Caveats
 - `state.json` shows 46,075 vs. the manifest's 45,659 comments — explained as pre-dedup counter vs. final deduped file; the file itself is internally consistent, not a data-quality issue
 - All raw ticket data contains real user PII — must stay gitignored, never committed, never shared outside this analysis
