@@ -19,6 +19,10 @@ env/
 .env
 .env.*
 !.env.example
+# Redundant with .env.* above, stated explicitly so a future narrowing of that
+# pattern cannot silently expose the mining credential (backend/.env.mining
+# holds the OPENAI_API_KEY used only by scripts/data_mining/stage1_extract.py).
+backend/.env.mining
 docs/secrets.txt
 
 # Pulled Zendesk ticket data (real user PII — never commit)
