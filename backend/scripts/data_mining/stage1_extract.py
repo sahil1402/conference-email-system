@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -48,6 +49,44 @@ OUTCOME_TYPES = (
     "escalated",
     "no_clear_resolution",
 )
+
+# --- Merge-closure detection -------------------------------------------------
+# Zendesk emits two merge notices whose wording is similar but whose meaning is
+# OPPOSITE. Matching on the shared substring "closed and merged into" conflates
+# them and wrongly discards survivor threads (measured: 29 of them on this
+# corpus, including ticket 19161 — the very target that 19149 was merged into).
+#
+#   OUTBOUND  "This request was closed and merged into request #N"
+#             -> THIS ticket was absorbed into another; the work happened in #N.
+#                Nothing to extract. 304 threads contain one.
+#
+#   INBOUND   "Request #N ... was closed and merged into this request"
+#             -> ANOTHER ticket was absorbed into THIS one; this is the survivor
+#                and usually holds the real workflow. 202 threads. NEVER skip.
+#
+# A thread is treated as a merge closure only when EVERY chair comment is an
+# outbound notice — i.e. the chair did nothing here but redirect.
+_OUTBOUND_MERGE_RE = re.compile(
+    r"this request was closed and merged into request #(\d+)", re.IGNORECASE
+)
+
+
+def detect_merge_closure(thread: dict) -> int | None:
+    """Return the merge-target ticket id if this thread is a pure merge closure.
+
+    ``None`` means the thread has real content and must go to the model.
+    """
+    chair_comments = [c for c in thread.get("comments") or [] if c.get("is_marc")]
+    if not chair_comments:
+        return None
+    target: int | None = None
+    for c in chair_comments:
+        m = _OUTBOUND_MERGE_RE.search(c.get("body") or "")
+        if not m:
+            return None  # at least one chair comment is real work
+        if target is None:
+            target = int(m.group(1))
+    return target
 
 _SYSTEM_PROMPT = (
     "You analyse support tickets from an academic conference's program-chair "
@@ -82,8 +121,11 @@ _SYSTEM_PROMPT = (
     "made the change in the system. Describe actions, not sentences of the "
     "reply. Use an empty list only if the chair did nothing.\n"
     "- policy_or_reference_used: only things actually cited or pointed to — a "
-    "named policy, a specific deadline or date, a URL, a form. Use null (not an "
-    "empty list, not a guess) if the chair cited nothing specific.\n"
+    "named policy, a specific deadline or date, a URL, a form. Do not include "
+    "internal ticket/request cross-references (e.g. 'Request #19161', "
+    "'ticket #X') — only external policies, named rules, specific "
+    "dates/deadlines, URLs, or forms. Use null (not an empty list, not a guess) "
+    "if the chair cited nothing specific.\n"
     "- outcome_type: choose exactly one.\n"
     "    resolved_directly  — the chair answered or fixed it within this thread "
     "and nothing was left outstanding.\n"
@@ -232,16 +274,60 @@ async def extract_one(client: httpx.AsyncClient, thread: dict, sem: asyncio.Sema
     return {**base, **_normalize(data)}
 
 
-async def run(threads: list[dict]) -> list[dict]:
-    sem = asyncio.Semaphore(_CONCURRENCY)
-    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-        tasks = [extract_one(client, t, sem) for t in threads]
-        out = []
-        for i, coro in enumerate(asyncio.as_completed(tasks), start=1):
-            res = await coro
-            flag = "ERR " if "error" in res else "ok  "
-            print(f"[{i:>2}/{len(tasks)}] {flag} ticket {res['ticket_id']}", flush=True)
-            out.append(res)
+def _merge_record(thread: dict, target_id: int) -> dict:
+    """Tagged record for a merge closure — deliberately carries no extracted fields."""
+    return {
+        "ticket_id": thread["ticket_id"],
+        "subject": thread.get("subject"),
+        "category": "merge_closure",
+        "merge_target_id": target_id,
+    }
+
+
+def load_done(out_path: Path) -> dict[int, dict]:
+    """Existing results keyed by ticket_id, for --resume. Errors are NOT kept."""
+    if not out_path.exists():
+        return {}
+    try:
+        rows = json.loads(out_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError):
+        return {}
+    # A record that failed last time is worth retrying; a good one is not.
+    return {r["ticket_id"]: r for r in rows if isinstance(r, dict) and "error" not in r}
+
+
+async def run(threads: list[dict], done: dict[int, dict]) -> list[dict]:
+    out: list[dict] = []
+    pending: list[dict] = []
+    reused = 0
+
+    # Cheap local passes first — resume hits and merge closures never reach the model.
+    for t in threads:
+        tid = t["ticket_id"]
+        if tid in done:
+            out.append(done[tid])
+            reused += 1
+            continue
+        target = detect_merge_closure(t)
+        if target is not None:
+            out.append(_merge_record(t, target))
+            print(f"[skip] merge_closure ticket {tid} -> #{target}", flush=True)
+            continue
+        pending.append(t)
+
+    if reused:
+        print(f"[resume] reused {reused} existing result(s)", flush=True)
+    print(f"calling model for {len(pending)} thread(s)\n", flush=True)
+
+    if pending:
+        sem = asyncio.Semaphore(_CONCURRENCY)
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            tasks = [extract_one(client, t, sem) for t in pending]
+            for i, coro in enumerate(asyncio.as_completed(tasks), start=1):
+                res = await coro
+                flag = "ERR " if "error" in res else "ok  "
+                print(f"[{i:>2}/{len(tasks)}] {flag} ticket {res['ticket_id']}", flush=True)
+                out.append(res)
     return sorted(out, key=lambda r: r["ticket_id"])
 
 
@@ -251,6 +337,11 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=_OUT_DIR / "results.json")
     ap.add_argument("--limit", type=int, default=25, help="hard cap; test runs only")
     ap.add_argument("--dry-run", action="store_true", help="print prompt for 1 thread, no call")
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip tickets already present in --out (failed entries are retried)",
+    )
     args = ap.parse_args()
 
     threads = json.loads(args.sample.read_text(encoding="utf-8"))[: args.limit]
@@ -264,14 +355,17 @@ def main() -> None:
     if settings.MODEL_PROVIDER != "local":
         raise SystemExit(f"expected MODEL_PROVIDER=local, got {settings.MODEL_PROVIDER!r}")
     print(f"provider={settings.MODEL_PROVIDER} model={settings.LOCAL_MODEL_NAME} "
-          f"threads={len(threads)} concurrency={_CONCURRENCY}\n")
+          f"threads={len(threads)} concurrency={_CONCURRENCY}")
 
-    results = asyncio.run(run(threads))
+    done = load_done(args.out) if args.resume else {}
+    results = asyncio.run(run(threads, done))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
     errs = [r for r in results if "error" in r]
+    merges = [r for r in results if r.get("category") == "merge_closure"]
     print(f"\nwrote {len(results)} results -> {args.out}")
+    print(f"merge closures (no model call): {len(merges)}")
     print(f"errors: {len(errs)}")
     for r in errs:
         print(f"  {r['ticket_id']}: {r['error']}")
