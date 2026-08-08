@@ -12,7 +12,7 @@ suggestions and auto-draft quality.
 - Step 2 — Stage 1 extraction (small test batch): **COMPLETE** (25 threads)
 - Step 3 — Stage 1 extraction (full corpus): **COMPLETE** (4,094 processed = 3,796 extracted + 298 merge-closures skipped; 0 errors)
 - Step 4 — Stage 2 intent tagging: **COMPLETE** (3,796 tagged, 0 errors) — see **Stage 2 — Intent Tagging**
-- Step 5 — Workflow-pattern grouping/counting within each intent: not started
+- Step 5 — Stage 3 workflow clustering within each intent: **COMPLETE** (3,655 clustered into 111 clusters, 81% coverage) — see **Stage 3 — Workflow Clustering**
 
 ## Data Source
 - Zendesk export via OAuth client `confmail` (aaai.zendesk.com), pulled 2026-07-16 UTC
@@ -125,13 +125,77 @@ Output: `data/mining/stage2_full/intent_tags.json` (gitignored — PII-derived).
 ### Scope caveat — these are MARC's proportions, not the taxonomy's
 These percentages describe **Marc's 3,796-ticket workload specifically**, not the full ~18.5k inbound corpus the taxonomy was originally mined from. They must **not** be read as taxonomy-level or inbox-level intent frequencies.
 
+## Stage 3 — Workflow Clustering
+
+### Method
+- **Input**: each ticket's `steps_taken` joined into one string, clustered **within a single intent** (never across intents). `is_fallback` tickets are excluded — they are taxonomy gaps parked on an intent, not workflow instances of it.
+- **Embeddings**: the existing local CPU SentenceTransformer seam the FAISS retriever uses (`settings.FAISS_MODEL_NAME`, L2-normalized, mirroring `faiss_retriever._encode`). Runs entirely on this machine — **no external call, no credential, no mining spend for embeddings**. Only the short cluster-*labelling* calls use the isolated mining key.
+- **Size-tiered clustering** — one global setting does not fit intents spanning 11 to 1,367 tickets:
+  - `n >= 200` → HDBSCAN, `min_cluster_size=15`
+  - `30 <= n < 200` → HDBSCAN with `mcs` swept proportional to `n`, best candidate selected
+  - `n < 30` → average-linkage agglomerative with a cosine distance threshold. HDBSCAN cannot estimate density at small `n` and returns **100% noise even when the tickets are plainly similar** (measured on `paper_bidding`, n=11: mean pairwise cosine 0.60, 42% of pairs above 0.70, yet 0 clusters at every tested parameter). Trade-off: agglomerative assigns every point, so singletons appear as 1-member clusters and should be read as unclustered one-offs (13 corpus-wide).
+- **Noise-recovery pass**: HDBSCAN's noise bucket is not all one-offs. Leftover points are re-clustered at half the primary `mcs` (floor 5); anything found is kept and marked `recovered_from_noise`. This is not a marginal cleanup — it surfaced a **91-ticket** procedure in `reviewer_workload_role` and cut `review_submission_help` noise from 403 to 260.
+- **Candidate-merge flagging**: cluster centroids above 0.85 cosine are flagged for human review. **Advisory only — never auto-merged** (see the lesson on misleading similarity below).
+- Script: `backend/scripts/data_mining/stage3_cluster.py` (one script for both a single-intent test and the full run, via `--intent`). Output: `data/mining/stage3_full/clusters.json` (gitignored — PII-derived).
+
+### Corpus-wide result
+**3,655 tickets clustered** (3,796 tagged minus 141 `is_fallback`) into **111 clusters** — 76 primary + 35 recovered — with **709 noise, 81% coverage** and 7 outstanding advisory merge flags.
+
+| Intent | n | Method | Primary | Recovered | Clusters | Noise | Coverage |
+|---|---:|---|---:|---:|---:|---:|---:|
+| review_submission_help | 1,367 | hdbscan | 5 | 9 | 14 | 260 | 81% |
+| reviewer_assignment | 597 | hdbscan | 6 | 7 | 13 | 160 | 73% |
+| review_decision_appeal | 449 | hdbscan | 5 | 4 | 9 | 122 | 73% |
+| reviewer_workload_role | 427 | hdbscan | 4 | 2 | 6 | 14 | 97% |
+| submission_requirements | 149 | hdbscan_swept | 9 | 2 | 11 | 28 | 81% |
+| desk_reject_appeal | 146 | hdbscan_swept | 7 | 4 | 11 | 28 | 81% |
+| committee_invitation | 145 | hdbscan_swept | 6 | 3 | 9 | 33 | 77% |
+| cms_support | 91 | hdbscan_swept | 5 | 2 | 7 | 7 | 92% |
+| submission_format_policy | 79 | hdbscan_swept | 5 | 0 | 5 | 30 | 62% |
+| submission_upload_help | 62 | hdbscan_swept | 3 | 2 | 5 | 1 | 98% |
+| anonymity_violation | 53 | hdbscan_swept | 2 | 0 | 2 | 10 | 81% |
+| author_list_change | 50 | hdbscan_swept | 2 | 0 | 2 | 16 | 68% |
+| author_profile_compliance | 29 | agglomerative | 13 | 0 | 13 | 0 | 100% |
+| paper_bidding | 11 | agglomerative | 4 | 0 | 4 | 0 | 100% |
+| **TOTAL** | **3,655** | | **76** | **35** | **111** | **709** | **81%** |
+
+The two 100% figures are an artefact of the agglomerative fallback assigning every point, not evidence those intents clustered better.
+
+### Lesson — a "stability" criterion that ignores coverage picks worse results
+The mid-tier sweep originally chose the `mcs` whose **cluster count survived the longest run of swept values** ("longest stable plateau"), on the reasoning that a count appearing at one setting is an artefact while one holding across a plateau is structure. That reasoning is sound but incomplete: **it ignores how much of the intent is left unexplained.**
+Measured on `reviewer_assignment` (n=597), it chose **mcs=48 (2 clusters, 369 noise / 62%)** over **mcs=18 (4 clusters, 321 noise / 54%)** purely because `{30,48}` agreed on "2 clusters". The chosen result explained *less* of the intent with *fewer* patterns.
+**Corrected rule** (`stage3_cluster.select_trial`): lowest noise wins; anything within 5% of the best noise counts as tied on coverage, and plateau length only breaks ties among those. Re-checking the 8 swept intents under the corrected rule, 4 would pick a different `mcs` — but all four trade granularity for coverage, and their sweep figures are *pre*-recovery, so the apparent gains largely close once the recovery pass runs. They were left unchanged deliberately.
+
+### Lesson — high centroid similarity can be driven by a subset, not the whole cluster
+Centroid cosine measures the *average* of a cluster, so a cluster that is partly-overlapping and partly-unrelated reports the same high similarity as one that genuinely matches. This is why merge flags stay advisory. Demonstrated in both directions:
+- **`review_submission_help` c0 (440) ↔ c1 (366), cos 0.851** — inspection confirmed one procedure (the September OpenReview outage: confirm outage → refuse email submission → extend deadline without penalty). **Correctly merged** into n=806.
+- **`reviewer_assignment` c0 (301) ↔ c1 (73), cos 0.889** — inspection showed c0 was a recovery-pass residual containing *several* procedures, only ~36% of which matched c1's emergency-reviewer invite. The similarity was that fraction pulling the centroid. **Correctly NOT merged** — folding a clean 73-ticket procedure into a 374-ticket grab-bag would have destroyed the one crisp pattern in the intent.
+A third case sharpened the rule: `review_submission_help` c7 (n=30) flagged at 0.888/0.851 against both outage clusters, but is individual access troubleshooting with **no deadline extension** — shared vocabulary, different procedure. Kept separate. Note that after merging c0+c1 the flag against c7 *rose* to 0.916 through centroid drift, without any new evidence.
+
+### Known limitation — `steps_taken` embeddings do not separate action type
+Procedures that share vocabulary but differ in the **action taken** are not linearly separable in this signal. Concretely: *"invite an emergency reviewer"* and *"reassign / reduce a reviewer's workload"* both read as reviewer + assignment + paper + chairs. Re-clustering `reviewer_assignment`'s 301-ticket residual in isolation could not decompose it — the core stayed a ~46% emergency-reviewer mixture at every reasonable setting, and only extreme fragmentation (`mcs=3` → 14 clusters at 41% noise) began isolating emergency-heavy pockets.
+Related: centroid similarity is also blind to **outcome polarity** — after splitting `desk_reject_appeal` c8, its "uphold the rejection" and "reverse the rejection" pieces flagged against each other at 0.870 despite being opposite outcomes.
+**Relevance to Phase B**: if a future retrieval step must distinguish *which action a chair took* rather than *what the ticket was about*, embedding similarity over `steps_taken` alone will not provide it. That needs a different signal — an explicit action/verb field, or an LLM pass — and should be designed in rather than assumed.
+
+### Manual decisions applied
+Reviewed by hand and applied on top of the automated output; every change records its provenance (`merged_from`, `split_from`, `split_group`, `assigned_by_inspection`) so it is auditable:
+- **6 cluster merges** across `review_submission_help` (×2), `review_decision_appeal`, `desk_reject_appeal`, `submission_requirements`, and `committee_invitation` (a three-way).
+- **1 further merge**: `review_submission_help` c0+c1 → n=806 (the outage procedure).
+- **1 three-way split**: `desk_reject_appeal` c8 (n=30) → **upheld (15) / triage (11) / reversed (4)** — it held opposite outcomes plus a different requester type (SPC/reviewer asking "should this be desk-rejected?"). 12 of the 30 were assigned by reading their steps rather than from the reported example lists; those are marked `assigned_by_inspection`.
+- **1 residual re-clustered in isolation**: `reviewer_assignment` c0 (n=301) → 6 sub-clusters, surfacing **5 clean procedures** (conflict-of-interest forwarding, reciprocal-review transfer, extra-reviewer verification, platform-limitation retry, deadline extension) and returning 81 points to noise. Coverage for that intent fell 87% → 73%, which is the honest figure: the prior 87% counted a 301-ticket grab-bag as "explained."
+- **1 revert**: `reviewer_assignment`'s re-swept result was discarded in favour of the original `mcs=15` + recovery, after the resweep proved to explain 56% of the intent versus 87%.
+
+### Scope caveat — Marc's workload, not the inbox
+As with Stage 2, these are workflow patterns within **Marc's 3,796-ticket workload**, not the full ~18.5k inbound corpus. Cluster sizes and per-intent coverage describe how *he* handled tickets and must not be read as conference-wide or taxonomy-level frequencies.
+
 ## Open Items / Caveats
 - `state.json` shows 46,075 vs. the manifest's 45,659 comments — explained as pre-dedup counter vs. final deduped file; the file itself is internally consistent, not a data-quality issue
 - All raw ticket data contains real user PII — must stay gitignored, never committed, never shared outside this analysis
 
 ## Next Step
-Stage 3: group the tagged extractions **within each intent** and count recurring
-workflow patterns over `steps_taken`, to identify the handful of repeated
-procedures behind each intent. See the skew note under **Stage 2** — the four
-smallest intents (~150 tickets combined) likely need qualitative treatment
-rather than statistical pattern counts.
+Phase B: use the mined workflows as a retrieval source — given a new ticket,
+surface the matched historical procedure to inform the chair-workflow suggestion
+and the auto-draft. Before building it, note the **known limitation** recorded
+under Stage 3: `steps_taken` embedding similarity distinguishes *what a ticket is
+about* but not *which action the chair took*, so a retrieval step needing that
+distinction requires an additional signal.
