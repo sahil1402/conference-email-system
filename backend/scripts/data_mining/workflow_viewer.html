@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stage 3 — Workflow Catalog</title>
+<style>
+  :root{
+    --bg:#12141c; --surface:#181b26; --raised:#21263a; --border:#2c3145;
+    --text:#e6e8f0; --muted:#9aa1b8; --faint:#6b7290;
+    --accent:#6366f1; --accent-soft:#3730a3;
+    --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#38bdf8;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f6f7fb; --surface:#ffffff; --raised:#eef0f6; --border:#d8dced;
+      --text:#161a25; --muted:#5b6178; --faint:#858ba3;
+      --accent:#4f46e5; --accent-soft:#c7d2fe;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column;
+  }
+  header{
+    padding:10px 16px; border-bottom:1px solid var(--border); background:var(--surface);
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+  }
+  h1{font-size:15px; margin:0; font-weight:650; letter-spacing:.2px}
+  .totals{color:var(--muted); font-size:12px}
+  .grow{flex:1}
+  input,select,button{
+    font:inherit; color:var(--text); background:var(--raised);
+    border:1px solid var(--border); border-radius:7px; padding:6px 9px;
+  }
+  input{min-width:230px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  main{flex:1; display:flex; min-height:0}
+  #intents{
+    width:300px; flex-shrink:0; overflow-y:auto; border-right:1px solid var(--border);
+    background:var(--surface); padding:8px;
+  }
+  .intent{
+    padding:8px 10px; border-radius:8px; cursor:pointer; border:1px solid transparent;
+    margin-bottom:3px;
+  }
+  .intent:hover{background:var(--raised)}
+  .intent.active{background:var(--raised); border-color:var(--accent)}
+  .intent .name{font-weight:600; font-size:13px; word-break:break-word}
+  .intent .meta{color:var(--muted); font-size:11.5px; margin-top:3px; display:flex; gap:10px; flex-wrap:wrap}
+  #panel{flex:1; overflow-y:auto; padding:16px 18px}
+  .panelhead{margin-bottom:14px}
+  .panelhead h2{margin:0 0 6px; font-size:17px}
+  .stats{display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:12.5px}
+  .stats b{color:var(--text); font-weight:650}
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:12px 14px; margin-bottom:10px;
+  }
+  .card.flagged{border-left:3px solid var(--warn)}
+  .cardtop{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+  .size{font-size:19px; font-weight:700; font-variant-numeric:tabular-nums}
+  .cid{color:var(--faint); font-size:12px; font-variant-numeric:tabular-nums}
+  .label{margin:7px 0 0; font-size:13.5px}
+  .badges{display:flex; gap:6px; flex-wrap:wrap; margin-top:8px}
+  .badge{
+    font-size:11px; padding:2px 8px; border-radius:999px;
+    border:1px solid var(--border); background:var(--raised); color:var(--muted);
+    white-space:nowrap;
+  }
+  .badge.rec{border-color:var(--info); color:var(--info)}
+  .badge.prim{border-color:var(--ok); color:var(--ok)}
+  .badge.merged{border-color:var(--accent); color:var(--accent)}
+  .badge.split{border-color:var(--warn); color:var(--warn)}
+  .flags{margin-top:9px; padding:8px 10px; background:var(--raised); border-radius:8px; font-size:12.5px}
+  .flags .t{color:var(--warn); font-weight:650; margin-bottom:4px}
+  .flags div.row{color:var(--muted); margin-top:2px}
+  details{margin-top:9px}
+  summary{cursor:pointer; color:var(--accent); font-size:12.5px; user-select:none}
+  summary:hover{text-decoration:underline}
+  .ex{border-top:1px solid var(--border); padding:9px 0 2px}
+  .exhead{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .asked{margin:4px 0 6px; color:var(--text); font-size:12.5px}
+  ol.steps{margin:0; padding-left:19px; color:var(--muted); font-size:12.5px}
+  ol.steps li{margin:2px 0}
+  .empty{color:var(--muted); padding:30px; text-align:center}
+  .loader{max-width:620px; margin:60px auto; padding:20px; background:var(--surface);
+    border:1px solid var(--border); border-radius:10px}
+  .loader h3{margin:0 0 8px; font-size:15px}
+  .loader p{color:var(--muted); font-size:13px}
+  .loader .hint{font-size:12px; color:var(--faint); margin-top:14px; line-height:1.7}
+  .loader input[type=file]{padding:8px; width:100%}
+  code{background:var(--raised); padding:1px 5px; border-radius:4px; font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Stage 3 — Workflow Catalog</h1>
+  <span class="totals" id="totals"></span>
+  <span class="grow"></span>
+  <input id="filter" type="search" placeholder="Filter cluster labels…" disabled>
+  <select id="sort" disabled>
+    <option value="size">Sort: size ↓</option>
+    <option value="size-asc">Sort: size ↑</option>
+    <option value="id">Sort: cluster id</option>
+  </select>
+</header>
+
+<main>
+  <nav id="intents"></nav>
+  <section id="panel">
+    <div class="loader" id="loader">
+      <h3>Open a clusters.json</h3>
+      <p>
+        This viewer is tracked in the repo, but the cluster data is gitignored and
+        lives elsewhere — so there is no fixed path to it. Pick the file:
+      </p>
+      <p><input type="file" id="picker" accept=".json,application/json"></p>
+      <p class="hint" id="hint">
+        Default location: <code>data/mining/stage3_full/clusters.json</code><br>
+        Nothing is uploaded — the file is read locally by your browser.
+      </p>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+let DATA = null, CURRENT = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+
+// --- loading -----------------------------------------------------------------
+// The FILE PICKER is the primary load path. This page is tracked in the repo but
+// the cluster data is gitignored and lives under data/mining/, so a relative
+// fetch() would point at the wrong folder — it is genuinely wrong here, not just
+// blocked by file:// CORS. Hardcoding a relative "../../../data/mining/..." path
+// would be one more thing to keep in sync, so it is deliberately not done.
+//
+// The fetch is still attempted first, purely so that dropping a copy of this file
+// NEXT TO a clusters.json (or serving that folder) loads without a click. It is
+// expected to fail in the normal case; the picker is already on screen either way.
+async function boot(){
+  $("picker").addEventListener("change", (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      try{ init(JSON.parse(fr.result)); }
+      catch(x){ $("hint").innerHTML =
+        '<span style="color:var(--danger)">Not valid JSON: ' + esc(x.message) + '</span>'; }
+    };
+    fr.readAsText(f);
+  });
+
+  try{
+    const r = await fetch("clusters.json", {cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    init(await r.json());                 // sibling copy found — skip the picker
+  }catch(_){
+    /* expected from the tracked location: leave the picker showing */
+  }
+}
+
+function init(json){
+  DATA = json;
+  $("filter").disabled = false; $("sort").disabled = false;
+  $("filter").addEventListener("input", render);
+  $("sort").addEventListener("change", render);
+
+  const names = Object.keys(DATA).sort((a,b) => DATA[b].n_tickets - DATA[a].n_tickets);
+  let tickets = 0, clusters = 0, noise = 0;
+  for(const n of names){
+    tickets += DATA[n].n_tickets; clusters += DATA[n].clusters.length; noise += DATA[n].n_noise;
+  }
+  $("totals").textContent =
+    `${names.length} intents · ${tickets.toLocaleString()} tickets · ${clusters} clusters · ` +
+    `${noise} noise (${Math.round(100*(tickets-noise)/tickets)}% coverage)`;
+
+  $("intents").innerHTML = names.map(n => {
+    const s = DATA[n];
+    return `<div class="intent" data-i="${esc(n)}">
+      <div class="name">${esc(n)}</div>
+      <div class="meta">
+        <span>${s.n_tickets.toLocaleString()} tickets</span>
+        <span>${s.clusters.length} clusters</span>
+        <span>${Math.round(100*(s.n_tickets-s.n_noise)/s.n_tickets)}% cov</span>
+      </div></div>`;
+  }).join("");
+  $("intents").querySelectorAll(".intent").forEach(el =>
+    el.addEventListener("click", () => { CURRENT = el.dataset.i; render(); }));
+
+  CURRENT = names[0];
+  render();
+}
+
+// --- rendering ---------------------------------------------------------------
+function flagsFor(section, id){
+  return (section.candidate_merges || [])
+    .filter(m => m.candidate_merge.includes(id))
+    .map(m => ({ other: m.candidate_merge.find(x => x !== id), sim: m.similarity }));
+}
+
+function methodBadge(section, c){
+  if(c.recovered_from_noise) return '<span class="badge rec">recovered from noise</span>';
+  const m = section.method.startsWith("agglomerative") ? "agglomerative" : section.method;
+  return `<span class="badge prim">primary · ${esc(m)}</span>`;
+}
+
+function render(){
+  const section = DATA[CURRENT];
+  document.querySelectorAll(".intent").forEach(el =>
+    el.classList.toggle("active", el.dataset.i === CURRENT));
+
+  const q = $("filter").value.trim().toLowerCase();
+  let list = section.clusters.slice();
+  if(q) list = list.filter(c =>
+    (c.label||"").toLowerCase().includes(q) || String(c.cluster_id) === q);
+
+  const mode = $("sort").value;
+  if(mode === "size") list.sort((a,b) => b.size - a.size);
+  else if(mode === "size-asc") list.sort((a,b) => a.size - b.size);
+  else list.sort((a,b) => a.cluster_id - b.cluster_id);
+
+  const byId = Object.fromEntries(section.clusters.map(c => [c.cluster_id, c]));
+  const cov = Math.round(100*(section.n_tickets-section.n_noise)/section.n_tickets);
+
+  const head = `<div class="panelhead">
+      <h2>${esc(CURRENT)}</h2>
+      <div class="stats">
+        <span><b>${section.n_tickets.toLocaleString()}</b> tickets</span>
+        <span><b>${section.n_primary}</b> primary + <b>${section.n_recovered}</b> recovered</span>
+        <span><b>${section.n_noise}</b> noise · <b>${cov}%</b> coverage</span>
+        <span>method <b>${esc(section.method)}</b>${section.min_cluster_size ? ` · mcs <b>${section.min_cluster_size}</b>` : ""}</span>
+        <span><b>${(section.candidate_merges||[]).length}</b> merge flags</span>
+      </div></div>`;
+
+  if(!list.length){
+    $("panel").innerHTML = head + '<div class="empty">No clusters match that filter.</div>';
+    return;
+  }
+
+  $("panel").innerHTML = head + list.map(c => {
+    const flags = flagsFor(section, c.cluster_id);
+    const badges = [methodBadge(section, c)];
+    if(c.merged_from) badges.push(`<span class="badge merged">merged from c${c.merged_from.join(" + c")}</span>`);
+    if(c.merged_from_sizes) badges.push(`<span class="badge merged">merged ${c.merged_from_sizes.join(" + ")}</span>`);
+    if(c.split_from) badges.push(`<span class="badge split">split from ${esc(c.split_from)}${c.split_group ? " · " + esc(c.split_group) : ""}</span>`);
+    if(c.assigned_by_inspection && c.assigned_by_inspection.length)
+      badges.push(`<span class="badge split">${c.assigned_by_inspection.length} assigned by inspection</span>`);
+
+    const flagHtml = flags.length ? `<div class="flags">
+        <div class="t">⚠ ${flags.length} candidate merge${flags.length>1?"s":""} — advisory, not applied</div>
+        ${flags.map(f => {
+          const o = byId[f.other];
+          return `<div class="row">cos <b>${f.sim}</b> with c${f.other}${o ? ` (n=${o.size}) — ${esc((o.label||"").slice(0,90))}` : ""}</div>`;
+        }).join("")}</div>` : "";
+
+    const ex = (c.examples||[]).map(e => `<div class="ex">
+        <div class="exhead">ticket ${esc(e.ticket_id)}</div>
+        <div class="asked">${esc(e.what_was_asked)}</div>
+        <ol class="steps">${(e.steps_taken||[]).map(s => `<li>${esc(s)}</li>`).join("")}</ol>
+      </div>`).join("");
+
+    return `<div class="card${flags.length ? " flagged":""}">
+      <div class="cardtop">
+        <span class="size">${c.size}</span>
+        <span class="cid">c${c.cluster_id}</span>
+      </div>
+      <div class="label">${esc(c.label) || '<i style="color:var(--faint)">(no label)</i>'}</div>
+      <div class="badges">${badges.join("")}</div>
+      ${flagHtml}
+      <details><summary>${(c.examples||[]).length} example tickets · ${c.ticket_ids.length} members</summary>${ex}</details>
+    </div>`;
+  }).join("");
+}
+
+boot();
+</script>
+</body>
+</html>
