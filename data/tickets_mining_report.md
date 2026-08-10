@@ -11,7 +11,7 @@ suggestions and auto-draft quality.
 - Step 1 — Locate & define corpus: **COMPLETE**
 - Step 2 — Stage 1 extraction (small test batch): **COMPLETE** (25 threads)
 - Step 3 — Stage 1 extraction (full corpus): **COMPLETE** (4,094 processed = 3,796 extracted + 298 merge-closures skipped; 0 errors)
-- Step 4 — Stage 2 intent tagging: **COMPLETE** (3,796 tagged, 0 errors) — see **Stage 2 — Intent Tagging**
+- Step 4 — Stage 2 intent tagging: **COMPLETE** (3,796 tagged, 0 errors)
 - Step 5 — Stage 3 workflow clustering within each intent: **COMPLETE** (3,655 clustered into 111 clusters, 81% coverage) — see **Stage 3 — Workflow Clustering**
 
 ## Data Source
@@ -32,10 +32,6 @@ suggestions and auto-draft quality.
 - Internal (non-public) notes included: 394 of 10,577 comments, of which 334 are Marc's
 - For context only (not used to filter): Marc is the assigned owner on 4,024/4,094 threads; 136 threads (3.3%) also have a public reply from another agent
 - Zendesk's built-in demo ticket (id `1`, 2021-07-13, "Sample ticket: Meet the ticket") **confirmed absent** from `marc_threads.jsonl` — verified by subject/tag search across all 21,219 tickets, not just an ID lookup. Marc's corpus has a hard floor at ticket `12449` / 2024-08-09, spanning **2024-08-09 to 2026-07-16 (~2 years)**, not the export's full 5-year range
-
-## Cost & Credential Isolation
-- Stage 1 extraction is billed to a **dedicated AAAI OpenAI API key** held in `backend/.env.mining` (gitignored), read **only** by `backend/scripts/data_mining/stage1_extract.py`. It is deliberately separate from the key in `backend/.env` (`LOCAL_MODEL_API_KEY`) that the live ConfMail pipeline uses, so mining spend for the 4,094-thread run does not bill to the same credential as production traffic — and an offline batch cannot exhaust a rate limit the live app depends on. The script has no fallback: if the mining key is missing or unfilled it exits immediately rather than quietly using the app's key.
-- Only the *credential* is isolated. The endpoint and model (`LOCAL_MODEL_BASE_URL`, `LOCAL_MODEL_NAME`) still come from `backend/.env`.
 
 ## Stage 1 — Extraction
 
@@ -187,10 +183,6 @@ Reviewed by hand and applied on top of the automated output; every change record
 
 ### Scope caveat — Marc's workload, not the inbox
 As with Stage 2, these are workflow patterns within **Marc's 3,796-ticket workload**, not the full ~18.5k inbound corpus. Cluster sizes and per-intent coverage describe how *he* handled tickets and must not be read as conference-wide or taxonomy-level frequencies.
-
-## Open Items / Caveats
-- `state.json` shows 46,075 vs. the manifest's 45,659 comments — explained as pre-dedup counter vs. final deduped file; the file itself is internally consistent, not a data-quality issue
-- All raw ticket data contains real user PII — must stay gitignored, never committed, never shared outside this analysis
 
 ## Next Step
 Phase B: use the mined workflows as a retrieval source — given a new ticket,
