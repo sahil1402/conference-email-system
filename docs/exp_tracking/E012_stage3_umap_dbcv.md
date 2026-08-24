@@ -407,6 +407,17 @@ different action.
   e012_note` prefix rather than removed — the raw-space finding is still a true
   fact about that space, and the reason the UMAP result matters.
 
+## Follow-on: E013 (embedding reproducibility)
+
+Applying this method a second time surfaced a finding one layer below it: the same
+texts embedded in a **different-sized batch** differ by ~1e-7 (SentenceTransformer
+pads per batch), and that was enough to relabel 9 of 91 tickets in a UMAP+HDBSCAN
+decomposition. Cores proved stable across 10 runs; boundaries jitter by about +/-3.
+Same shape as this experiment's central result — a decision rule operating below its
+input's reproducibility floor. Written up separately because it concerns the
+embedding layer and applies to every script here that calls `embed()`:
+**[E013](E013_embedding_batch_reproducibility.md)**.
+
 ## Reproduction
 
 ```bash
