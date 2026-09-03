@@ -10,12 +10,14 @@
     --text:#e6e8f0; --muted:#9aa1b8; --faint:#6b7290;
     --accent:#6366f1; --accent-soft:#3730a3;
     --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#38bdf8;
+    --bar-rec:#4c51bf;
   }
   @media (prefers-color-scheme: light){
     :root{
       --bg:#f6f7fb; --surface:#ffffff; --raised:#eef0f6; --border:#d8dced;
       --text:#161a25; --muted:#5b6178; --faint:#858ba3;
       --accent:#4f46e5; --accent-soft:#c7d2fe;
+      --bar-rec:#a5b4fc;
     }
   }
   *{box-sizing:border-box}
@@ -39,6 +41,14 @@
   input{min-width:230px}
   button{cursor:pointer}
   button:hover{border-color:var(--accent)}
+  /* Simple/Technical toggle — a two-state segmented control. */
+  .modes{display:inline-flex; border:1px solid var(--border); border-radius:7px; overflow:hidden}
+  .modes button{
+    border:0; border-radius:0; padding:6px 11px; font-size:12.5px;
+    background:var(--raised); color:var(--muted);
+  }
+  .modes button + button{border-left:1px solid var(--border)}
+  .modes button[aria-pressed="true"]{background:var(--accent); color:#fff; font-weight:600}
   main{flex:1; display:flex; min-height:0}
   #intents{
     width:300px; flex-shrink:0; overflow-y:auto; border-right:1px solid var(--border);
@@ -52,11 +62,29 @@
   .intent.active{background:var(--raised); border-color:var(--accent)}
   .intent .name{font-weight:600; font-size:13px; word-break:break-word}
   .intent .meta{color:var(--muted); font-size:11.5px; margin-top:3px; display:flex; gap:10px; flex-wrap:wrap}
+  .intent.all .name{color:var(--accent)}
   #panel{flex:1; overflow-y:auto; padding:16px 18px}
   .panelhead{margin-bottom:14px}
   .panelhead h2{margin:0 0 6px; font-size:17px}
   .stats{display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:12.5px}
   .stats b{color:var(--text); font-weight:650}
+  /* --- charts: plain inline SVG, no library, works offline ------------------ */
+  .chart{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:12px 14px; margin-bottom:14px;
+  }
+  .chart h3{margin:0 0 2px; font-size:13px; font-weight:650}
+  .chart .sub{color:var(--muted); font-size:11.5px; margin-bottom:8px}
+  .chart svg{width:100%; height:auto; display:block}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); margin-bottom:8px}
+  .legend i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px}
+  .bar-prim{fill:var(--accent)}
+  .bar-rec{fill:var(--bar-rec)}
+  .bar-track{fill:var(--raised)}
+  .bar-lbl{fill:var(--muted); font-size:12px}
+  .bar-val{fill:var(--text); font-size:12px; font-weight:650}
+  .bar-hit{fill:transparent; cursor:pointer}
+  .bar-hit:hover{fill:var(--raised); fill-opacity:.55}
   .card{
     background:var(--surface); border:1px solid var(--border); border-radius:10px;
     padding:12px 14px; margin-bottom:10px;
@@ -103,6 +131,10 @@
   <h1>Stage 3 — Workflow Catalog</h1>
   <span class="totals" id="totals"></span>
   <span class="grow"></span>
+  <span class="modes" id="modes" role="group" aria-label="Detail level">
+    <button id="mSimple" type="button" aria-pressed="true">Simple</button>
+    <button id="mTech" type="button" aria-pressed="false">Technical</button>
+  </span>
   <input id="filter" type="search" placeholder="Filter cluster labels…" disabled>
   <select id="sort" disabled>
     <option value="size">Sort: size ↓</option>
@@ -131,7 +163,11 @@
 
 <script>
 "use strict";
-let DATA = null, CURRENT = null;
+// CURRENT === null is the OVERVIEW state (all intents, with the overview chart).
+// The viewer used to auto-select the largest intent on load; item 3 asks for a
+// "before an intent is selected" view, so that state now exists and is the
+// default. The nav's "All intents" row returns to it.
+let DATA = null, CURRENT = null, SIMPLE = true;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
@@ -173,31 +209,124 @@ function init(json){
   $("filter").disabled = false; $("sort").disabled = false;
   $("filter").addEventListener("input", render);
   $("sort").addEventListener("change", render);
+  // Mode switching is a pure re-render — no reload, no refetch, state preserved.
+  $("mSimple").addEventListener("click", () => setMode(true));
+  $("mTech").addEventListener("click", () => setMode(false));
 
-  const names = Object.keys(DATA).sort((a,b) => DATA[b].n_tickets - DATA[a].n_tickets);
+  renderNav();
+  CURRENT = null;                          // start on the overview
+  render();
+}
+
+function setMode(simple){
+  SIMPLE = simple;
+  $("mSimple").setAttribute("aria-pressed", String(simple));
+  $("mTech").setAttribute("aria-pressed", String(!simple));
+  renderNav();                             // nav meta wording is mode-dependent too
+  render();
+}
+
+function intentNames(){
+  return Object.keys(DATA).sort((a,b) => DATA[b].n_tickets - DATA[a].n_tickets);
+}
+
+function renderNav(){
+  const names = intentNames();
   let tickets = 0, clusters = 0, noise = 0;
   for(const n of names){
     tickets += DATA[n].n_tickets; clusters += DATA[n].clusters.length; noise += DATA[n].n_noise;
   }
-  $("totals").textContent =
-    `${names.length} intents · ${tickets.toLocaleString()} tickets · ${clusters} clusters · ` +
-    `${noise} noise (${Math.round(100*(tickets-noise)/tickets)}% coverage)`;
+  const cov = Math.round(100*(tickets-noise)/tickets);
+  $("totals").textContent = SIMPLE
+    ? `${names.length} topics · ${tickets.toLocaleString()} tickets · ${clusters} patterns · ` +
+      `${cov}% of tickets match a known pattern`
+    : `${names.length} intents · ${tickets.toLocaleString()} tickets · ${clusters} clusters · ` +
+      `${noise} noise (${cov}% coverage)`;
 
-  $("intents").innerHTML = names.map(n => {
+  const all = `<div class="intent all" data-i=""><div class="name">← All intents</div>
+      <div class="meta"><span>overview chart</span></div></div>`;
+
+  $("intents").innerHTML = all + names.map(n => {
     const s = DATA[n];
+    const c = Math.round(100*(s.n_tickets-s.n_noise)/s.n_tickets);
     return `<div class="intent" data-i="${esc(n)}">
       <div class="name">${esc(n)}</div>
       <div class="meta">
         <span>${s.n_tickets.toLocaleString()} tickets</span>
-        <span>${s.clusters.length} clusters</span>
-        <span>${Math.round(100*(s.n_tickets-s.n_noise)/s.n_tickets)}% cov</span>
+        <span>${s.clusters.length} ${SIMPLE ? "patterns" : "clusters"}</span>
+        <span>${c}% ${SIMPLE ? "matched" : "cov"}</span>
       </div></div>`;
   }).join("");
   $("intents").querySelectorAll(".intent").forEach(el =>
-    el.addEventListener("click", () => { CURRENT = el.dataset.i; render(); }));
+    el.addEventListener("click", () => { CURRENT = el.dataset.i || null; render(); }));
+}
 
-  CURRENT = names[0];
-  render();
+// --- chart -------------------------------------------------------------------
+// Plain inline SVG on a fixed 1000-unit viewBox, scaled to the container by CSS
+// (width:100%; height:auto). preserveAspectRatio is left at its default so text
+// scales with the bars instead of stretching. No library, nothing fetched.
+const CH = { W:1000, LBL:300, GAP:12, BARW:560, ROW:24, BAR:13, PAD:4 };
+
+function plural(n, word){ return n === 1 ? word : word + "s"; }
+
+function truncate(s, n){
+  s = String(s ?? "");
+  return s.length > n ? s.slice(0, n-1) + "…" : s;
+}
+
+function barChart(rows, opts){
+  opts = opts || {};
+  const n = rows.length;
+  if(!n) return "";
+  const H = CH.PAD*2 + n*CH.ROW;
+  const max = Math.max(1, ...rows.map(r => r.value));
+  const barX = CH.LBL + CH.GAP;
+  const body = rows.map((r, i) => {
+    const y = CH.PAD + i*CH.ROW;
+    const by = y + (CH.ROW - CH.BAR)/2;
+    // Minimum 2 units so a size-1 cluster is still visible next to a size-806 one.
+    const w = Math.max(2, Math.round(CH.BARW * r.value / max));
+    const hit = opts.clickable
+      ? `<rect class="bar-hit" data-i="${esc(r.key)}" x="0" y="${y}" width="${CH.W}" height="${CH.ROW}"><title>${esc(r.title || r.label)}</title></rect>`
+      : "";
+    return `${hit}
+      <text class="bar-lbl" x="${CH.LBL}" y="${y + CH.ROW/2}" text-anchor="end" dominant-baseline="central">${esc(truncate(r.label, 46))}</text>
+      <rect class="bar-track" x="${barX}" y="${by}" width="${CH.BARW}" height="${CH.BAR}" rx="3"></rect>
+      <rect class="${r.alt ? "bar-rec" : "bar-prim"}" x="${barX}" y="${by}" width="${w}" height="${CH.BAR}" rx="3"><title>${esc(r.title || (r.label + " — " + r.value))}</title></rect>
+      <text class="bar-val" x="${CH.W}" y="${y + CH.ROW/2}" text-anchor="end" dominant-baseline="central">${r.value.toLocaleString()}</text>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${CH.W} ${H}" role="img" aria-label="${esc(opts.aria || "bar chart")}">${body}</svg>`;
+}
+
+function legend(){
+  return `<div class="legend">
+    <span><i class="lg" style="background:var(--accent)"></i>${SIMPLE ? "clear pattern" : "primary"}</span>
+    <span><i class="lg" style="background:var(--bar-rec)"></i>${SIMPLE ? "found on a closer second look" : "recovered from noise"}</span>
+  </div>`;
+}
+
+// --- wording -----------------------------------------------------------------
+// Simple mode restates the stat line in plain language and drops the algorithm
+// details. Technical mode is byte-for-byte what this viewer rendered before.
+function statsLine(section, cov){
+  const merges = (section.candidate_merges || []).length;
+  if(!SIMPLE){
+    return `<span><b>${section.n_tickets.toLocaleString()}</b> tickets</span>
+        <span><b>${section.n_primary}</b> primary + <b>${section.n_recovered}</b> recovered</span>
+        <span><b>${section.n_noise}</b> noise · <b>${cov}%</b> coverage</span>
+        <span>method <b>${esc(section.method)}</b>${section.min_cluster_size ? ` · mcs <b>${section.min_cluster_size}</b>` : ""}</span>
+        <span><b>${merges}</b> merge flags</span>`;
+  }
+  const parts = [
+    `<span><b>${section.n_tickets.toLocaleString()}</b> tickets</span>`,
+    `<span><b>${section.n_primary}</b> clear patterns + <b>${section.n_recovered}</b> patterns found on a closer second look</span>`,
+    `<span><b>${section.n_noise}</b> tickets with no repeating pattern (one-offs)</span>`,
+    `<span><b>${cov}%</b> of tickets in this topic match a known pattern</span>`,
+  ];
+  // Hidden entirely at zero — a "0 merge flags" line is noise for a non-technical reader.
+  if(merges) parts.push(
+    `<span><b>${merges}</b> pair${merges>1?"s":""} look${merges>1?"":"s"} similar, worth a second look</span>`);
+  return parts.join("\n        ");
 }
 
 // --- rendering ---------------------------------------------------------------
@@ -208,15 +337,44 @@ function flagsFor(section, id){
 }
 
 function methodBadge(section, c){
-  if(c.recovered_from_noise) return '<span class="badge rec">recovered from noise</span>';
+  if(c.recovered_from_noise){
+    return `<span class="badge rec">${SIMPLE ? "found on a closer second look" : "recovered from noise"}</span>`;
+  }
+  if(SIMPLE) return '<span class="badge prim">clear pattern</span>';
   const m = section.method.startsWith("agglomerative") ? "agglomerative" : section.method;
   return `<span class="badge prim">primary · ${esc(m)}</span>`;
 }
 
+function renderOverview(){
+  const names = intentNames();
+  const rows = names.map(n => ({
+    key: n, label: n, value: DATA[n].n_tickets, alt: false,
+    title: `${n} — ${DATA[n].n_tickets.toLocaleString()} tickets, ${DATA[n].clusters.length} clusters`,
+  })).sort((a,b) => b.value - a.value);
+
+  $("panel").innerHTML = `<div class="panelhead">
+      <h2>${SIMPLE ? "All topics" : "All intents"}</h2>
+      <div class="stats"><span>${SIMPLE
+        ? "Pick a topic on the left, or click a bar below."
+        : "Select an intent from the left panel, or click a bar."}</span></div>
+    </div>
+    <div class="chart">
+      <h3>${SIMPLE ? "Tickets per topic" : "Tickets per intent"}</h3>
+      <div class="sub">${rows.length} ${plural(rows.length, SIMPLE ? "topic" : "intent")}, largest first — click to open</div>
+      ${barChart(rows, {clickable:true, aria:"Tickets per intent"})}
+    </div>`;
+
+  $("panel").querySelectorAll(".bar-hit").forEach(el =>
+    el.addEventListener("click", () => { CURRENT = el.dataset.i; render(); }));
+}
+
 function render(){
-  const section = DATA[CURRENT];
   document.querySelectorAll(".intent").forEach(el =>
-    el.classList.toggle("active", el.dataset.i === CURRENT));
+    el.classList.toggle("active", (el.dataset.i || null) === CURRENT));
+
+  if(CURRENT === null){ renderOverview(); return; }
+
+  const section = DATA[CURRENT];
 
   const q = $("filter").value.trim().toLowerCase();
   let list = section.clusters.slice();
@@ -234,11 +392,7 @@ function render(){
   const head = `<div class="panelhead">
       <h2>${esc(CURRENT)}</h2>
       <div class="stats">
-        <span><b>${section.n_tickets.toLocaleString()}</b> tickets</span>
-        <span><b>${section.n_primary}</b> primary + <b>${section.n_recovered}</b> recovered</span>
-        <span><b>${section.n_noise}</b> noise · <b>${cov}%</b> coverage</span>
-        <span>method <b>${esc(section.method)}</b>${section.min_cluster_size ? ` · mcs <b>${section.min_cluster_size}</b>` : ""}</span>
-        <span><b>${(section.candidate_merges||[]).length}</b> merge flags</span>
+        ${statsLine(section, cov)}
       </div></div>`;
 
   if(!list.length){
@@ -246,7 +400,23 @@ function render(){
     return;
   }
 
-  $("panel").innerHTML = head + list.map(c => {
+  // Chart always runs largest-first regardless of the card sort, but over the
+  // SAME (filtered) set the cards show, so the two can never disagree.
+  const chartRows = list.slice().sort((a,b) => b.size - a.size).map(c => ({
+    key: String(c.cluster_id),
+    label: c.label ? c.label : "c" + c.cluster_id + " (no label)",
+    value: c.size,
+    alt: !!c.recovered_from_noise,
+    title: `c${c.cluster_id} — ${c.size} tickets${c.recovered_from_noise ? " (recovered)" : ""}`,
+  }));
+  const chart = `<div class="chart">
+      <h3>${SIMPLE ? "Pattern sizes" : "Cluster sizes"}</h3>
+      <div class="sub">${chartRows.length} ${plural(chartRows.length, SIMPLE ? "pattern" : "cluster")}, largest first${q ? " · filtered" : ""}</div>
+      ${legend()}
+      ${barChart(chartRows, {aria:"Cluster sizes"})}
+    </div>`;
+
+  $("panel").innerHTML = head + chart + list.map(c => {
     const flags = flagsFor(section, c.cluster_id);
     const badges = [methodBadge(section, c)];
     if(c.merged_from) badges.push(`<span class="badge merged">merged from c${c.merged_from.join(" + c")}</span>`);
@@ -255,7 +425,9 @@ function render(){
     if(c.assigned_by_inspection && c.assigned_by_inspection.length)
       badges.push(`<span class="badge split">${c.assigned_by_inspection.length} assigned by inspection</span>`);
 
-    const flagHtml = flags.length ? `<div class="flags">
+    // Advisory merge notices are a Technical-mode detail; the Simple stat line
+    // already says how many pairs are worth a second look.
+    const flagHtml = (!SIMPLE && flags.length) ? `<div class="flags">
         <div class="t">⚠ ${flags.length} candidate merge${flags.length>1?"s":""} — advisory, not applied</div>
         ${flags.map(f => {
           const o = byId[f.other];
