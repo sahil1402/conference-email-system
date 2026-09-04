@@ -20,6 +20,15 @@ tops up a present LLM result — that would need per-field provenance to stay
 honest, and ``method`` is a clean three-value record of which path produced the
 whole result.
 
+ONE field sits deliberately OUTSIDE that split: ``openreview_notification_sender``
+is read from the raw body on BOTH paths. It is not part of the "which submission,
+which people" answer ``method`` describes — it is a structural fact about the text
+(does an OpenReview notification address appear in it?) with one exact,
+machine-checkable answer and no judgment to make. The distiller is never asked
+about it, so an absent value there would not mean "the model looked and found
+nothing"; it would mean nobody looked. See the field's own note for the full
+argument, and for why the note-id case is NOT the same one.
+
 The fallback is tuned for PRECISION over recall. Roughly half of real threads
 carry no submission reference at all, so returning nothing is the ordinary
 outcome, not a failure; attaching the WRONG paper to a ticket is far more
@@ -107,6 +116,45 @@ _OPENREVIEW_PARAM_FORUM_ID_RE = re.compile(
 # rejects an over-long token outright rather than truncating it into a match.
 _OPENREVIEW_PARAM_NOTE_ID_RE = re.compile(
     r"(?:^|&amp;|&)noteId=(?P<note_id>[A-Za-z0-9]{1,32})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# --- OpenReview notification sender ----------------------------------------
+# OpenReview mails each venue from its own notification address, shaped
+# <venue>-notifications@openreview.net (aaai2027-notifications@openreview.net
+# today). The venue prefix changes every conference and every year, so it is
+# matched as a SHAPE and never hardcoded.
+#
+# Anchored on the ADDRESS ALONE, deliberately. The address turns up inside a
+# quoted header whose field labels are written by the replier's mail client and
+# may be in any language — "From:", "De:", "Von:", "发件人:" — so any pattern
+# reaching for the label would work for one locale and silently fail for the
+# rest. The address is the part that is identical everywhere.
+#
+# Precision comes from three guards:
+#  * The venue prefix is REQUIRED. A bare notifications@openreview.net has no
+#    venue and is not this signal; the leading lookbehind is what makes that
+#    rejection airtight rather than incidental, since without it the engine
+#    would happily retry one character in and match a suffix of a longer local
+#    part (foo.bar-notifications@... must not read as bar-notifications@...).
+#  * The domain is literal and exact.
+#  * The trailing lookahead rejects a lookalike that merely STARTS with the real
+#    domain — openreview.net.evil.com, openreview.network — instead of matching
+#    its prefix and reporting a bogus address.
+#
+# SCOPE: this reports that the address APPEARS in the text, not that it appeared
+# as a header. Prose ("I got mail from aaai2027-notifications@openreview.net")
+# matches too. That is intended here — the stronger "this is a reply to a
+# notification" inference is a separate, later decision that combines this
+# signal with the forum/note pairing, and it should be the thing that weighs
+# them, not this detector second-guessing itself.
+_OPENREVIEW_NOTIFICATION_SENDER_RE = re.compile(
+    r"(?<![A-Za-z0-9._%+\-])"
+    r"(?P<address>"
+    r"[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?"
+    r"-notifications@openreview\.net"
+    r")"
+    r"(?![A-Za-z0-9.\-])",
     re.IGNORECASE,
 )
 
@@ -232,6 +280,27 @@ def _first_note_id_for(
     return None
 
 
+def _find_openreview_notification_sender(subject: str, body: str) -> str | None:
+    """The first OpenReview notification address in the text, or None.
+
+    Returned VERBATIM rather than lowercased. The value's job is to show what
+    the email actually said, and normalizing it would quietly discard that; it
+    also matches :func:`_dedupe_identifiers`, which does not casefold either.
+    An email address is case-insensitive in practice, so anything COMPARING
+    this value must casefold it — the field description says so.
+
+    First-seen wins, subject before body, the same traversal every other finder
+    here uses. A quoted chain can carry the same address several times and, in
+    principle, two different venues; one value is what the field holds, and the
+    first is the least arbitrary choice available without inventing a ranking.
+    """
+    for text in (subject or "", body or ""):
+        match = _OPENREVIEW_NOTIFICATION_SENDER_RE.search(text)
+        if match is not None:
+            return match.group("address")
+    return None
+
+
 class AuthorMention(BaseModel):
     """One person an email identifies. Every field is independently optional.
 
@@ -261,6 +330,9 @@ class ExtractionResult(BaseModel):
     meaningful attached to a single forum id — a set of note ids with no record
     of which forum each belongs to would not be usable.
 
+    ``openreview_notification_sender`` is a scalar too, and is the one field
+    ``method`` does NOT describe — see its own note and the module docstring.
+
     ``method`` records HOW the values were obtained, not how well: an
     ``llm_distiller`` result with everything empty means the model looked and
     found nothing, which is a real finding and distinct from ``none`` (nothing
@@ -288,6 +360,19 @@ class ExtractionResult(BaseModel):
         "one — which, like an empty list, means 'looked, found none' whenever "
         "`method` is not 'none'.",
     )
+    openreview_notification_sender: str | None = Field(
+        default=None,
+        description="The OpenReview per-venue notification address "
+        "(<venue>-notifications@openreview.net) found in the text, verbatim; "
+        "None when none appears. Reported as the matched ADDRESS rather than a "
+        "bare boolean: it answers 'why was this flagged' without re-running the "
+        "scan, and its venue prefix names the conference and year the quoted "
+        "notification came from, which a True could not. The boolean is always "
+        "recoverable as `is not None`; the address is not recoverable from a "
+        "boolean. Case is preserved as found, so COMPARE CASE-INSENSITIVELY. "
+        "Unlike every other field here, this one is read from the raw body on "
+        "BOTH paths and is therefore NOT described by `method`.",
+    )
     authors: list[AuthorMention] = Field(
         default_factory=list,
         description="People the email identifies, deduplicated, in first-seen "
@@ -295,7 +380,9 @@ class ExtractionResult(BaseModel):
     )
     method: ExtractionMethod = Field(
         default="none",
-        description="Which path produced this result.",
+        description="Which path produced the IDENTIFIER and AUTHOR fields. It "
+        "does not describe `openreview_notification_sender`, which is read from "
+        "the raw text on either path.",
     )
 
 
@@ -402,9 +489,14 @@ class EmailExtractor:
     ) -> ExtractionResult:
         """Best-effort extraction. Never raises.
 
-        ``subject`` / ``body`` / ``sender`` / ``sender_name`` feed the regex
-        fallback only. On the LLM path they are unused on purpose — the model
-        already read the subject and body itself.
+        ``sender`` / ``sender_name`` feed the regex fallback only, and on the
+        LLM path ``subject`` / ``body`` are unused for identifier extraction on
+        purpose — the model already read them itself.
+
+        The ONE exception is ``openreview_notification_sender``, computed below
+        from the raw text before the paths diverge, so it is populated whichever
+        path runs. See its field description for why that is not the
+        supplement-a-present-LLM-result the module docstring rules out.
 
         When ``distilled`` is present it is trusted outright, INCLUDING when
         ALL THREE of its lists are empty: the prompt directs the model to read
@@ -414,8 +506,16 @@ class EmailExtractor:
         with empty lists rather than falling through to regex.
         """
         try:
+            # Computed BEFORE the branch, so the two paths cannot drift on a
+            # field that has exactly one correct answer either way.
+            notification_sender = _find_openreview_notification_sender(
+                subject, body
+            )
+
             if distilled is None:
-                return self._extract_by_regex(subject, body, sender, sender_name)
+                return self._extract_by_regex(
+                    subject, body, sender, sender_name, notification_sender
+                )
 
             authors = [
                 mention
@@ -446,6 +546,32 @@ class EmailExtractor:
                 # distiller to emit the pair itself, which is a change to its
                 # prompt contract and belongs in its own commit.
                 openreview_note_id=None,
+                # Populated here, unlike the note id directly above, and the
+                # difference is not a change of heart — the two fields fail
+                # differently.
+                #
+                # The note id is part of the identifier answer the distiller was
+                # ASKED for. It emits OPENREVIEW_ID lines, so an empty answer
+                # there is a real answer from a model that genuinely looked;
+                # re-deriving it by regex would override that with a weaker tool
+                # and leave `method` unable to say which field came from where.
+                #
+                # This field is not part of that answer at all, and the
+                # distiller is not asked about it in any form. Leaving it unset
+                # here would not record "looked, found none" — it would record
+                # nothing, on the path production actually runs
+                # (QUERY_STRATEGY=distill), making the field permanently dead
+                # exactly where it is needed. The alternative, teaching the
+                # prompt to report it, would hand exact string matching to a
+                # model that can only be worse at it than a regex is: slower,
+                # costlier in prompt budget, and able to hallucinate a value
+                # whose entire worth is being verbatim.
+                #
+                # So the carve-out is deliberate and bounded to signals of this
+                # KIND: structural facts about the raw text, with one exact
+                # answer and no judgment to make. It is NOT licence to
+                # regex-fill an identifier field later.
+                openreview_notification_sender=notification_sender,
                 authors=_dedupe_authors(authors),
                 method="llm_distiller",
             )
@@ -463,6 +589,7 @@ class EmailExtractor:
         body: str,
         sender: str,
         sender_name: str | None,
+        notification_sender: str | None = None,
     ) -> ExtractionResult:
         """Fallback used only when the distiller did not run.
 
@@ -498,11 +625,20 @@ class EmailExtractor:
         if name is not None or email is not None:
             authors.append(AuthorMention(name=name, email=email))
 
+        # `notification_sender` is deliberately absent from `found_anything`:
+        # `method` describes the identifier extraction, and this field is
+        # explicitly outside it, so letting it flip `none` to `regex_fallback`
+        # would make `method` claim something it does not mean. The corner that
+        # exposes is a text carrying a notification address and NOTHING else,
+        # not even a sender — which reports `method="none"` beside a populated
+        # address. Pinned by test rather than smoothed over, and unreachable in
+        # production, where every real email has a sender.
         found_anything = bool(submission_numbers or forum_ids or authors)
         return ExtractionResult(
             submission_numbers=submission_numbers,
             openreview_forum_ids=forum_ids,
             openreview_note_id=note_id,
+            openreview_notification_sender=notification_sender,
             authors=authors,
             method="regex_fallback" if found_anything else "none",
         )

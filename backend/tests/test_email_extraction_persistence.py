@@ -176,6 +176,10 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
     ``openreview_note_id`` is asserted as None on purpose: the distiller's
     contract carries no note-id line, so the LLM path never reports one. Pinned
     as an explicit key rather than omitted so this stays an EXACT-shape check.
+
+    ``openreview_notification_sender`` is None here only because this fixture's
+    body carries no OpenReview address — NOT because the LLM path withholds it,
+    which it does not. The test below feeds a body that has one.
     """
     monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
     pipeline = _pipeline()
@@ -199,6 +203,7 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
         "submission_numbers": ["99999"],
         "openreview_forum_ids": ["Ab3xY9kLm2"],
         "openreview_note_id": None,
+        "openreview_notification_sender": None,
         "authors": [
             {
                 "name": "Jane Roe",
@@ -209,6 +214,39 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
         ],
         "method": "llm_distiller",
     }
+
+
+async def test_notification_sender_survives_the_distill_path_end_to_end(
+    session, monkeypatch
+):
+    """The production path actually stores it — the point of the carve-out.
+
+    Every other extraction field is withheld on the distill path unless the
+    distiller itself reported it, and `QUERY_STRATEGY=distill` is what runs in
+    production. So a unit test proving `EmailExtractor` populates this field is
+    not enough on its own: if the orchestrator did not hand the raw body through
+    on this path, the field would be permanently None in production and every
+    extractor-level test would still pass. This drives the real orchestrator
+    with a stub distiller and reads the value back out of the JSON column.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    pipeline = _pipeline()
+    pipeline.distiller = _StubDistiller(
+        DistillResult(queries=["q"], intent="desk_reject_appeal", confidence=0.9)
+    )
+    address = "aaai2027-notifications@openreview.net"
+    email_data = {
+        **_EMAIL,
+        "body": f'Please advise.\n\n发件人:"AAAI 2027" <{address}>\n主题: commented',
+    }
+
+    result = await pipeline.process_email(email_data, session)
+
+    stored = (
+        await EmailRepository().get_email_by_id(session, result.email_id)
+    ).extraction
+    assert stored["method"] == "llm_distiller"
+    assert stored["openreview_notification_sender"] == address
 
 
 async def test_multi_value_identifier_lists_round_trip(session, monkeypatch):
@@ -270,6 +308,7 @@ async def test_extraction_is_serialized_with_model_dump(session):
         "submission_numbers",
         "openreview_forum_ids",
         "openreview_note_id",
+        "openreview_notification_sender",
         "authors",
         "method",
     }

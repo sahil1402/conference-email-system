@@ -15,6 +15,7 @@ from app.pipeline.extractor import (
     ExtractionResult,
     _dedupe_authors,
     _find_openreview_note_pairs,
+    _find_openreview_notification_sender,
     _first_note_id_for,
     _parse_author,
 )
@@ -926,6 +927,281 @@ def test_llm_path_does_not_regex_the_body_for_a_note_id():
 
 def test_extraction_result_note_id_defaults_to_none():
     assert ExtractionResult().openreview_note_id is None
+
+
+# --- OpenReview notification sender ----------------------------------------
+# Detects that the QUOTED original message came from OpenReview's per-venue
+# notification address. The address is the only stable part of a quoted header:
+# the field labels around it are written by the replier's mail client and vary
+# by locale, so nothing here may depend on them.
+_ADDR = "aaai2027-notifications@openreview.net"
+
+# The real reported example, verbatim in shape: a Chinese mail client's quote
+# format with Chinese field labels. Values are what matter, labels are noise.
+_CHINESE_QUOTE = f"""\
+老师您好，请见下方邮件。
+
+发件人:"AAAI 2027" <{_ADDR}>
+发送时间:2026-08-27 15:28:28 (星期四)
+收件人: pengshaohui@iscas.ac.cn
+主题: [AAAI 2027] Senior Program Committee 6UDQ commented on a paper you are
+reviewing. Paper Number: 1030, Paper Title: "BlindTune:..."
+"""
+
+_ENGLISH_QUOTE = f"""\
+Hi, see below.
+
+From: "AAAI 2027" <{_ADDR}>
+Sent: 2026-08-27 15:28:28
+To: pengshaohui@iscas.ac.cn
+Subject: [AAAI 2027] Senior Program Committee 6UDQ commented on a paper you
+are reviewing. Paper Number: 1030
+"""
+
+
+def test_notification_sender_detected_in_chinese_labelled_quote():
+    """The reported real-world case."""
+    result = _regex_extract(body=_CHINESE_QUOTE)
+    assert result.openreview_notification_sender == _ADDR
+
+
+def test_notification_sender_detected_in_english_labelled_quote():
+    """Same address, English labels — the label must not be load-bearing."""
+    result = _regex_extract(body=_ENGLISH_QUOTE)
+    assert result.openreview_notification_sender == _ADDR
+
+
+def test_notification_sender_is_label_independent_across_locales():
+    """Every one of these must behave identically, including no label at all.
+
+    This is THE guard against reintroducing a `From:`-style anchor: such a
+    pattern passes the English case and silently fails every other locale, which
+    is exactly the bug shape the reported example arrived as.
+    """
+    for label in ["From:", "发件人:", "De:", "Von:", "Da:", "Från:", "差出人:", ""]:
+        body = f'{label}"AAAI 2027" <{_ADDR}>'
+        assert _regex_extract(body=body).openreview_notification_sender == _ADDR, label
+
+
+def test_notification_sender_venue_prefix_is_not_hardcoded():
+    """The prefix changes per conference and per year."""
+    for prefix in ["aaai2027", "aaai2026", "neurips2025", "iclr2026", "icml2027"]:
+        addr = f"{prefix}-notifications@openreview.net"
+        assert _regex_extract(body=f"From: <{addr}>").openreview_notification_sender == addr
+
+
+def test_notification_sender_accepts_the_full_allowed_prefix_shape():
+    """Alphanumeric-or-hyphen: digits-only, single char, and internal hyphens."""
+    for prefix in ["2027", "a", "no-reply", "aaai-2027-main"]:
+        addr = f"{prefix}-notifications@openreview.net"
+        assert _regex_extract(body=addr).openreview_notification_sender == addr, prefix
+
+
+def test_notification_sender_found_in_subject_too():
+    result = _regex_extract(subject=f"Fwd: mail from {_ADDR}")
+    assert result.openreview_notification_sender == _ADDR
+
+
+def test_notification_sender_matches_inside_a_mailto_link():
+    result = _regex_extract(body=f"<a href='mailto:{_ADDR}'>reply</a>")
+    assert result.openreview_notification_sender == _ADDR
+
+
+def test_notification_sender_preserves_case_verbatim():
+    """Returned as written, NOT lowercased — the field's job is to show what the
+    email said. Consumers comparing it must casefold; that is documented on the
+    field and pinned here so the behaviour is deliberate rather than incidental.
+    """
+    mixed = "AAAI2027-Notifications@OpenReview.NET"
+    assert _regex_extract(body=f"From: <{mixed}>").openreview_notification_sender == mixed
+
+
+def test_notification_sender_takes_the_first_of_several():
+    """A quoted chain can carry the address more than once, or two venues."""
+    result = _regex_extract(
+        body=(
+            f"From: <{_ADDR}>\n"
+            "quoted...\n"
+            "From: <iclr2026-notifications@openreview.net>"
+        )
+    )
+    assert result.openreview_notification_sender == _ADDR
+
+
+# --- what must NOT match ----------------------------------------------------
+# "Fits the pattern" means, precisely: a local part of `<venue>-notifications`
+# where <venue> is one or more alphanumerics/hyphens starting AND ending with an
+# alphanumeric, at the exact domain openreview.net. Each rejection below breaks
+# exactly one of those clauses.
+def test_notification_sender_rejects_bare_notifications_address():
+    """No venue prefix at all — the required `<venue>-` is simply absent.
+
+    The boundary the task calls out: a generic notifications@openreview.net is
+    not this signal, and must not be smuggled in by a pattern that treats the
+    prefix as optional.
+    """
+    result = _regex_extract(body="Please write to notifications@openreview.net for help.")
+    assert result.openreview_notification_sender is None
+
+
+def test_notification_sender_rejects_prefix_that_is_only_a_hyphen():
+    """The venue must START with an alphanumeric, so a bare `-notifications`
+    (the one-character-away neighbour of the case above) is still not a venue."""
+    assert (
+        _regex_extract(body="write to -notifications@openreview.net").openreview_notification_sender
+        is None
+    )
+
+
+def test_notification_sender_rejects_other_openreview_addresses():
+    for addr in [
+        "noreply@openreview.net",
+        "info@openreview.net",
+        "notifications-aaai2027@openreview.net",  # prefix on the wrong side
+        "aaai2027-notification@openreview.net",  # singular: not the real mailbox
+    ]:
+        assert _regex_extract(body=addr).openreview_notification_sender is None, addr
+
+
+def test_notification_sender_rejects_a_suffix_of_a_longer_local_part():
+    """`foo.bar-notifications@...` must not be read as `bar-notifications@...`.
+
+    Without the leading lookbehind the engine simply retries one character in
+    and reports a substring that was never an address — a fabricated value, not
+    a missed one.
+    """
+    assert (
+        _regex_extract(body="foo.bar-notifications@openreview.net").openreview_notification_sender
+        is None
+    )
+
+
+def test_notification_sender_rejects_wrong_and_lookalike_domains():
+    """A lookalike must be REJECTED, not truncated into the real domain."""
+    for addr in [
+        "aaai2027-notifications@example.com",
+        "aaai2027-notifications@openreview.net.evil.com",
+        "aaai2027-notifications@openreview.network",
+        "aaai2027-notifications@notopenreview.net",
+    ]:
+        assert _regex_extract(body=addr).openreview_notification_sender is None, addr
+
+
+def test_notification_sender_ignores_an_unrelated_openreview_mention():
+    """Talking ABOUT OpenReview is not a quoted notification."""
+    for text in [
+        "Please check your OpenReview account settings.",
+        "I cannot log in to openreview.net at all.",
+        "See https://openreview.net/forum?id=Ab3xY9kLm2 for the paper.",
+    ]:
+        assert _regex_extract(body=text).openreview_notification_sender is None, text
+
+
+def test_notification_sender_none_when_no_openreview_mention_at_all():
+    result = _regex_extract(
+        subject="Re: Your Submission 22336",
+        body="Could you clarify the page limit?",
+        sender=_SENDER,
+        sender_name=_SENDER_NAME,
+    )
+    assert result.openreview_notification_sender is None
+    assert result.method == "regex_fallback"
+
+
+# --- interaction with the rest of the result --------------------------------
+def test_notification_sender_leaves_the_other_fields_untouched():
+    """Strictly additive: the quote's own number and link still extract."""
+    result = _regex_extract(
+        body=(
+            f"From: <{_ADDR}>\n"
+            "Subject: commented on submission 1030\n"
+            "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+        ),
+        sender=_SENDER,
+        sender_name=_SENDER_NAME,
+    )
+    assert result.openreview_notification_sender == _ADDR
+    assert result.submission_numbers == ["1030"]
+    assert result.openreview_forum_ids == ["ll0avn6ylq"]
+    assert result.openreview_note_id == "jnHgRMHgrm"
+    assert len(result.authors) == 1
+    assert result.method == "regex_fallback"
+
+
+def test_notification_sender_alone_does_not_flip_method_off_none():
+    """PINNED CONSEQUENCE, deliberate — not an oversight.
+
+    `method` describes the IDENTIFIER extraction, and this field is explicitly
+    outside it, so it is kept out of `found_anything`. The corner that exposes
+    is a text carrying the address and nothing else — no number, no link, and
+    no sender — which reports `method="none"` beside a populated address.
+
+    Kept because letting this field flip `method` would make `method` claim
+    something it does not mean, and because the corner needs a senderless email
+    to reach: every real email has a sender, so production never sees it.
+    """
+    result = _regex_extract(body=f"From: <{_ADDR}>", sender="", sender_name=None)
+    assert result.openreview_notification_sender == _ADDR
+    assert result.method == "none"
+    assert result.submission_numbers == []
+
+
+# --- the LLM path: populated here, unlike the note id -----------------------
+def test_llm_path_reports_the_notification_sender():
+    """THE call this commit makes.
+
+    Unlike `openreview_note_id`, this field IS populated on the distiller path,
+    because the distiller is never asked about it in any form — so leaving it
+    unset would record nothing at all on the path production actually runs, not
+    "looked, found none".
+    """
+    result = EmailExtractor().extract(
+        "", _CHINESE_QUOTE, _SENDER, _SENDER_NAME,
+        _distilled(submission_numbers_raw=["1030"]),
+    )
+    assert result.method == "llm_distiller"
+    assert result.openreview_notification_sender == _ADDR
+    # The note id stays None on this path — the two are NOT the same decision.
+    assert result.openreview_note_id is None
+
+
+def test_llm_path_notification_sender_is_none_when_absent():
+    """Populated on this path does not mean always-truthy on this path."""
+    result = EmailExtractor().extract(
+        "", "Could you clarify the page limit?", _SENDER, _SENDER_NAME,
+        _distilled(submission_numbers_raw=["1030"]),
+    )
+    assert result.method == "llm_distiller"
+    assert result.openreview_notification_sender is None
+
+
+def test_both_paths_agree_on_the_same_body():
+    """One exact answer either way — the whole reason it is computed before the
+    paths diverge rather than once per branch."""
+    body = _ENGLISH_QUOTE
+    via_regex = EmailExtractor().extract("", body, _SENDER, _SENDER_NAME, None)
+    via_llm = EmailExtractor().extract("", body, _SENDER, _SENDER_NAME, _distilled())
+    assert (
+        via_regex.openreview_notification_sender
+        == via_llm.openreview_notification_sender
+        == _ADDR
+    )
+
+
+# --- the finder in isolation ------------------------------------------------
+def test_find_notification_sender_prefers_subject_over_body():
+    assert (
+        _find_openreview_notification_sender(f"subj {_ADDR}", "body iclr2026-notifications@openreview.net")
+        == _ADDR
+    )
+
+
+def test_find_notification_sender_returns_none_for_empty_input():
+    assert _find_openreview_notification_sender("", "") is None
+
+
+def test_extraction_result_notification_sender_defaults_to_none():
+    assert ExtractionResult().openreview_notification_sender is None
 
 
 # --- sender-based author ---------------------------------------------------
