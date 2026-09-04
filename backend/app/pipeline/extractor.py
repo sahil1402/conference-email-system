@@ -20,14 +20,27 @@ tops up a present LLM result — that would need per-field provenance to stay
 honest, and ``method`` is a clean three-value record of which path produced the
 whole result.
 
-ONE field sits deliberately OUTSIDE that split: ``openreview_notification_sender``
-is read from the raw body on BOTH paths. It is not part of the "which submission,
-which people" answer ``method`` describes — it is a structural fact about the text
-(does an OpenReview notification address appear in it?) with one exact,
-machine-checkable answer and no judgment to make. The distiller is never asked
-about it, so an absent value there would not mean "the model looked and found
-nothing"; it would mean nobody looked. See the field's own note for the full
-argument, and for why the note-id case is NOT the same one.
+TWO fields sit deliberately OUTSIDE that split — ``openreview_note_id`` and
+``openreview_notification_sender`` — and both are read from the raw text on BOTH
+paths. The test for membership is exactly one question: DOES THE DISTILLER'S
+PROMPT CONTRACT ASK FOR THIS EXACT VALUE?
+
+* ``openreview_forum_ids`` — YES. The prompt asks for ``OPENREVIEW_ID`` lines,
+  so the model genuinely looked, and an empty answer is a real answer. Regex
+  must never top it up; doing so would override the model with a weaker tool and
+  leave ``method`` unable to say which field came from where. UNTOUCHED.
+* ``openreview_note_id`` — NO. The prompt has no note-id line at all, and its
+  ``OPENREVIEW_ID`` line carries a BARE forum id with the link, and therefore
+  the ``noteId`` parameter, already discarded. Nothing was asked, so nothing was
+  answered.
+* ``openreview_notification_sender`` — NO, for the same reason.
+
+For the latter two an unset value on the LLM path would not record "the model
+looked and found none"; it would record that nobody looked, on the path
+production actually runs. Both are structural facts about the raw text with one
+exact, machine-checkable answer and no judgment to make, so both are read by
+regex either way. This is bounded to signals of that KIND and is NOT licence to
+regex-fill a value the prompt does ask for.
 
 The fallback is tuned for PRECISION over recall. Roughly half of real threads
 carry no submission reference at all, so returning nothing is the ordinary
@@ -361,8 +374,11 @@ class ExtractionResult(BaseModel):
         "carried one as its `noteId` parameter. Read from the SAME link as its "
         "forum id and never paired across links, so it always names a comment "
         "inside a forum this result also reports. None when no link carried "
-        "one — which, like an empty list, means 'looked, found none' whenever "
-        "`method` is not 'none'.",
+        "one — which, like an empty list, means 'looked, found none'. Read from "
+        "the raw text on BOTH paths and therefore NOT described by `method`: "
+        "the distiller is never asked for a note id (its OPENREVIEW_ID line "
+        "reports a bare forum id with the link discarded), so there is no model "
+        "answer here to preserve or override.",
     )
     openreview_notification_sender: str | None = Field(
         default=None,
@@ -385,8 +401,9 @@ class ExtractionResult(BaseModel):
     method: ExtractionMethod = Field(
         default="none",
         description="Which path produced the IDENTIFIER and AUTHOR fields. It "
-        "does not describe `openreview_notification_sender`, which is read from "
-        "the raw text on either path.",
+        "does not describe `openreview_note_id` or "
+        "`openreview_notification_sender`, both of which are read from the raw "
+        "text on either path.",
     )
 
     @computed_field
@@ -418,14 +435,13 @@ class ExtractionResult(BaseModel):
         it. A stale or corrupt persisted value is ignored and recomputed on
         load, so it self-heals rather than lying.
 
-        KNOWN CONSEQUENCE — this is currently ALWAYS False on the LLM path, and
-        therefore in production, where ``QUERY_STRATEGY=distill``. Not a defect
-        in this combination: ``openreview_note_id`` is hardcoded None on that
-        path (the distiller reports bare ids with the link discarded, so there
-        is nothing to pair), which makes the left operand unreachable there.
-        Pinned by test so it is visible rather than surprising. Making this fire
-        in production means giving the distiller path a real note id — a change
-        to the distiller's prompt contract, deliberately not made here.
+        Reachable on BOTH paths, production included. It briefly was not: when
+        this flag was introduced, ``openreview_note_id`` was hardcoded None on
+        the LLM path, so the left operand was unreachable exactly where
+        ``QUERY_STRATEGY=distill`` runs. That was a misclassification of the
+        note id, not a flaw in this AND, and it has since been corrected — both
+        operands are now read from the raw text on either path. The logic here
+        is unchanged from the day it was written.
         """
         return (
             self.openreview_note_id is not None
@@ -540,10 +556,11 @@ class EmailExtractor:
         LLM path ``subject`` / ``body`` are unused for identifier extraction on
         purpose — the model already read them itself.
 
-        The ONE exception is ``openreview_notification_sender``, computed below
-        from the raw text before the paths diverge, so it is populated whichever
-        path runs. See its field description for why that is not the
-        supplement-a-present-LLM-result the module docstring rules out.
+        The TWO exceptions are ``openreview_note_id`` and
+        ``openreview_notification_sender``, both read from the raw text on
+        either path. Neither is a supplement to a present LLM result, because
+        the distiller's prompt asks for neither — see the module docstring for
+        the one question that decides which fields may be read this way.
 
         When ``distilled`` is present it is trusted outright, INCLUDING when
         ALL THREE of its lists are empty: the prompt directs the model to read
@@ -569,55 +586,44 @@ class EmailExtractor:
                 for raw in distilled.authors_raw
                 if (mention := _parse_author(raw)) is not None
             ]
+            # The MODEL's forum-id answer, untouched — the prompt asks for
+            # these, so they are its to report. Hoisted to a local only because
+            # the note-id gate below needs to compare against the very list this
+            # result will carry.
+            forum_ids = _dedupe_identifiers(distilled.openreview_ids_raw)
+
             return ExtractionResult(
                 submission_numbers=_dedupe_identifiers(
                     distilled.submission_numbers_raw
                 ),
-                openreview_forum_ids=_dedupe_identifiers(
-                    distilled.openreview_ids_raw
+                openreview_forum_ids=forum_ids,
+                # Read by regex here exactly as on the regex path, because
+                # the distiller is never asked for a note id: its prompt has no
+                # note-id line, and its OPENREVIEW_ID line reports a BARE forum
+                # id with the link — and so the `noteId` parameter — already
+                # discarded. There is therefore no model answer being overridden
+                # here; leaving it None would record that nobody looked, on the
+                # path production actually runs (QUERY_STRATEGY=distill).
+                #
+                # Note the asymmetry with `openreview_forum_ids` directly above,
+                # which the prompt DOES ask for and which stays the model's
+                # answer untouched. "Is this exact value in the prompt contract"
+                # is the whole test; see the module docstring.
+                #
+                # Gated against `forum_ids` — the MODEL's list, i.e. the very
+                # one this result carries — so the scalar can still never name a
+                # forum the result omits. That is the same coherence rule the
+                # regex path applies, stated once and applied to whichever list
+                # the path reports. Consequence, accepted deliberately: if the
+                # model misses a forum id the regex found, its note id is
+                # withheld. That fails toward reporting less, matching this
+                # module's precision-over-recall stance, and is far better than
+                # emitting a note id pointing into a forum the result never
+                # mentions.
+                openreview_note_id=_first_note_id_for(
+                    _find_openreview_note_pairs(subject, body), forum_ids
                 ),
-                # Always None here, set explicitly rather than left to the
-                # default so the omission reads as a decision and not an
-                # oversight. The distiller's output contract carries no note-id
-                # line at all, and its OPENREVIEW_ID line reports a BARE id with
-                # the link it came from already discarded — so there is nothing
-                # on this path to pair a note id WITH, and that pairing is the
-                # entire correctness property of this field.
-                #
-                # Re-reading the raw body with the regex to fill it in is NOT
-                # the fix: it would make one result part-LLM and part-regex,
-                # which `method` has no way to express (see the module
-                # docstring — the two paths are mutually exclusive by design,
-                # and merging them needs per-field provenance first).
-                # Populating this on the LLM path therefore means teaching the
-                # distiller to emit the pair itself, which is a change to its
-                # prompt contract and belongs in its own commit.
-                openreview_note_id=None,
-                # Populated here, unlike the note id directly above, and the
-                # difference is not a change of heart — the two fields fail
-                # differently.
-                #
-                # The note id is part of the identifier answer the distiller was
-                # ASKED for. It emits OPENREVIEW_ID lines, so an empty answer
-                # there is a real answer from a model that genuinely looked;
-                # re-deriving it by regex would override that with a weaker tool
-                # and leave `method` unable to say which field came from where.
-                #
-                # This field is not part of that answer at all, and the
-                # distiller is not asked about it in any form. Leaving it unset
-                # here would not record "looked, found none" — it would record
-                # nothing, on the path production actually runs
-                # (QUERY_STRATEGY=distill), making the field permanently dead
-                # exactly where it is needed. The alternative, teaching the
-                # prompt to report it, would hand exact string matching to a
-                # model that can only be worse at it than a regex is: slower,
-                # costlier in prompt budget, and able to hallucinate a value
-                # whose entire worth is being verbatim.
-                #
-                # So the carve-out is deliberate and bounded to signals of this
-                # KIND: structural facts about the raw text, with one exact
-                # answer and no judgment to make. It is NOT licence to
-                # regex-fill an identifier field later.
+                # Same rule, same reason — the prompt asks for no sender either.
                 openreview_notification_sender=notification_sender,
                 authors=_dedupe_authors(authors),
                 method="llm_distiller",

@@ -902,25 +902,71 @@ def test_regex_note_id_before_id_ordering_is_currently_suppressed():
 
 
 # --- the LLM path -----------------------------------------------------------
-def test_llm_path_never_reports_a_note_id():
-    """The distiller's contract has no note-id line, and its OPENREVIEW_ID line
-    carries a bare id with the link discarded — so there is nothing to pair
-    with. Explicitly None rather than incidentally None."""
-    result = _extract(_distilled(openreview_ids_raw=["Ab3xY9kLm2"]))
-    assert result.method == "llm_distiller"
-    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
-    assert result.openreview_note_id is None
+def test_llm_path_reports_a_note_id_read_from_the_body():
+    """CORRECTED BEHAVIOUR. This field is regex-read on the LLM path too.
 
-
-def test_llm_path_does_not_regex_the_body_for_a_note_id():
-    """Mutual exclusivity: a note id sitting in the raw body must NOT top up a
-    present LLM result — that would make one result part-LLM, part-regex."""
+    Replaces two earlier tests that pinned the opposite. The original reasoning
+    was that regex-filling would override a real model answer — but the
+    distiller is never ASKED for a note id: its prompt has no note-id line, and
+    its OPENREVIEW_ID line reports a bare forum id with the link (and so the
+    `noteId` parameter) already discarded. There is no answer to override.
+    """
     result = EmailExtractor().extract(
         "",
         f"Reply here: {_REAL_SHAPE}",
         _SENDER,
         _SENDER_NAME,
         _distilled(openreview_ids_raw=["ll0avn6ylq"]),
+    )
+    assert result.method == "llm_distiller"
+    assert result.openreview_note_id == "jnHgRMHgrm"
+
+
+def test_both_paths_agree_on_the_note_id():
+    """One exact answer either way, like the notification sender.
+
+    The pairing logic is the SAME helper on both paths, so a body cannot yield
+    one note id through the distiller and another through the fallback.
+    """
+    body = f"Reply here: {_REAL_SHAPE}"
+    via_regex = EmailExtractor().extract("", body, _SENDER, _SENDER_NAME, None)
+    via_llm = EmailExtractor().extract(
+        "", body, _SENDER, _SENDER_NAME, _distilled(openreview_ids_raw=["ll0avn6ylq"])
+    )
+    assert via_regex.openreview_note_id == via_llm.openreview_note_id == "jnHgRMHgrm"
+
+
+def test_llm_path_still_never_regexes_the_forum_ids():
+    """THE BOUNDARY of the correction — `openreview_forum_ids` is UNTOUCHED.
+
+    The prompt DOES ask for OPENREVIEW_ID lines, so that list stays the model's
+    answer and regex must never top it up. Here the body carries a forum link
+    the regex would happily find, and the distiller reports none: the list must
+    stay empty. Same call, same body, one field regex-read and the other not —
+    which is exactly the "is this value in the prompt contract" test.
+    """
+    result = EmailExtractor().extract(
+        "", f"Reply here: {_REAL_SHAPE}", _SENDER, _SENDER_NAME,
+        _distilled(openreview_ids_raw=[]),
+    )
+    assert result.openreview_forum_ids == []
+
+
+def test_llm_path_note_id_is_gated_against_the_models_forum_ids():
+    """ACCEPTED CONSEQUENCE of that gate, pinned deliberately.
+
+    The note id stays coherent with the list beside it, and on this path that
+    list is the MODEL's. So when the model misses a forum id the regex found,
+    its note id is withheld rather than left pointing into a forum this result
+    never mentions. Fails toward reporting less, matching the module's
+    precision-over-recall stance.
+
+    Note this is the same body as the test above; only the model's answer
+    differs, which is what makes the gate — not the regex — the deciding factor.
+    """
+    result = EmailExtractor().extract(
+        "", f"Reply here: {_REAL_SHAPE}", _SENDER, _SENDER_NAME,
+        _distilled(openreview_ids_raw=[]),
     )
     assert result.openreview_note_id is None
 
@@ -1146,14 +1192,14 @@ def test_notification_sender_alone_does_not_flip_method_off_none():
     assert result.submission_numbers == []
 
 
-# --- the LLM path: populated here, unlike the note id -----------------------
+# --- the LLM path ----------------------------------------------------------
 def test_llm_path_reports_the_notification_sender():
-    """THE call this commit makes.
+    """Populated on the distiller path, because the distiller is never asked
+    about it in any form — so leaving it unset would record nothing at all on
+    the path production actually runs, not "looked, found none".
 
-    Unlike `openreview_note_id`, this field IS populated on the distiller path,
-    because the distiller is never asked about it in any form — so leaving it
-    unset would record nothing at all on the path production actually runs, not
-    "looked, found none".
+    `openreview_note_id` is now read on this path for the identical reason; the
+    contrast this docstring used to draw between the two no longer exists.
     """
     result = EmailExtractor().extract(
         "", _CHINESE_QUOTE, _SENDER, _SENDER_NAME,
@@ -1161,7 +1207,8 @@ def test_llm_path_reports_the_notification_sender():
     )
     assert result.method == "llm_distiller"
     assert result.openreview_notification_sender == _ADDR
-    # The note id stays None on this path — the two are NOT the same decision.
+    # None here only because THIS body carries no forum link at all — not
+    # because the path withholds it. See the note-id LLM tests above.
     assert result.openreview_note_id is None
 
 
@@ -1375,18 +1422,19 @@ def test_extractor_holds_no_instance_state():
     assert extractor.__dict__ == {}
 
 
-# --- the consequence inherited from the LLM path ----------------------------
-def test_reply_candidate_is_always_false_on_the_llm_path():
-    """PINNED CONSEQUENCE — visible rather than surprising, and NOT a defect in
-    the AND itself.
+# --- reachable on the production path ---------------------------------------
+def test_reply_candidate_is_reachable_on_the_llm_path():
+    """INVERTED from the test that used to pin the opposite.
 
-    `openreview_note_id` is hardcoded None on the distiller path (it reports
-    bare ids with the link discarded, so there is nothing to pair), which makes
-    the left operand unreachable there. Since `QUERY_STRATEGY=distill` is what
-    production runs, this flag cannot currently fire in production — even for
-    the exact body that yields True via the regex path, asserted side by side
-    below. Resolving it means giving the distiller path a real note id, which is
-    a change to its prompt contract and deliberately out of scope here.
+    It once asserted this flag could never be True on the distiller path,
+    because `openreview_note_id` was hardcoded None there — which meant it could
+    never fire in production, where `QUERY_STRATEGY=distill` runs. That was a
+    misclassification of the note id rather than a flaw in the AND, and it is
+    now fixed, so the same body reaches True either way.
+
+    Kept and inverted rather than deleted: this is the single assertion that the
+    feature actually works where it has to, and the side-by-side harness was
+    already here to make the point.
     """
     extractor = EmailExtractor()
     via_regex = extractor.extract("", _BOTH_SIGNALS_BODY, _SENDER, _SENDER_NAME, None)
@@ -1396,10 +1444,10 @@ def test_reply_candidate_is_always_false_on_the_llm_path():
     )
 
     assert via_regex.openreview_reply_candidate is True
-    assert via_llm.openreview_reply_candidate is False
-    # ...and precisely because of the left operand, not the right one.
+    assert via_llm.openreview_reply_candidate is True
+    # Both operands really are present on the production path, not just the flag.
+    assert via_llm.openreview_note_id == "jnHgRMHgrm"
     assert via_llm.openreview_notification_sender == _ADDR
-    assert via_llm.openreview_note_id is None
 
 
 # --- sender-based author ---------------------------------------------------

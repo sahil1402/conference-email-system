@@ -173,13 +173,12 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
 ):
     """Every field survives the JSON write + read, populated.
 
-    ``openreview_note_id`` is asserted as None on purpose: the distiller's
-    contract carries no note-id line, so the LLM path never reports one. Pinned
-    as an explicit key rather than omitted so this stays an EXACT-shape check.
-
-    ``openreview_notification_sender`` is None here only because this fixture's
-    body carries no OpenReview address — NOT because the LLM path withholds it,
-    which it does not. The test below feeds a body that has one.
+    ``openreview_note_id`` and ``openreview_notification_sender`` are both None
+    here only because this fixture's body carries neither a forum link nor an
+    OpenReview address — NOT because the LLM path withholds them, which it does
+    not: both are read from the raw text on either path. Pinned as explicit keys
+    rather than omitted so this stays an EXACT-shape check. The test below feeds
+    a body that does carry the address.
     """
     monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
     pipeline = _pipeline()
@@ -250,6 +249,60 @@ async def test_notification_sender_survives_the_distill_path_end_to_end(
     ).extraction
     assert stored["method"] == "llm_distiller"
     assert stored["openreview_notification_sender"] == address
+
+
+async def test_reply_candidate_is_true_end_to_end_on_the_distill_path(
+    session, monkeypatch
+):
+    """The whole feature, proven where it has to work: production.
+
+    `QUERY_STRATEGY=distill` is what runs in production, and until the note-id
+    correction this flag could not be True there at all — its left operand was
+    hardcoded unreachable on that path. A unit test on `EmailExtractor` alone
+    would not catch a regression in the orchestrator's hand-off of the raw body,
+    so this drives the real pipeline with a stub distiller and reads the flag
+    back out of the JSON column.
+
+    The body is the real reported shape: a Chinese-labelled quoted header from
+    the venue's notification address, plus the forum link carrying the noteId.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    pipeline = _pipeline()
+    # The model reports the forum id, as its prompt asks it to; the note id and
+    # the sender address are read from the raw text on this path.
+    pipeline.distiller = _StubDistiller(
+        DistillResult(
+            queries=["q"],
+            intent="cms_support",
+            confidence=0.9,
+            openreview_ids_raw=["ll0avn6ylq"],
+        )
+    )
+    address = "aaai2027-notifications@openreview.net"
+    link = "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+    email_data = {
+        **_EMAIL,
+        "body": (
+            "老师您好，请见下方邮件。\n\n"
+            f'发件人:"AAAI 2027" <{address}>\n'
+            "主题: [AAAI 2027] Senior Program Committee 6UDQ commented on a "
+            "paper you are reviewing. Paper Number: 1030\n"
+            f"{link}"
+        ),
+    }
+
+    result = await pipeline.process_email(email_data, session)
+
+    stored = (
+        await EmailRepository().get_email_by_id(session, result.email_id)
+    ).extraction
+    assert stored["method"] == "llm_distiller"
+    assert stored["openreview_reply_candidate"] is True
+    # Both operands really are present, so the flag is not True by accident.
+    assert stored["openreview_note_id"] == "jnHgRMHgrm"
+    assert stored["openreview_notification_sender"] == address
+    # ...and the model's own forum-id answer is still the model's.
+    assert stored["openreview_forum_ids"] == ["ll0avn6ylq"]
 
 
 async def test_multi_value_identifier_lists_round_trip(session, monkeypatch):
