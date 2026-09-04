@@ -39,7 +39,7 @@ import logging
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.pipeline.distiller import DistillResult
 
@@ -333,6 +333,10 @@ class ExtractionResult(BaseModel):
     ``openreview_notification_sender`` is a scalar too, and is the one field
     ``method`` does NOT describe — see its own note and the module docstring.
 
+    ``openreview_reply_candidate`` is DERIVED from two of the fields above and
+    stored nowhere. It is a plain boolean AND, so it introduces no new detection
+    and no new judgment — see its own note.
+
     ``method`` records HOW the values were obtained, not how well: an
     ``llm_distiller`` result with everything empty means the model looked and
     found nothing, which is a real finding and distinct from ``none`` (nothing
@@ -384,6 +388,49 @@ class ExtractionResult(BaseModel):
         "does not describe `openreview_notification_sender`, which is read from "
         "the raw text on either path.",
     )
+
+    @computed_field
+    @property
+    def openreview_reply_candidate(self) -> bool:
+        """Both OpenReview signals present: a reply to a notification.
+
+        True IFF this result carries BOTH a ``openreview_note_id`` and a
+        ``openreview_notification_sender``. Neither alone is trusted — a forum
+        link can be pasted into any question, and the notification address can
+        be quoted in an email that is not a reply to it — so the combination is
+        the signal, not either half.
+
+        The note id, not the forum-id list, is the left operand ON PURPOSE. A
+        bare forum id says only "some OpenReview paper is mentioned"; a note id
+        says "a specific comment", and by the coherence gate in
+        :func:`_first_note_id_for` it can only exist alongside a forum id this
+        result also reports. So ``openreview_note_id is not None`` already means
+        "a real forum+note PAIR", and adding a forum-id check beside it would be
+        redundant rather than stricter.
+
+        DERIVED, never stored or passed in — the same rule the API's
+        ``_forced_policy_applied`` follows for the same reason. Both operands
+        already live on this object, so recomputing costs nothing and the flag
+        cannot drift from the two fields it summarizes. That also settles the
+        "same email" question structurally rather than by discipline: there is
+        no construction site to keep in step, no argument to thread through, and
+        no way for a caller to hand in a value contradicting the fields beside
+        it. A stale or corrupt persisted value is ignored and recomputed on
+        load, so it self-heals rather than lying.
+
+        KNOWN CONSEQUENCE — this is currently ALWAYS False on the LLM path, and
+        therefore in production, where ``QUERY_STRATEGY=distill``. Not a defect
+        in this combination: ``openreview_note_id`` is hardcoded None on that
+        path (the distiller reports bare ids with the link discarded, so there
+        is nothing to pair), which makes the left operand unreachable there.
+        Pinned by test so it is visible rather than surprising. Making this fire
+        in production means giving the distiller path a real note id — a change
+        to the distiller's prompt contract, deliberately not made here.
+        """
+        return (
+            self.openreview_note_id is not None
+            and self.openreview_notification_sender is not None
+        )
 
 
 def _dedupe_identifiers(values: list[str]) -> list[str]:

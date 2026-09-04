@@ -204,6 +204,9 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
         "openreview_forum_ids": ["Ab3xY9kLm2"],
         "openreview_note_id": None,
         "openreview_notification_sender": None,
+        # Derived (note_id AND sender). False here because the LLM path never
+        # reports a note id, so the left operand is unreachable on this path.
+        "openreview_reply_candidate": False,
         "authors": [
             {
                 "name": "Jane Roe",
@@ -309,6 +312,7 @@ async def test_extraction_is_serialized_with_model_dump(session):
         "openreview_forum_ids",
         "openreview_note_id",
         "openreview_notification_sender",
+        "openreview_reply_candidate",
         "authors",
         "method",
     }

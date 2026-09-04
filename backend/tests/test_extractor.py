@@ -1204,6 +1204,204 @@ def test_extraction_result_notification_sender_defaults_to_none():
     assert ExtractionResult().openreview_notification_sender is None
 
 
+# --- openreview_reply_candidate (the combined signal) -----------------------
+# A pure boolean AND over two fields already tested above, so nothing here
+# re-tests detection. What IS worth pinning: that neither half alone is enough,
+# that the flag cannot be set or drift independently of those two fields, and
+# the one consequence the combination inherits from the LLM path.
+_FORUM_NOTE_LINK = "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+_BARE_FORUM_LINK = "https://openreview.net/forum?id=ll0avn6ylq"
+
+_BOTH_SIGNALS_BODY = f"""\
+请见下方邮件。
+
+发件人:"AAAI 2027" <{_ADDR}>
+发送时间:2026-08-27 15:28:28 (星期四)
+收件人: pengshaohui@iscas.ac.cn
+主题: [AAAI 2027] Senior Program Committee 6UDQ commented on a paper you are
+reviewing. Paper Number: 1030
+{_FORUM_NOTE_LINK}
+"""
+
+
+def test_reply_candidate_true_when_both_signals_present():
+    """The real reported example, end to end: Chinese-quoted notification whose
+    body also carries the forum+note link."""
+    result = _regex_extract(body=_BOTH_SIGNALS_BODY, sender=_SENDER, sender_name=_SENDER_NAME)
+    assert result.openreview_note_id == "jnHgRMHgrm"
+    assert result.openreview_notification_sender == _ADDR
+    assert result.openreview_reply_candidate is True
+
+
+def test_reply_candidate_false_with_note_id_but_no_sender():
+    """A forum+note link can be pasted into any ordinary question."""
+    result = _regex_extract(body=f"About this comment: {_FORUM_NOTE_LINK}")
+    assert result.openreview_note_id == "jnHgRMHgrm"
+    assert result.openreview_notification_sender is None
+    assert result.openreview_reply_candidate is False
+
+
+def test_reply_candidate_false_with_sender_but_no_note_id():
+    """The address can be quoted in an email that is not a reply to it."""
+    result = _regex_extract(body=f"I get mail from {_ADDR} constantly, please stop.")
+    assert result.openreview_note_id is None
+    assert result.openreview_notification_sender == _ADDR
+    assert result.openreview_reply_candidate is False
+
+
+def test_reply_candidate_false_when_neither_signal_present():
+    result = _regex_extract(
+        subject="Re: Your Submission 22336",
+        body="Could you clarify the page limit?",
+        sender=_SENDER,
+        sender_name=_SENDER_NAME,
+    )
+    assert result.openreview_reply_candidate is False
+
+
+def test_reply_candidate_false_for_an_unrelated_openreview_mention():
+    for text in [
+        "Please check your OpenReview account settings.",
+        "I cannot log in to openreview.net at all.",
+    ]:
+        assert _regex_extract(body=text).openreview_reply_candidate is False, text
+
+
+def test_reply_candidate_needs_a_note_id_not_merely_a_forum_id():
+    """A BARE forum id alongside the address is NOT enough.
+
+    This is the distinction the left operand encodes: a forum id says some
+    OpenReview paper is mentioned, a note id says a specific comment is. Using
+    `openreview_forum_ids` here instead would flip this case to True.
+    """
+    result = _regex_extract(body=f"From: <{_ADDR}>\nPaper: {_BARE_FORUM_LINK}")
+    assert result.openreview_forum_ids == ["ll0avn6ylq"]
+    assert result.openreview_note_id is None
+    assert result.openreview_notification_sender == _ADDR
+    assert result.openreview_reply_candidate is False
+
+
+# --- the model-level truth table, independent of any detection --------------
+def test_reply_candidate_truth_table_on_the_model_itself():
+    """All four combinations, constructed directly — proves it is an AND and
+    not, say, an OR that the detection tests happen not to distinguish."""
+    cases = [
+        ("n", "s", True),
+        ("n", None, False),
+        (None, "s", False),
+        (None, None, False),
+    ]
+    for note, sender, expected in cases:
+        result = ExtractionResult(
+            openreview_note_id=note, openreview_notification_sender=sender
+        )
+        assert result.openreview_reply_candidate is expected, (note, sender)
+
+
+def test_reply_candidate_defaults_to_false():
+    assert ExtractionResult().openreview_reply_candidate is False
+
+
+def test_reply_candidate_is_serialized():
+    """It must reach the wire/JSON column, not just exist in memory."""
+    dumped = ExtractionResult(
+        openreview_note_id="n", openreview_notification_sender="s"
+    ).model_dump()
+    assert dumped["openreview_reply_candidate"] is True
+    assert ExtractionResult().model_dump()["openreview_reply_candidate"] is False
+
+
+# --- it cannot drift from the two fields it summarizes ----------------------
+def test_reply_candidate_cannot_be_set_independently_of_its_operands():
+    """Derived, so a caller cannot hand in a value contradicting the fields.
+
+    A plain stored boolean populated at each construction site could be set to
+    anything; this cannot, which is what makes 'both signals came from the same
+    email' structural rather than a rule someone has to remember.
+    """
+    result = ExtractionResult(openreview_reply_candidate=True)
+    assert result.openreview_reply_candidate is False
+
+
+def test_reply_candidate_self_heals_a_corrupt_persisted_value():
+    """Recomputed on load, so a stale stored True cannot outlive its operands."""
+    corrupt = {
+        "submission_numbers": [],
+        "openreview_forum_ids": [],
+        "openreview_note_id": None,
+        "openreview_notification_sender": None,
+        "authors": [],
+        "method": "regex_fallback",
+        "openreview_reply_candidate": True,
+    }
+    assert ExtractionResult.model_validate(corrupt).openreview_reply_candidate is False
+
+
+def test_reply_candidate_round_trips_through_a_dump():
+    original = _regex_extract(body=_BOTH_SIGNALS_BODY)
+    assert original.openreview_reply_candidate is True
+    revived = ExtractionResult.model_validate(original.model_dump())
+    assert revived.openreview_reply_candidate is True
+
+
+# --- no state carries between calls -----------------------------------------
+def test_reply_candidate_does_not_bleed_between_bodies_on_one_extractor():
+    """ONE extractor instance, alternating bodies, interleaved deliberately.
+
+    `EmailExtractor` holds no instance state and the finders are pure, so a
+    signal found in one body can never be attributed to the next. Interleaving
+    (not merely running them in sequence) is what would expose a cached or
+    carried-over value: a True leaking forward would show on the very next
+    call, and a stale operand would show on the repeat.
+    """
+    extractor = EmailExtractor()
+    both = lambda: extractor.extract("", _BOTH_SIGNALS_BODY, _SENDER, _SENDER_NAME, None)
+    neither = lambda: extractor.extract("", "No identifiers here.", _SENDER, _SENDER_NAME, None)
+    note_only = lambda: extractor.extract("", _FORUM_NOTE_LINK, _SENDER, _SENDER_NAME, None)
+
+    for _ in range(2):
+        assert both().openreview_reply_candidate is True
+        assert neither().openreview_reply_candidate is False
+        assert note_only().openreview_reply_candidate is False
+        assert neither().openreview_reply_candidate is False
+        assert both().openreview_reply_candidate is True
+
+
+def test_extractor_holds_no_instance_state():
+    """The structural reason the test above can be relied on rather than hoped
+    for: there is nowhere for a previous body's signal to be kept."""
+    extractor = EmailExtractor()
+    extractor.extract("", _BOTH_SIGNALS_BODY, _SENDER, _SENDER_NAME, None)
+    assert extractor.__dict__ == {}
+
+
+# --- the consequence inherited from the LLM path ----------------------------
+def test_reply_candidate_is_always_false_on_the_llm_path():
+    """PINNED CONSEQUENCE — visible rather than surprising, and NOT a defect in
+    the AND itself.
+
+    `openreview_note_id` is hardcoded None on the distiller path (it reports
+    bare ids with the link discarded, so there is nothing to pair), which makes
+    the left operand unreachable there. Since `QUERY_STRATEGY=distill` is what
+    production runs, this flag cannot currently fire in production — even for
+    the exact body that yields True via the regex path, asserted side by side
+    below. Resolving it means giving the distiller path a real note id, which is
+    a change to its prompt contract and deliberately out of scope here.
+    """
+    extractor = EmailExtractor()
+    via_regex = extractor.extract("", _BOTH_SIGNALS_BODY, _SENDER, _SENDER_NAME, None)
+    via_llm = extractor.extract(
+        "", _BOTH_SIGNALS_BODY, _SENDER, _SENDER_NAME,
+        _distilled(openreview_ids_raw=["ll0avn6ylq"]),
+    )
+
+    assert via_regex.openreview_reply_candidate is True
+    assert via_llm.openreview_reply_candidate is False
+    # ...and precisely because of the left operand, not the right one.
+    assert via_llm.openreview_notification_sender == _ADDR
+    assert via_llm.openreview_note_id is None
+
+
 # --- sender-based author ---------------------------------------------------
 def test_regex_sender_becomes_the_only_author():
     result = _regex_extract(sender=_SENDER, sender_name=_SENDER_NAME)
