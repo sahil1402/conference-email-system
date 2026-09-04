@@ -14,6 +14,8 @@ from app.pipeline.extractor import (
     EmailExtractor,
     ExtractionResult,
     _dedupe_authors,
+    _find_openreview_note_pairs,
+    _first_note_id_for,
     _parse_author,
 )
 
@@ -710,6 +712,220 @@ def test_regex_forum_id_preserves_case():
         _regex_extract(body="openreview.net/forum?id=aB3Xy9KlM2").openreview_forum_ids
         == ["aB3Xy9KlM2"]
     )
+
+
+# --- OpenReview note id (Official Comment) ---------------------------------
+# The note id must come from the SAME link as its forum id. Everything here
+# either proves that pairing holds or proves the field stays None; the
+# `openreview_forum_ids` assertions are repeated throughout on purpose, because
+# this change is required to be strictly additive to that field.
+_REAL_SHAPE = "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+
+
+def test_regex_note_id_from_forum_link_id_before_note_id():
+    """The ordering OpenReview's own notification links use."""
+    result = _regex_extract(body=f"Reply here: {_REAL_SHAPE}")
+    assert result.openreview_note_id == "jnHgRMHgrm"
+    assert result.openreview_forum_ids == ["ll0avn6ylq"]
+    assert result.method == "regex_fallback"
+
+
+def test_regex_note_id_from_pdf_link():
+    result = _regex_extract(
+        body="https://openreview.net/pdf?id=Ab3xY9kLm2&noteId=Zz9QwErTy1"
+    )
+    assert result.openreview_note_id == "Zz9QwErTy1"
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+
+
+def test_regex_note_id_found_in_subject():
+    result = _regex_extract(subject=f"Re: {_REAL_SHAPE}")
+    assert result.openreview_note_id == "jnHgRMHgrm"
+
+
+def test_regex_note_id_survives_html_escaped_ampersand():
+    """A crudely de-HTML-ed body can leave `&amp;` between the parameters."""
+    result = _regex_extract(
+        body="https://openreview.net/forum?id=ll0avn6ylq&amp;noteId=jnHgRMHgrm"
+    )
+    assert result.openreview_note_id == "jnHgRMHgrm"
+    assert result.openreview_forum_ids == ["ll0avn6ylq"]
+
+
+def test_regex_note_id_preserves_case():
+    """Opaque, case-sensitive token — IGNORECASE matching must not fold it."""
+    result = _regex_extract(
+        body="https://openreview.net/forum?id=ll0avn6ylq&noteId=jNhGrmHGRM"
+    )
+    assert result.openreview_note_id == "jNhGrmHGRM"
+
+
+def test_regex_note_id_tolerates_trailing_sentence_punctuation():
+    for text in [f"See {_REAL_SHAPE}.", f"See ({_REAL_SHAPE})", f"<{_REAL_SHAPE}>"]:
+        assert _regex_extract(body=text).openreview_note_id == "jnHgRMHgrm", text
+
+
+def test_regex_note_id_ignores_unrelated_query_parameters():
+    result = _regex_extract(
+        body="https://openreview.net/forum?id=ll0avn6ylq&referrer=x&noteId=jnHgRMHgrm&t=1"
+    )
+    assert result.openreview_note_id == "jnHgRMHgrm"
+    assert result.openreview_forum_ids == ["ll0avn6ylq"]
+
+
+# --- the field stays None ---------------------------------------------------
+def test_regex_forum_link_without_note_id_leaves_note_id_none():
+    """The forum id is reported exactly as before; only the scalar is absent."""
+    result = _regex_extract(body="See https://openreview.net/forum?id=Ab3xY9kLm2 please.")
+    assert result.openreview_note_id is None
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+    assert result.method == "regex_fallback"
+
+
+def test_regex_no_openreview_link_at_all_leaves_both_empty():
+    result = _regex_extract(
+        subject="Re: Your Submission 22336",
+        body="Could you clarify the page limit?",
+        sender=_SENDER,
+        sender_name=_SENDER_NAME,
+    )
+    assert result.openreview_note_id is None
+    assert result.openreview_forum_ids == []
+    assert result.submission_numbers == ["22336"]
+    assert result.method == "regex_fallback"
+
+
+def test_regex_group_link_with_note_id_is_still_rejected():
+    """`/group?id=` is a confirmed false positive — a noteId does not redeem it."""
+    result = _regex_extract(
+        body="https://openreview.net/group?id=AAAI.org/2026&noteId=jnHgRMHgrm"
+    )
+    assert result.openreview_note_id is None
+    assert result.openreview_forum_ids == []
+
+
+def test_regex_note_id_rejects_over_long_token():
+    """Reject rather than truncate — the same rule the forum id follows."""
+    result = _regex_extract(
+        body="https://openreview.net/forum?id=ll0avn6ylq&noteId=" + "a" * 33
+    )
+    assert result.openreview_note_id is None
+    assert result.openreview_forum_ids == ["ll0avn6ylq"]
+
+
+def test_regex_note_id_alone_on_a_link_yields_nothing():
+    """No forum id on the link, so there is nothing to attach the note to."""
+    result = _regex_extract(body="https://openreview.net/forum?noteId=jnHgRMHgrm")
+    assert result.openreview_note_id is None
+    assert result.openreview_forum_ids == []
+
+
+# --- pairing is per-link, never across links --------------------------------
+def test_regex_note_id_is_never_paired_across_two_different_links():
+    """THE safety property: a forum id from one link and a noteId from another
+    would name a comment that does not exist in that forum, and would be
+    indistinguishable from a real pair once stored."""
+    result = _regex_extract(
+        body=(
+            "Paper: https://openreview.net/forum?id=Ab3xY9kLm2 "
+            "Comment: https://openreview.net/forum?noteId=jnHgRMHgrm"
+        )
+    )
+    assert result.openreview_note_id is None
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+
+
+def test_regex_note_id_pairs_with_its_own_link_not_a_neighbouring_one():
+    """Two complete links: the reported note must belong to the FIRST forum."""
+    result = _regex_extract(
+        body=(
+            "https://openreview.net/forum?id=Ab3xY9kLm2&noteId=note111111 and "
+            "https://openreview.net/forum?id=Zz9QwErTy1&noteId=note222222"
+        )
+    )
+    assert result.openreview_note_id == "note111111"
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2", "Zz9QwErTy1"]
+
+
+def test_find_note_pairs_returns_both_values_from_one_query():
+    assert _find_openreview_note_pairs("", _REAL_SHAPE) == [
+        ("ll0avn6ylq", "jnHgRMHgrm")
+    ]
+
+
+def test_find_note_pairs_reads_note_id_before_id_ordering():
+    """The pair SCAN is order-agnostic even though the coherence gate currently
+    withholds this shape — see the suppression test below."""
+    assert _find_openreview_note_pairs(
+        "", "https://openreview.net/forum?noteId=jnHgRMHgrm&id=ll0avn6ylq"
+    ) == [("ll0avn6ylq", "jnHgRMHgrm")]
+
+
+def test_find_note_pairs_skips_links_missing_either_parameter():
+    assert (
+        _find_openreview_note_pairs(
+            "",
+            "https://openreview.net/forum?id=Ab3xY9kLm2 "
+            "https://openreview.net/forum?noteId=jnHgRMHgrm",
+        )
+        == []
+    )
+
+
+def test_first_note_id_for_withholds_a_note_whose_forum_is_unreported():
+    pairs = [("Ab3xY9kLm2", "note111111")]
+    assert _first_note_id_for(pairs, ["Ab3xY9kLm2"]) == "note111111"
+    assert _first_note_id_for(pairs, ["Zz9QwErTy1"]) is None
+    assert _first_note_id_for(pairs, []) is None
+
+
+def test_regex_note_id_before_id_ordering_is_currently_suppressed():
+    """PINNED CONSEQUENCE, not an endorsement.
+
+    `?noteId=...&id=...` parses fine at the pair scan (proved above), but the
+    forum-id pattern is anchored to a literal `?id=` and was deliberately left
+    untouched by this change, so that ordering yields no forum id — and the
+    coherence gate then withholds the note rather than orphaning it.
+
+    OpenReview's own links put `id=` first, so this shape is not expected in
+    real traffic; the scan handles it defensively because query-parameter order
+    carries no guarantee once a link is forwarded or rewritten. If the forum-id
+    pattern is ever widened, this test flips to a pairing assertion and no other
+    change is needed.
+    """
+    result = _regex_extract(
+        body="https://openreview.net/forum?noteId=jnHgRMHgrm&id=ll0avn6ylq"
+    )
+    assert result.openreview_forum_ids == []
+    assert result.openreview_note_id is None
+
+
+# --- the LLM path -----------------------------------------------------------
+def test_llm_path_never_reports_a_note_id():
+    """The distiller's contract has no note-id line, and its OPENREVIEW_ID line
+    carries a bare id with the link discarded — so there is nothing to pair
+    with. Explicitly None rather than incidentally None."""
+    result = _extract(_distilled(openreview_ids_raw=["Ab3xY9kLm2"]))
+    assert result.method == "llm_distiller"
+    assert result.openreview_forum_ids == ["Ab3xY9kLm2"]
+    assert result.openreview_note_id is None
+
+
+def test_llm_path_does_not_regex_the_body_for_a_note_id():
+    """Mutual exclusivity: a note id sitting in the raw body must NOT top up a
+    present LLM result — that would make one result part-LLM, part-regex."""
+    result = EmailExtractor().extract(
+        "",
+        f"Reply here: {_REAL_SHAPE}",
+        _SENDER,
+        _SENDER_NAME,
+        _distilled(openreview_ids_raw=["ll0avn6ylq"]),
+    )
+    assert result.openreview_note_id is None
+
+
+def test_extraction_result_note_id_defaults_to_none():
+    assert ExtractionResult().openreview_note_id is None
 
 
 # --- sender-based author ---------------------------------------------------

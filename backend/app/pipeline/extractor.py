@@ -73,6 +73,43 @@ _OPENREVIEW_FORUM_ID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --- OpenReview note id (one comment inside a forum) ------------------------
+# A forum link may name the specific note under discussion in a `noteId` query
+# parameter, as in openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm.
+#
+# A note id is meaningful ONLY alongside the forum id it travelled with, so it
+# must never be matched on its own: a forum id taken from one link and a noteId
+# taken from another would together name a comment that does not exist in that
+# forum, and would look exactly like a real pair. The link is therefore matched
+# WHOLE and its query string read as a single unit; the two parameter patterns
+# below are only ever applied to one such query at a time.
+#
+# The forum-id pattern above is deliberately NOT reused or modified here — this
+# is a strictly additive scan, and `openreview_forum_ids` keeps precisely the
+# behaviour it had.
+_OPENREVIEW_LINK_RE = re.compile(
+    r"openreview\.net/(?:forum|pdf)\?(?P<query>[^\s\"'<>]*)",
+    re.IGNORECASE,
+)
+# Anchoring each parameter to a separator (start-of-query, `&`, or an
+# HTML-escaped `&amp;`) is load-bearing twice over. It stops `id=` matching the
+# tail of `noteId=` — under IGNORECASE those three characters are identical —
+# and it lets EITHER parameter come first, so both query orderings parse.
+_OPENREVIEW_PARAM_FORUM_ID_RE = re.compile(
+    r"(?:^|&amp;|&)id=(?P<forum_id>[A-Za-z0-9]{10})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+# The value shape is looser than the forum id's fixed 10 on purpose: OpenReview
+# API v1 note ids are numeric while v2 ids are 10-character tokens. A named
+# `noteId` parameter inside an already-validated forum link is specific enough
+# that a permissive value carries no false-positive risk — the precision comes
+# from the surrounding link, not from the token. The trailing lookahead still
+# rejects an over-long token outright rather than truncating it into a match.
+_OPENREVIEW_PARAM_NOTE_ID_RE = re.compile(
+    r"(?:^|&amp;|&)noteId=(?P<note_id>[A-Za-z0-9]{1,32})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
 # A number sitting directly after a conference designator is that conference's
 # year (AAAI-26, AAAI 2026, IAAI-2027), never a submission number.
 _CONFERENCE_PREFIX_RE = re.compile(r"(?:AAAI|IAAI|EAAI)[-\s]*$", re.IGNORECASE)
@@ -144,6 +181,57 @@ def _find_openreview_forum_ids(subject: str, body: str) -> list[str]:
     return _dedupe_identifiers(found)
 
 
+def _find_openreview_note_pairs(subject: str, body: str) -> list[tuple[str, str]]:
+    """Every ``(forum_id, note_id)`` read from a SINGLE link's query string.
+
+    Pairing is the whole point. Each link is matched whole and its query read
+    once, so the two values in a pair always came from the same URL; a forum id
+    in one link and a ``noteId`` in another are never combined. A link carrying
+    only one of the two contributes nothing — a note id with no forum beside it
+    names a comment we cannot place, and a forum id with no note is already the
+    job of :func:`_find_openreview_forum_ids`.
+
+    Either parameter ordering parses (``?id=...&noteId=...`` and
+    ``?noteId=...&id=...``); see the pattern comments for why that is anchored
+    rather than assumed. Order of results is the existing traversal, subject
+    before body. Not deduplicated: the caller takes the first usable pair.
+    """
+    pairs: list[tuple[str, str]] = []
+    for text in (subject or "", body or ""):
+        for link in _OPENREVIEW_LINK_RE.finditer(text):
+            query = link.group("query")
+            forum = _OPENREVIEW_PARAM_FORUM_ID_RE.search(query)
+            note = _OPENREVIEW_PARAM_NOTE_ID_RE.search(query)
+            if forum is not None and note is not None:
+                pairs.append((forum.group("forum_id"), note.group("note_id")))
+    return pairs
+
+
+def _first_note_id_for(
+    pairs: list[tuple[str, str]], forum_ids: list[str]
+) -> str | None:
+    """The first note id whose forum id this result actually reports.
+
+    A coherence gate, not a second filter on validity. It keeps the scalar
+    consistent with the list beside it: a note id whose forum is missing from
+    ``openreview_forum_ids`` would point into a discussion the result never
+    mentions, which reads as a bug to anything downstream.
+
+    Concretely it suppresses the ``?noteId=...&id=...`` ordering today. The pair
+    scan above reads that shape, but the untouched forum-id pattern is anchored
+    to a literal ``?id=`` and does not, so the forum id is absent from the list
+    and the note id is withheld rather than orphaned. That asymmetry is a
+    consequence of leaving the existing pattern exactly as it was, and it is
+    self-correcting: widen that pattern and this gate opens with it, no second
+    edit needed.
+    """
+    reported = set(forum_ids)
+    for forum_id, note_id in pairs:
+        if forum_id in reported:
+            return note_id
+    return None
+
+
 class AuthorMention(BaseModel):
     """One person an email identifies. Every field is independently optional.
 
@@ -163,9 +251,15 @@ class AuthorMention(BaseModel):
 class ExtractionResult(BaseModel):
     """Which submissions an email refers to, and who it names.
 
-    Every field is a LIST: an email may legitimately name several submissions
-    (an appeal covering two desk rejections, a reviewer asking to be unassigned
-    from four papers), and reporting only one silently discarded the rest.
+    The identifier and author fields are LISTS: an email may legitimately name
+    several submissions (an appeal covering two desk rejections, a reviewer
+    asking to be unassigned from four papers), and reporting only one silently
+    discarded the rest.
+
+    ``openreview_note_id`` is the deliberate exception and is a SCALAR. It names
+    one comment inside one forum, so unlike a submission reference it is only
+    meaningful attached to a single forum id — a set of note ids with no record
+    of which forum each belongs to would not be usable.
 
     ``method`` records HOW the values were obtained, not how well: an
     ``llm_distiller`` result with everything empty means the model looked and
@@ -184,6 +278,15 @@ class ExtractionResult(BaseModel):
         default_factory=list,
         description="OpenReview forum ids as identified, deduplicated, in "
         "first-seen order. Empty when the email named none.",
+    )
+    openreview_note_id: str | None = Field(
+        default=None,
+        description="OpenReview note (Official Comment) id, when a forum link "
+        "carried one as its `noteId` parameter. Read from the SAME link as its "
+        "forum id and never paired across links, so it always names a comment "
+        "inside a forum this result also reports. None when no link carried "
+        "one — which, like an empty list, means 'looked, found none' whenever "
+        "`method` is not 'none'.",
     )
     authors: list[AuthorMention] = Field(
         default_factory=list,
@@ -326,6 +429,23 @@ class EmailExtractor:
                 openreview_forum_ids=_dedupe_identifiers(
                     distilled.openreview_ids_raw
                 ),
+                # Always None here, set explicitly rather than left to the
+                # default so the omission reads as a decision and not an
+                # oversight. The distiller's output contract carries no note-id
+                # line at all, and its OPENREVIEW_ID line reports a BARE id with
+                # the link it came from already discarded — so there is nothing
+                # on this path to pair a note id WITH, and that pairing is the
+                # entire correctness property of this field.
+                #
+                # Re-reading the raw body with the regex to fill it in is NOT
+                # the fix: it would make one result part-LLM and part-regex,
+                # which `method` has no way to express (see the module
+                # docstring — the two paths are mutually exclusive by design,
+                # and merging them needs per-field provenance first).
+                # Populating this on the LLM path therefore means teaching the
+                # distiller to emit the pair itself, which is a change to its
+                # prompt contract and belongs in its own commit.
+                openreview_note_id=None,
                 authors=_dedupe_authors(authors),
                 method="llm_distiller",
             )
@@ -364,6 +484,13 @@ class EmailExtractor:
         """
         submission_numbers = _find_submission_numbers(subject, body)
         forum_ids = _find_openreview_forum_ids(subject, body)
+        # Gated on `forum_ids` so the scalar can never name a forum the list
+        # omits. Deliberately NOT part of `found_anything` below: a note id only
+        # ever accompanies a forum id that already counted, so including it
+        # could not change the outcome, and adding it would imply it can.
+        note_id = _first_note_id_for(
+            _find_openreview_note_pairs(subject, body), forum_ids
+        )
 
         authors: list[AuthorMention] = []
         name = _field_or_none(sender_name or "")
@@ -375,6 +502,7 @@ class EmailExtractor:
         return ExtractionResult(
             submission_numbers=submission_numbers,
             openreview_forum_ids=forum_ids,
+            openreview_note_id=note_id,
             authors=authors,
             method="regex_fallback" if found_anything else "none",
         )

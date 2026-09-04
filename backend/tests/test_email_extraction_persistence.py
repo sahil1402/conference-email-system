@@ -171,7 +171,12 @@ async def test_processed_email_persists_extraction(session):
 async def test_extraction_round_trips_every_field_from_the_llm_path(
     session, monkeypatch
 ):
-    """All four fields survive the JSON write + read, populated."""
+    """Every field survives the JSON write + read, populated.
+
+    ``openreview_note_id`` is asserted as None on purpose: the distiller's
+    contract carries no note-id line, so the LLM path never reports one. Pinned
+    as an explicit key rather than omitted so this stays an EXACT-shape check.
+    """
     monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
     pipeline = _pipeline()
     pipeline.distiller = _StubDistiller(
@@ -193,6 +198,7 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
     assert stored == {
         "submission_numbers": ["99999"],
         "openreview_forum_ids": ["Ab3xY9kLm2"],
+        "openreview_note_id": None,
         "authors": [
             {
                 "name": "Jane Roe",
@@ -263,6 +269,7 @@ async def test_extraction_is_serialized_with_model_dump(session):
     assert set(email.extraction) == {
         "submission_numbers",
         "openreview_forum_ids",
+        "openreview_note_id",
         "authors",
         "method",
     }
