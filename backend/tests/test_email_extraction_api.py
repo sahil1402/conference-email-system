@@ -237,6 +237,18 @@ async def test_schema_model_accepts_the_served_shape():
 
     A mirror that has drifted from the wire format is worse than no mirror, so
     this pins them together at the one point that matters.
+
+    SCOPE LIMIT — this test CANNOT catch a missing field, and did not: the
+    mirror silently lacked three of them for three commits while this stayed
+    green. Two reasons, both structural. ``model_validate`` ignores extra keys
+    by default, so a fixture carrying a field the mirror lacks still validates;
+    and ``_FULL`` is hand-written, so a field nobody remembered to add here is a
+    field nobody remembered to add there either — the fixture drifts in lockstep
+    with the thing it is supposed to police.
+
+    The tests below close that gap by comparing the mirror against the PIPELINE
+    MODEL ITSELF rather than against a hand-maintained dict. Put new
+    drift-detection assertions there, not here.
     """
     from app.models.schemas import ExtractionResult
 
@@ -250,3 +262,151 @@ async def test_schema_model_accepts_the_served_shape():
     empty = ExtractionResult.model_validate(_EXAMINED_EMPTY)
     assert empty.submission_numbers == []
     assert empty.authors == []
+
+
+# ---------------------------------------------------------------------------
+# Mirror-vs-pipeline drift detection
+#
+# Every assertion here derives its expectation from the PIPELINE model at
+# runtime, never from a literal written by hand. That is the point: a field
+# added to one model and not the other fails these immediately, with no fixture
+# to remember to update. The pipeline model is the authority; schemas.py mirrors
+# it.
+# ---------------------------------------------------------------------------
+def _pipeline_result_with_every_field_populated():
+    """A REAL extractor result, not a hand-built one.
+
+    Driven through the actual regex path on a body carrying all four signals —
+    a submission number, a forum+note link, and the venue notification address —
+    so every field including the derived flag is non-default. A hand-built
+    instance would only prove the models agree about values someone chose to
+    type out.
+    """
+    from app.pipeline.extractor import EmailExtractor
+
+    body = (
+        "老师您好，请见下方邮件。\n\n"
+        '发件人:"AAAI 2027" <aaai2027-notifications@openreview.net>\n'
+        "主题: [AAAI 2027] SPC commented on submission 1030\n"
+        "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+    )
+    result = EmailExtractor().extract("", body, "peng@iscas.ac.cn", "Peng", None)
+    # Guard the fixture itself: if the extractor ever stops populating one of
+    # these, the round-trip below would still pass while testing much less.
+    assert result.submission_numbers and result.openreview_forum_ids
+    assert result.openreview_note_id and result.openreview_notification_sender
+    assert result.authors and result.openreview_reply_candidate is True
+    return result
+
+
+async def test_wire_mirror_serializes_exactly_the_pipeline_fields():
+    """THE drift guard: identical serialized key sets, both directions.
+
+    Catches a field added to the pipeline and forgotten on the wire (the bug
+    this commit fixes) AND the reverse, a wire field with nothing behind it.
+    Computed fields are included in ``model_dump``, so the derived flag is
+    covered here too.
+    """
+    from app.models.schemas import ExtractionResult as Wire
+    from app.pipeline.extractor import ExtractionResult as Pipeline
+
+    pipeline_keys = set(Pipeline().model_dump())
+    wire_keys = set(Wire().model_dump())
+
+    assert pipeline_keys - wire_keys == set(), (
+        f"schemas.py mirror is MISSING: {sorted(pipeline_keys - wire_keys)}"
+    )
+    assert wire_keys - pipeline_keys == set(), (
+        f"schemas.py mirror has EXTRA fields: {sorted(wire_keys - pipeline_keys)}"
+    )
+
+
+async def test_wire_mirror_author_mention_matches_the_pipeline():
+    """The nested model is part of the contract too."""
+    from app.models.schemas import AuthorMention as Wire
+    from app.pipeline.extractor import AuthorMention as Pipeline
+
+    assert set(Wire().model_dump()) == set(Pipeline().model_dump())
+
+
+async def test_wire_mirror_round_trips_a_real_populated_result():
+    """Serialize the pipeline model, validate through the mirror, compare dumps.
+
+    Equality of the two dumps is what makes this a real check rather than a
+    smoke test: a field the mirror lacks is simply absent from its dump, so the
+    comparison fails loudly instead of being silently tolerated the way bare
+    ``model_validate`` tolerates it.
+    """
+    from app.models.schemas import ExtractionResult as Wire
+
+    pipeline_result = _pipeline_result_with_every_field_populated()
+    served = pipeline_result.model_dump()
+
+    assert Wire.model_validate(served).model_dump() == served
+
+
+async def test_wire_mirror_round_trips_the_examined_but_empty_shape():
+    """The other documented state — examined, nothing found — must survive too."""
+    from app.models.schemas import ExtractionResult as Wire
+    from app.pipeline.extractor import ExtractionResult as Pipeline
+
+    served = Pipeline(method="llm_distiller").model_dump()
+    assert Wire.model_validate(served).model_dump() == served
+
+
+async def test_wire_mirror_carries_the_openreview_reply_signals_by_value():
+    """Not just present as keys — carrying the right VALUES.
+
+    A mirror could satisfy the key-set test with fields of the wrong type or a
+    default that swallows the value, so the scalars are read back explicitly.
+    """
+    from app.models.schemas import ExtractionResult as Wire
+
+    parsed = Wire.model_validate(_pipeline_result_with_every_field_populated().model_dump())
+    assert parsed.openreview_note_id == "jnHgRMHgrm"
+    assert parsed.openreview_notification_sender == "aaai2027-notifications@openreview.net"
+    assert parsed.openreview_reply_candidate is True
+
+
+async def test_wire_mirror_derives_reply_candidate_identically():
+    """The AND expression is DUPLICATED across the two models, so it is its own
+    drift surface — covered by comparison rather than by inspection.
+
+    Both are asserted against the same operands over the full truth table, so
+    changing one and not the other fails here.
+    """
+    from app.models.schemas import ExtractionResult as Wire
+    from app.pipeline.extractor import ExtractionResult as Pipeline
+
+    for note in ("jnHgRMHgrm", None):
+        for sender in ("aaai2027-notifications@openreview.net", None):
+            kwargs = {
+                "openreview_note_id": note,
+                "openreview_notification_sender": sender,
+            }
+            expected = note is not None and sender is not None
+            assert Pipeline(**kwargs).openreview_reply_candidate is expected
+            assert Wire(**kwargs).openreview_reply_candidate is expected, kwargs
+
+
+async def test_wire_mirror_reply_candidate_is_derived_not_stored():
+    """Mirrored as DERIVED, matching the pipeline model.
+
+    A plain stored field here could be handed a value contradicting the two
+    fields beside it, letting the wire model represent a state the pipeline can
+    never produce — which is precisely the drift this class is supposed to
+    prevent. So a corrupt persisted value must be recomputed, not echoed.
+    """
+    from app.models.schemas import ExtractionResult as Wire
+
+    corrupt = {
+        "submission_numbers": [],
+        "openreview_forum_ids": [],
+        "openreview_note_id": None,
+        "openreview_notification_sender": None,
+        "authors": [],
+        "method": "regex_fallback",
+        "openreview_reply_candidate": True,
+    }
+    assert Wire.model_validate(corrupt).openreview_reply_candidate is False
+    assert Wire(openreview_reply_candidate=True).openreview_reply_candidate is False
