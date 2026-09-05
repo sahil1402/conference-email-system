@@ -208,6 +208,9 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
         # Derived (note_id AND sender). False here because the LLM path never
         # reports a note id, so the left operand is unreachable on this path.
         "openreview_reply_candidate": False,
+        # The fixture body carries no quote, so the whole trimmed body is the
+        # reply — this field is NOT empty here, unlike the two scalars above.
+        "extracted_reply_text": "Dear chairs, we would like to appeal.",
         "authors": [
             {
                 "name": "Jane Roe",
@@ -368,6 +371,7 @@ async def test_extraction_is_serialized_with_model_dump(session):
         "openreview_note_id",
         "openreview_notification_sender",
         "openreview_reply_candidate",
+        "extracted_reply_text",
         "authors",
         "method",
     }

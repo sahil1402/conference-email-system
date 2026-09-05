@@ -55,6 +55,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, computed_field
 
 from app.pipeline.distiller import DistillResult
+from app.pipeline.quoted_reply import extract_reply_text
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +351,11 @@ class ExtractionResult(BaseModel):
     stored nowhere. It is a plain boolean AND, so it introduces no new detection
     and no new judgment — see its own note.
 
+    ``extracted_reply_text`` is the one field that is not about identity at all.
+    It is STORED rather than derived, unlike the flag above: it is a function of
+    the raw ``body``, which this model does not carry, so there is nothing on
+    the object to recompute it from.
+
     ``method`` records HOW the values were obtained, not how well: an
     ``llm_distiller`` result with everything empty means the model looked and
     found nothing, which is a real finding and distinct from ``none`` (nothing
@@ -393,6 +399,18 @@ class ExtractionResult(BaseModel):
         "Unlike every other field here, this one is read from the raw body on "
         "BOTH paths and is therefore NOT described by `method`.",
     )
+    extracted_reply_text: str = Field(
+        default="",
+        description="What the person actually wrote, with quoted history "
+        "removed and the ends trimmed (app.pipeline.quoted_reply). Read from "
+        "the raw body on BOTH paths and therefore NOT described by `method`: "
+        "this is a string operation on the text, not an answer the distiller "
+        "was ever asked for. Empty string when the body was entirely quoted "
+        "material, or absent. TEST EMPTINESS ON THIS STRING — it is a more "
+        "reliable 'wrote nothing new' signal than any boundary check, because a "
+        "body whose quote is preceded by a blank line has a non-zero boundary "
+        "yet still contains no reply.",
+    )
     authors: list[AuthorMention] = Field(
         default_factory=list,
         description="People the email identifies, deduplicated, in first-seen "
@@ -401,9 +419,9 @@ class ExtractionResult(BaseModel):
     method: ExtractionMethod = Field(
         default="none",
         description="Which path produced the IDENTIFIER and AUTHOR fields. It "
-        "does not describe `openreview_note_id` or "
-        "`openreview_notification_sender`, both of which are read from the raw "
-        "text on either path.",
+        "does not describe `openreview_note_id`, "
+        "`openreview_notification_sender`, or `extracted_reply_text`, all of "
+        "which are read from the raw text on either path.",
     )
 
     @computed_field
@@ -556,11 +574,14 @@ class EmailExtractor:
         LLM path ``subject`` / ``body`` are unused for identifier extraction on
         purpose — the model already read them itself.
 
-        The TWO exceptions are ``openreview_note_id`` and
-        ``openreview_notification_sender``, both read from the raw text on
-        either path. Neither is a supplement to a present LLM result, because
-        the distiller's prompt asks for neither — see the module docstring for
-        the one question that decides which fields may be read this way.
+        The exceptions are ``openreview_note_id``,
+        ``openreview_notification_sender`` and ``extracted_reply_text``, all
+        read from the raw text on either path. None is a supplement to a present
+        LLM result, because the distiller's prompt asks for none of them — see
+        the module docstring for the one question that decides which fields may
+        be read this way. ``extracted_reply_text`` is the least arguable of the
+        three: it is a pure string operation on the body, and there is no shape
+        in which a model could be asked to return it as a structured field.
 
         When ``distilled`` is present it is trusted outright, INCLUDING when
         ALL THREE of its lists are empty: the prompt directs the model to read
@@ -625,6 +646,21 @@ class EmailExtractor:
                 ),
                 # Same rule, same reason — the prompt asks for no sender either.
                 openreview_notification_sender=notification_sender,
+                # Identical call on both paths, deliberately UNCONDITIONAL: it
+                # is not gated on `openreview_reply_candidate` or on anything
+                # else, because quote-stripped body text is general-purpose and
+                # every email has some. Gating it on the OpenReview signals
+                # would make a general utility silently unavailable to whatever
+                # asks next.
+                #
+                # Called here rather than hoisted above the branch like
+                # `notification_sender`: that hoist exists so ONE value feeds a
+                # coherence gate, and threading this through would add a second
+                # defaulted parameter to `_extract_by_regex` that silently
+                # yields "" if a direct caller omits it. Two identical calls of
+                # a pure single-argument function cannot disagree, and a
+                # both-paths-agree test pins that they do not.
+                extracted_reply_text=extract_reply_text(body),
                 authors=_dedupe_authors(authors),
                 method="llm_distiller",
             )
@@ -686,12 +722,19 @@ class EmailExtractor:
         # not even a sender — which reports `method="none"` beside a populated
         # address. Pinned by test rather than smoothed over, and unreachable in
         # production, where every real email has a sender.
+        # `extracted_reply_text` is likewise absent from `found_anything`, and
+        # the case for excluding it is STRONGER than for the two scalars above:
+        # it is non-empty for essentially every real body, so counting it would
+        # make `method="none"` nearly unreachable rather than merely exposing a
+        # corner. `method` describes identifier extraction; a body having text
+        # in it is not an identifier finding.
         found_anything = bool(submission_numbers or forum_ids or authors)
         return ExtractionResult(
             submission_numbers=submission_numbers,
             openreview_forum_ids=forum_ids,
             openreview_note_id=note_id,
             openreview_notification_sender=notification_sender,
+            extracted_reply_text=extract_reply_text(body),
             authors=authors,
             method="regex_fallback" if found_anything else "none",
         )

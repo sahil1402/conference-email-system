@@ -1522,3 +1522,171 @@ def test_regex_fallback_finds_both_identifiers_together():
 def test_regex_fallback_never_raises_on_odd_input():
     result = EmailExtractor().extract("", "", "", None, None)
     assert result.method == "none"
+
+
+# ---------------------------------------------------------------------------
+# extracted_reply_text — the body with quoted history removed
+#
+# The quote-boundary logic itself is tested in test_quoted_reply.py; nothing
+# here re-tests detection. What IS tested here: that the field is populated
+# identically on BOTH paths, that it is UNGATED, and that it stays out of the
+# `method` decision.
+# ---------------------------------------------------------------------------
+_RT_ADDRESS = "aaai2027-notifications@openreview.net"
+_RT_LINK = "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+
+_RT_CHINESE_QUOTE = (
+    "-----原始邮件-----\n"
+    f'发件人:"AAAI 2027" <{_RT_ADDRESS}>\n'
+    "发送时间:2026-08-27 15:28:28 (星期四)\n"
+    "收件人: pengshaohui@iscas.ac.cn\n"
+    f"主题: [AAAI 2027] SPC commented on a paper  {_RT_LINK}\n"
+)
+_RT_REPLY = "Dear Chairs,\n\nI will provide review before the deadline.\n\n"
+_RT_CLEAN = "Dear Chairs,\n\nI will provide review before the deadline."
+
+
+def _both_paths(body: str, **distilled_kwargs):
+    """Run the SAME body down both paths and hand back both results."""
+    extractor = EmailExtractor()
+    via_regex = extractor.extract("", body, _SENDER, _SENDER_NAME, None)
+    via_llm = extractor.extract(
+        "", body, _SENDER, _SENDER_NAME, _distilled(**distilled_kwargs)
+    )
+    return via_regex, via_llm
+
+
+def test_reply_text_from_the_real_chinese_quote_on_both_paths():
+    """The reported case: only the person's own sentence survives, either way."""
+    via_regex, via_llm = _both_paths(
+        _RT_REPLY + _RT_CHINESE_QUOTE, openreview_ids_raw=["ll0avn6ylq"]
+    )
+
+    assert via_regex.extracted_reply_text == _RT_CLEAN
+    assert via_llm.extracted_reply_text == _RT_CLEAN
+    assert via_llm.method == "llm_distiller"
+    assert via_regex.method == "regex_fallback"
+
+
+def test_reply_text_with_no_quote_is_the_whole_trimmed_body_on_both_paths():
+    via_regex, via_llm = _both_paths("  Could you clarify the page limit?  \n\n")
+
+    assert via_regex.extracted_reply_text == "Could you clarify the page limit?"
+    assert via_llm.extracted_reply_text == "Could you clarify the page limit?"
+
+
+def test_reply_text_is_empty_when_the_body_is_entirely_quote_on_both_paths():
+    """Empty string, not the quote — on the production path too."""
+    via_regex, via_llm = _both_paths(
+        _RT_CHINESE_QUOTE, openreview_ids_raw=["ll0avn6ylq"]
+    )
+
+    assert via_regex.extracted_reply_text == ""
+    assert via_llm.extracted_reply_text == ""
+
+
+def test_reply_text_both_paths_agree_across_a_range_of_bodies():
+    """One pure function of one argument, so the paths cannot disagree — pinned
+    rather than assumed, because it is the property that would break first if
+    someone gated or hoisted the call differently on one side."""
+    bodies = [
+        _RT_REPLY + _RT_CHINESE_QUOTE,
+        _RT_REPLY + "-----Original Message-----\nFrom: A <a@b.com>\nSent: Wed\nTo: c@d.com\n",
+        _RT_REPLY + "On Thu X <x@y.com> wrote:\n> hello\n> there\n",
+        "No quote anywhere in this one.",
+        _RT_CHINESE_QUOTE,
+        "",
+    ]
+    for body in bodies:
+        via_regex, via_llm = _both_paths(body)
+        assert via_regex.extracted_reply_text == via_llm.extracted_reply_text, body[:40]
+
+
+# --- ungated: this is a general-purpose field -------------------------------
+def test_reply_text_is_populated_when_reply_candidate_is_false():
+    """THE anti-gating test.
+
+    An ordinary email with no OpenReview link, no notification sender and no
+    quote at all: `openreview_reply_candidate` is False, and the reply text is
+    populated anyway. The field is built FOR the OpenReview case but is not
+    scoped to it, and gating it there would make a general utility silently
+    unavailable to whatever needs it next.
+    """
+    via_regex, via_llm = _both_paths(
+        "Hi, when will the decisions be released?\n\n"
+        "-----Original Message-----\nFrom: A <a@b.com>\nSent: Wed\nTo: c@d.com\n"
+    )
+
+    for result in (via_regex, via_llm):
+        assert result.openreview_reply_candidate is False
+        assert result.extracted_reply_text == "Hi, when will the decisions be released?"
+
+
+def test_reply_text_populated_for_an_email_with_no_openreview_trace_at_all():
+    via_regex, via_llm = _both_paths("Please confirm the camera-ready deadline.")
+
+    for result in (via_regex, via_llm):
+        assert result.openreview_forum_ids == []
+        assert result.openreview_note_id is None
+        assert result.openreview_notification_sender is None
+        assert result.openreview_reply_candidate is False
+        assert result.extracted_reply_text == "Please confirm the camera-ready deadline."
+
+
+# --- it stays out of the `method` decision ----------------------------------
+def test_reply_text_does_not_flip_method_off_none():
+    """`found_anything` must be untouched by this field.
+
+    The exclusion argument is stronger here than for the two OpenReview
+    scalars: reply text is non-empty for essentially every real body, so
+    counting it would make `method="none"` nearly unreachable rather than
+    merely exposing a corner.
+    """
+    result = _regex_extract(subject="Question", body="Can you help?", sender="")
+
+    assert result.method == "none"
+    assert result.extracted_reply_text == "Can you help?"
+
+
+def test_reply_text_present_on_a_method_none_result_does_not_imply_identifiers():
+    result = _regex_extract(subject="Question", body="Can you help?", sender="")
+
+    assert result.submission_numbers == []
+    assert result.openreview_forum_ids == []
+    assert result.authors == []
+
+
+# --- shape ------------------------------------------------------------------
+def test_extraction_result_reply_text_defaults_to_empty_string():
+    """Defaults to "" rather than None — the field is `str`, never optional, so
+    a consumer never has to handle two kinds of empty."""
+    result = ExtractionResult()
+
+    assert result.extracted_reply_text == ""
+    assert isinstance(result.extracted_reply_text, str)
+
+
+def test_reply_text_is_serialized():
+    dumped = ExtractionResult(extracted_reply_text="hello").model_dump()
+
+    assert dumped["extracted_reply_text"] == "hello"
+    assert "extracted_reply_text" in ExtractionResult().model_dump()
+
+
+def test_reply_text_is_a_stored_field_not_a_computed_one():
+    """Unlike `openreview_reply_candidate`, this one is settable.
+
+    It is a function of the raw body, which this model does not carry, so there
+    is nothing on the object to derive it from — stored is the only option, and
+    that difference is worth pinning so nobody "fixes" it into a computed field.
+    """
+    assert "extracted_reply_text" in ExtractionResult.model_fields
+    assert ExtractionResult(extracted_reply_text="set").extracted_reply_text == "set"
+
+
+def test_reply_text_empty_body_is_empty_string_on_both_paths():
+    via_regex, via_llm = _both_paths("")
+
+    assert via_regex.extracted_reply_text == ""
+    assert via_llm.extracted_reply_text == ""
+
