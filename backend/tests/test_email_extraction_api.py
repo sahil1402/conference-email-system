@@ -12,8 +12,15 @@ so these tests assert through the REAL endpoints via ASGITransport rather than
 calling ``_email_to_dict`` directly — a serializer can be correct while the
 route around it is not.
 
-SCOPE LIMIT: API shape only. No endpoint consumes or filters on `extraction`
-yet — nothing here asserts on querying or filtering by it.
+The serving path does NOT go through the schemas.py mirror: `_email_to_dict`
+forwards `email.extraction` (the raw JSON column) verbatim, and no route on this
+router declares a `response_model`. The mirror is therefore a declared contract
+that nothing enforces at runtime, which is exactly why the end-to-end tests at
+the bottom of this file assert against real HTTP bytes and then validate those
+bytes through the mirror, rather than trusting either one alone.
+
+SCOPE LIMIT: reading only. No endpoint consumes or filters on `extraction`, so
+nothing here asserts on querying or filtering by it.
 """
 
 from __future__ import annotations
@@ -25,8 +32,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 import main
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import Base, Email
+from app.pipeline.distiller import DistillResult
+from app.pipeline.orchestrator import EmailPipeline
 
 QUEUE = "/api/v1/emails/queue"
 
@@ -410,3 +420,184 @@ async def test_wire_mirror_reply_candidate_is_derived_not_stored():
     }
     assert Wire.model_validate(corrupt).openreview_reply_candidate is False
     assert Wire(openreview_reply_candidate=True).openreview_reply_candidate is False
+
+
+# ---------------------------------------------------------------------------
+# Pipeline -> DB -> HTTP, for all three OpenReview reply fields together
+#
+# Prior commits proved the pieces separately: the extractor produces the fields,
+# the JSON column stores them, and the schemas.py mirror declares them. None of
+# that proves a client can actually READ them — the serving path could drop a
+# field between the column and the wire and every earlier test would stay green.
+# These drive the real pipeline, persist a real row, and read it back over HTTP.
+# ---------------------------------------------------------------------------
+_ADDRESS = "aaai2027-notifications@openreview.net"
+_LINK = "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+
+# The real reported shape: a Chinese-labelled quoted notification header, plus
+# the forum link carrying the noteId. Carries all three signals at once.
+_REAL_BODY = (
+    "老师您好，请见下方邮件。\n\n"
+    f'发件人:"AAAI 2027" <{_ADDRESS}>\n'
+    "发送时间:2026-08-27 15:28:28 (星期四)\n"
+    "收件人: pengshaohui@iscas.ac.cn\n"
+    "主题: [AAAI 2027] Senior Program Committee 6UDQ commented on a paper you "
+    "are reviewing. Paper Number: 1030\n"
+    f"{_LINK}"
+)
+
+
+class _StubRetriever:
+    async def retrieve(self, query, intent, top_k=3, *, prior_intent=""):
+        return []
+
+
+class _StubDistiller:
+    """Stands in for the model, reporting only what its prompt asks for.
+
+    ``openreview_ids_raw`` is supplied because the prompt DOES ask for forum
+    ids; the note id and the sender address are not in its contract and are read
+    from the raw text by the extractor. Reporting the forum id also satisfies
+    the note-id coherence gate, which on this path checks the MODEL's list.
+    """
+
+    def __init__(self, result):
+        self.result = result
+
+    async def distill(self, subject, body, *, transcript=None):
+        return self.result
+
+
+@pytest_asyncio.fixture
+async def pipeline_client():
+    """A client and a session factory sharing ONE in-memory database.
+
+    The `client` fixture above seeds rows by hand; this one hands back the
+    factory as well, so a test can drive the real pipeline into the same DB the
+    endpoints read from. Without the shared factory the row would be written to
+    a different database than the request reads.
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _override_get_db():
+        async with factory() as session:
+            yield session
+
+    main.app.dependency_overrides[get_db] = _override_get_db
+    transport = ASGITransport(app=main.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c, factory
+    main.app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+async def _process_real_body(factory, monkeypatch) -> str:
+    """Run the REAL pipeline on the real body, production-style, return its id.
+
+    ``QUERY_STRATEGY=distill`` matches production, so this exercises the LLM
+    path — the one where all three of these fields were at some point unreachable.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    pipeline = EmailPipeline()
+    pipeline.retriever = _StubRetriever()
+    pipeline.distiller = _StubDistiller(
+        DistillResult(
+            queries=["official comment reply"],
+            intent="cms_support",
+            confidence=0.9,
+            openreview_ids_raw=["ll0avn6ylq"],
+        )
+    )
+    async with factory() as session:
+        result = await pipeline.process_email(
+            {
+                "from": "pengshaohui@iscas.ac.cn",
+                "sender_name": "Peng",
+                "subject": "Re: [AAAI 2027] SPC commented on a paper",
+                "body": _REAL_BODY,
+            },
+            session,
+        )
+    return result.email_id
+
+
+async def test_all_three_openreview_fields_reach_the_detail_endpoint(
+    pipeline_client, monkeypatch
+):
+    """THE end-to-end check: real pipeline -> real row -> real HTTP response.
+
+    Asserted on the parsed HTTP JSON, not on the ORM row or an intermediate
+    object, because everything between the column and the wire is exactly what
+    has never been covered before.
+    """
+    client, factory = pipeline_client
+    email_id = await _process_real_body(factory, monkeypatch)
+
+    response = await client.get(f"/api/v1/emails/{email_id}")
+    assert response.status_code == 200
+
+    extraction = response.json()["email"]["extraction"]
+    assert extraction is not None, "extraction missing from the HTTP response"
+
+    # The three fields this workstream added, all present and correctly valued.
+    assert extraction["openreview_note_id"] == "jnHgRMHgrm"
+    assert extraction["openreview_notification_sender"] == _ADDRESS
+    assert extraction["openreview_reply_candidate"] is True
+
+    # ...and the production path really was exercised, so this is not a regex
+    # fallback quietly standing in for the distill path.
+    assert extraction["method"] == "llm_distiller"
+
+
+async def test_all_three_openreview_fields_reach_the_queue_endpoint(
+    pipeline_client, monkeypatch
+):
+    """The list endpoint is a SEPARATE serialization call site from the detail
+    view, so it gets its own assertion rather than being assumed to match."""
+    client, factory = pipeline_client
+    email_id = await _process_real_body(factory, monkeypatch)
+
+    response = await client.get(QUEUE)
+    assert response.status_code == 200
+
+    rows = [r for r in response.json()["emails"] if str(r["id"]) == str(email_id)]
+    assert len(rows) == 1, "the processed email is not in the queue response"
+    extraction = rows[0]["extraction"]
+
+    assert extraction["openreview_note_id"] == "jnHgRMHgrm"
+    assert extraction["openreview_notification_sender"] == _ADDRESS
+    assert extraction["openreview_reply_candidate"] is True
+
+
+async def test_served_extraction_validates_through_the_schemas_mirror(
+    pipeline_client, monkeypatch
+):
+    """Ties commit 4a's mirror to the ACTUAL wire bytes.
+
+    The mirror is not on the serving path (see the module note below), so it can
+    only be trusted against real served output rather than against a fixture.
+    Round-tripping what the endpoint really sent proves the two agree about the
+    shape a client receives.
+    """
+    from app.models.schemas import ExtractionResult as Wire
+
+    client, factory = pipeline_client
+    email_id = await _process_real_body(factory, monkeypatch)
+
+    served = (await client.get(f"/api/v1/emails/{email_id}")).json()["email"]["extraction"]
+    parsed = Wire.model_validate(served)
+
+    assert parsed.openreview_note_id == "jnHgRMHgrm"
+    assert parsed.openreview_notification_sender == _ADDRESS
+    assert parsed.openreview_reply_candidate is True
+    # No key the endpoint sent is unknown to the mirror, and none it declares is
+    # missing from the wire — extra-key tolerance would hide both directions.
+    assert set(parsed.model_dump()) == set(served)
+

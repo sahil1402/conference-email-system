@@ -4,8 +4,10 @@ Covers the subtask-4 DB layer: the migration round-trips, a processed email's
 ``extraction`` column survives a write + read, per-follow-up rows carry their
 own, and NULL (every row predating the column) breaks nothing on read.
 
-SCOPE LIMIT: persistence only. No endpoint serves ``extraction`` yet, so nothing
-here asserts on an API response.
+SCOPE LIMIT: persistence only — the DB layer, up to and including the JSON
+column. An endpoint DOES serve ``extraction`` (it did even when this note first
+claimed otherwise), so nothing here should be read as covering the wire:
+pipeline-to-HTTP coverage lives in ``test_email_extraction_api.py``.
 """
 
 import os
