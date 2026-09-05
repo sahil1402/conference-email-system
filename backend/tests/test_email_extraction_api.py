@@ -31,8 +31,6 @@ from httpx import ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-import pytest
-
 import main
 from app.core.config import settings
 from app.db.database import get_db
@@ -308,18 +306,14 @@ def _pipeline_result_with_every_field_populated():
     assert result.submission_numbers and result.openreview_forum_ids
     assert result.openreview_note_id and result.openreview_notification_sender
     assert result.authors and result.openreview_reply_candidate is True
+    # Non-empty on this fixture: the quoted header block starts below the
+    # greeting, so the greeting is the reply. A fixture whose reply text went
+    # empty would still satisfy the round-trip (both sides would carry "") while
+    # proving nothing about the field, so it is guarded like the rest.
+    assert result.extracted_reply_text
     return result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="schemas.py mirror does not yet carry `extracted_reply_text` "
-    "(added to the pipeline model in the extracted-reply-text commit; the "
-    "mirror is updated in the follow-up schemas commit). These guards are "
-    "CORRECTLY detecting that gap, so they are marked expected-to-fail "
-    "rather than weakened. strict=True means they will ERROR the moment the "
-    "mirror catches up, which is what forces this marker to be removed.",
-)
 async def test_wire_mirror_serializes_exactly_the_pipeline_fields():
     """THE drift guard: identical serialized key sets, both directions.
 
@@ -342,6 +336,42 @@ async def test_wire_mirror_serializes_exactly_the_pipeline_fields():
     )
 
 
+async def test_wire_mirror_agrees_about_which_fields_are_nullable():
+    """Key parity is not enough — the two must agree on OPTIONALITY too.
+
+    Added after a mutation exposed a real gap: changing the mirror's
+    `extracted_reply_text` from `str` to `str | None` left every existing guard
+    green. Key sets matched, and a populated value still round-tripped, because
+    nothing ever fed a null. Yet the mutated mirror ACCEPTED a document with
+    `extracted_reply_text: null` that the pipeline model REJECTS — a mirror able
+    to represent something its source cannot, which is exactly the drift this
+    file exists to catch.
+
+    Compares whether each shared field's annotation admits None, which
+    deliberately ignores the nested-class difference on `authors`
+    (`list[extractor.AuthorMention]` vs `list[schemas.AuthorMention]`): that is
+    the intended mirror convention, and neither side is nullable.
+    """
+    from typing import get_args
+
+    from app.models.schemas import ExtractionResult as Wire
+    from app.pipeline.extractor import ExtractionResult as Pipeline
+
+    def admits_none(annotation) -> bool:
+        return type(None) in get_args(annotation)
+
+    shared = set(Pipeline.model_fields) & set(Wire.model_fields)
+    assert shared, "the two models share no fields at all"
+
+    for name in sorted(shared):
+        pipeline_optional = admits_none(Pipeline.model_fields[name].annotation)
+        wire_optional = admits_none(Wire.model_fields[name].annotation)
+        assert pipeline_optional == wire_optional, (
+            f"`{name}` nullability differs: pipeline optional="
+            f"{pipeline_optional}, wire optional={wire_optional}"
+        )
+
+
 async def test_wire_mirror_author_mention_matches_the_pipeline():
     """The nested model is part of the contract too."""
     from app.models.schemas import AuthorMention as Wire
@@ -350,15 +380,6 @@ async def test_wire_mirror_author_mention_matches_the_pipeline():
     assert set(Wire().model_dump()) == set(Pipeline().model_dump())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="schemas.py mirror does not yet carry `extracted_reply_text` "
-    "(added to the pipeline model in the extracted-reply-text commit; the "
-    "mirror is updated in the follow-up schemas commit). These guards are "
-    "CORRECTLY detecting that gap, so they are marked expected-to-fail "
-    "rather than weakened. strict=True means they will ERROR the moment the "
-    "mirror catches up, which is what forces this marker to be removed.",
-)
 async def test_wire_mirror_round_trips_a_real_populated_result():
     """Serialize the pipeline model, validate through the mirror, compare dumps.
 
@@ -375,15 +396,6 @@ async def test_wire_mirror_round_trips_a_real_populated_result():
     assert Wire.model_validate(served).model_dump() == served
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="schemas.py mirror does not yet carry `extracted_reply_text` "
-    "(added to the pipeline model in the extracted-reply-text commit; the "
-    "mirror is updated in the follow-up schemas commit). These guards are "
-    "CORRECTLY detecting that gap, so they are marked expected-to-fail "
-    "rather than weakened. strict=True means they will ERROR the moment the "
-    "mirror catches up, which is what forces this marker to be removed.",
-)
 async def test_wire_mirror_round_trips_the_examined_but_empty_shape():
     """The other documented state — examined, nothing found — must survive too."""
     from app.models.schemas import ExtractionResult as Wire
@@ -405,6 +417,9 @@ async def test_wire_mirror_carries_the_openreview_reply_signals_by_value():
     assert parsed.openreview_note_id == "jnHgRMHgrm"
     assert parsed.openreview_notification_sender == "aaai2027-notifications@openreview.net"
     assert parsed.openreview_reply_candidate is True
+    # Carried by VALUE, not merely present as a key — a mirror field of the
+    # wrong type or with a swallowing default would pass the key-set test.
+    assert parsed.extracted_reply_text == "老师您好，请见下方邮件。"
 
 
 async def test_wire_mirror_derives_reply_candidate_identically():
@@ -605,15 +620,6 @@ async def test_all_three_openreview_fields_reach_the_queue_endpoint(
     assert extraction["openreview_reply_candidate"] is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="schemas.py mirror does not yet carry `extracted_reply_text` "
-    "(added to the pipeline model in the extracted-reply-text commit; the "
-    "mirror is updated in the follow-up schemas commit). These guards are "
-    "CORRECTLY detecting that gap, so they are marked expected-to-fail "
-    "rather than weakened. strict=True means they will ERROR the moment the "
-    "mirror catches up, which is what forces this marker to be removed.",
-)
 async def test_served_extraction_validates_through_the_schemas_mirror(
     pipeline_client, monkeypatch
 ):
