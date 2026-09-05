@@ -1,16 +1,20 @@
-"""Where the quoted original message starts.
+"""Where the quoted original message starts, and what is left once it is gone.
 
-Boundary detection only — this module returns an offset, never text, so nothing
-here asserts on a "clean reply". Where a test does slice the body, it is to show
-WHERE the offset landed in human-readable terms, not to test a cutting function
-that does not exist yet.
+Two layers, tested separately on purpose: the boundary functions return an
+offset and never text, and `extract_reply_text` returns text and finds no
+boundary of its own. A detection bug and a slicing bug fail differently, so
+neither set of tests is allowed to stand in for the other.
 
 SCOPE LIMIT: no pipeline wiring. Nothing calls this module in `app/` yet, so
 these are unit tests against the function directly; there is no end-to-end path
 to assert on.
 """
 
-from app.pipeline.quoted_reply import find_quote_boundary, find_quote_cues
+from app.pipeline.quoted_reply import (
+    extract_reply_text,
+    find_quote_boundary,
+    find_quote_cues,
+)
 
 # A person's own reply, used as the prefix for most fixtures so the expected
 # boundary is always "right after this".
@@ -331,3 +335,167 @@ def test_whitespace_between_reply_and_quote_stays_on_the_reply_side():
     boundary = find_quote_boundary(body)
 
     assert body[:boundary].endswith("\n\n")
+
+
+# ---------------------------------------------------------------------------
+# extract_reply_text — the text above the boundary, trimmed at the ends ONLY
+#
+# TRIM CONTRACT under test: `str.strip()` and nothing more. Several tests below
+# exist specifically to pin what is NOT done — interior blank lines, indentation
+# and signatures all survive — because the failure they guard against is silent
+# reformatting of text that gets posted essentially verbatim.
+# ---------------------------------------------------------------------------
+def test_reply_text_from_the_real_chinese_quote():
+    """The reported case end to end: only what the person typed comes back."""
+    body = _REPLY + _CHINESE_QUOTE
+
+    assert extract_reply_text(body) == (
+        "Dear Chairs,\n\nI will provide review before the deadline."
+    )
+
+
+def test_reply_text_from_the_english_quote():
+    body = _REPLY + _ENGLISH_QUOTE
+
+    assert extract_reply_text(body) == (
+        "Dear Chairs,\n\nI will provide review before the deadline."
+    )
+
+
+def test_reply_text_from_an_attribution_quote():
+    body = _REPLY + "On Wed, Aug 27, 2026 X <x@y.com> wrote:\n> hello\n> there\n"
+
+    assert extract_reply_text(body) == (
+        "Dear Chairs,\n\nI will provide review before the deadline."
+    )
+
+
+def test_reply_text_with_no_quote_returns_the_whole_body_trimmed():
+    body = "  \n Dear Chairs,\n\nCould you clarify the page limit?  \n\n  "
+
+    assert extract_reply_text(body) == "Dear Chairs,\n\nCould you clarify the page limit?"
+
+
+def test_reply_text_when_the_body_is_entirely_quote_is_empty():
+    """Empty string — not None, and emphatically not the quote itself.
+
+    Returning the quote here would post a notification back as though the
+    person had written it; returning None would break the `-> str` contract.
+    """
+    result = extract_reply_text(_CHINESE_QUOTE)
+
+    assert result == ""
+    assert result is not None
+    assert isinstance(result, str)
+
+
+def test_reply_text_is_empty_when_only_whitespace_precedes_the_quote():
+    """The boundary here is NOT 0 — a blank line pushes it to 2 — yet there is
+    still no reply. This is why an empty RESULT is the dependable "nothing new"
+    signal, and a `find_quote_boundary(body) == 0` check is not.
+    """
+    body = "\n\n" + _CHINESE_QUOTE
+
+    assert find_quote_boundary(body) == 2  # not zero
+    assert extract_reply_text(body) == ""
+
+
+def test_reply_text_strips_surrounding_whitespace_only():
+    body = "\n\n   Please advise on the appendix.   \n\n\n" + _ENGLISH_QUOTE
+
+    assert extract_reply_text(body) == "Please advise on the appendix."
+
+
+def test_reply_text_strips_unicode_whitespace_a_cjk_client_leaves():
+    """`strip()` with no argument covers ideographic and non-breaking spaces;
+    an ASCII-only trim would leave them on a CJK reply."""
+    body = "\u3000\u3000Understood, thank you.\u3000\xa0\n\n" + _CHINESE_QUOTE
+
+    assert extract_reply_text(body) == "Understood, thank you."
+
+
+# --- what trimming must NOT touch -------------------------------------------
+def test_reply_text_preserves_interior_blank_lines():
+    """THE conservative-trim guard.
+
+    Collapsing these would silently reformat authored content. One extra blank
+    line is cosmetic; a dropped one changes what was written.
+    """
+    body = "First paragraph.\n\n\n\nSecond paragraph.\n\n" + _ENGLISH_QUOTE
+
+    assert extract_reply_text(body) == "First paragraph.\n\n\n\nSecond paragraph."
+
+
+def test_reply_text_preserves_interior_indentation():
+    """A hand-aligned list is authored structure, not stray whitespace."""
+    body = "My concerns:\n\n    1. the appendix\n    2. the page limit\n\n" + _ENGLISH_QUOTE
+
+    assert extract_reply_text(body) == (
+        "My concerns:\n\n    1. the appendix\n    2. the page limit"
+    )
+
+
+def test_reply_text_preserves_the_signature():
+    """NO signature stripping, deliberately — see the module docstring.
+
+    A sign-off is part of what the person wrote. Guessing where their words end
+    risks cutting real content, and the same guess would have to work in every
+    language this receives mail in.
+    """
+    body = "Thanks for the update.\n\nBest regards,\nJane Roe\nExample University\n\n" + _ENGLISH_QUOTE
+
+    assert extract_reply_text(body) == (
+        "Thanks for the update.\n\nBest regards,\nJane Roe\nExample University"
+    )
+
+
+def test_reply_text_preserves_a_sent_from_my_device_footer():
+    """Also not stripped. `mine_extract_marc` cuts these offline; that is a
+    corpus-cleanliness decision, not a safe one for text about to be posted."""
+    body = "Will do.\n\nSent from my iPhone\n\n" + _ENGLISH_QUOTE
+
+    assert extract_reply_text(body) == "Will do.\n\nSent from my iPhone"
+
+
+# --- very short and degenerate inputs ---------------------------------------
+def test_reply_text_single_word():
+    assert extract_reply_text("Yes\n\n" + _ENGLISH_QUOTE) == "Yes"
+
+
+def test_reply_text_emoji_only():
+    """A one-character non-ASCII reply must survive the trim intact."""
+    assert extract_reply_text("\U0001F44D\n\n" + _ENGLISH_QUOTE) == "\U0001F44D"
+
+
+def test_reply_text_single_character():
+    assert extract_reply_text("K\n\n" + _ENGLISH_QUOTE) == "K"
+
+
+def test_reply_text_empty_and_whitespace_bodies():
+    """Never raises on an empty or absent body — this will meet NULL columns."""
+    assert extract_reply_text("") == ""
+    assert extract_reply_text("   \n\n  ") == ""
+
+
+def test_reply_text_always_returns_a_string():
+    for body in ["", "plain text", _CHINESE_QUOTE, _REPLY + _ENGLISH_QUOTE]:
+        assert isinstance(extract_reply_text(body), str)
+
+
+# --- the layering holds ------------------------------------------------------
+def test_reply_text_agrees_with_the_boundary_it_is_built_on():
+    """Whatever the boundary says, the text is what sits above it — the two are
+    not allowed to disagree about the same body."""
+    body = _REPLY + _CHINESE_QUOTE
+    boundary = find_quote_boundary(body)
+
+    assert extract_reply_text(body) == body[:boundary].strip()
+
+
+def test_reply_text_does_not_include_any_part_of_the_quote():
+    """The strongest single assertion here: no marker leaks into the output."""
+    for quote in (_CHINESE_QUOTE, _ENGLISH_QUOTE):
+        result = extract_reply_text(_REPLY + quote)
+        for marker in ("-----", "From:", "\u53d1\u4ef6\u4eba", "openreview.net", "Subject:"):
+            assert marker not in result, marker
+

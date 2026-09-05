@@ -1,13 +1,23 @@
 """Where does the quoted original message start?
 
-A reply carries the message it replies to underneath it. This module answers one
-question about a raw email body — at what character offset does the quoted part
-begin? — and deliberately nothing else. It does not cut the text, does not strip
-signatures, and does not decide what the caller should do with the answer.
+A reply carries the message it replies to underneath it. This module reads that
+structure and answers two LAYERED questions about a raw email body:
 
-That split is the point. "Find the boundary" and "decide what to keep" are
-different concerns with different failure modes, and a function that did both
-would be testable at neither. The caller slices.
+* :func:`find_quote_boundary` — at what character offset does the quoted part
+  begin?
+* :func:`extract_reply_text` — what did the person actually write?
+
+The separation between them is deliberate and is kept at the FUNCTION level, not
+by splitting the file. Finding a boundary and deciding what to keep have
+different failure modes — a wrong boundary is a detection bug, a wrong slice is a
+handling bug — and one function doing both would be testable at neither. So the
+second calls the first and does nothing else clever: it slices and trims. Every
+boundary case can still be exercised without going near the text, and vice
+versa.
+
+What this module still does NOT do, in either function: strip signatures, remove
+sign-offs, reflow, or otherwise tidy what the person wrote. Trimming is
+whitespace at the two ends and nothing more — see :func:`extract_reply_text`.
 
 WHY THIS IS NOT THE OFFLINE SCRIPTS
 -----------------------------------
@@ -266,3 +276,60 @@ def find_quote_boundary(body: str) -> int | None:
     """
     cues = find_quote_cues(body)
     return cues[0].offset if cues else None
+
+
+def extract_reply_text(body: str) -> str:
+    """What the person actually wrote, with the quoted history removed.
+
+    Thin by design: ask :func:`find_quote_boundary` where the quote starts, keep
+    what is above it, trim the ends. Everything subtle lives in the boundary
+    function; this one only has to not add mistakes of its own.
+
+    TRIM SEMANTICS — ``str.strip()`` at the two ends, and NOTHING else.
+
+    Interior whitespace is left exactly as written: blank lines between
+    paragraphs, indentation, a hand-aligned list. That is a deliberate
+    conservative choice rather than an oversight, because this output is posted
+    essentially verbatim somewhere public. Collapsing runs of blank lines would
+    silently reformat authored content, and the two errors are not
+    symmetrical — one stray blank line is cosmetic, whereas dropping a line
+    someone deliberately wrote changes what they said. Leading and trailing
+    whitespace is the one part that carries no meaning in a posted comment, so
+    it is the one part removed.
+
+    ``strip()`` with no argument also removes Unicode whitespace, which matters
+    here: a CJK client can leave an ideographic space (``\u3000``) or a
+    non-breaking space around the text, and an ASCII-only trim would leave those
+    behind.
+
+    Explicitly NOT done: no signature stripping, no sign-off detection, no
+    "Sent from my iPhone" removal. A signature is part of what the person wrote,
+    and posting it verbatim is safer than guessing where their words end. See
+    the module docstring.
+
+    Returns, matching :func:`find_quote_boundary`'s three cases:
+
+    * boundary ``None`` — no quote found, so the whole body is theirs.
+    * boundary ``0`` — the body opens with quoted material, so there is no new
+      text: returns ``""``.
+    * a positive boundary — the text above it.
+
+    An EMPTY RESULT is the reliable "this person wrote nothing new" signal, and
+    it is strictly more robust than testing ``find_quote_boundary(body) == 0``.
+    A body whose quote is preceded only by a blank line has a boundary of 2, not
+    0, yet still contains no reply; the trim collapses that to ``""`` while a
+    boundary check would call it an ordinary reply.
+    """
+    # Mirrors find_quote_cues' own empty guard, and keeps a NULL body column
+    # from raising on ``.strip()`` once this is wired to real email rows.
+    if not body:
+        return ""
+
+    boundary = find_quote_boundary(body)
+    if boundary is None:
+        return body.strip()
+    # `0` needs no special case: ``body[:0]`` is already "". Spelled as one
+    # slice rather than three branches because the two are genuinely the same
+    # operation, and a separate `if boundary == 0` would only invite the two
+    # paths to drift.
+    return body[:boundary].strip()
