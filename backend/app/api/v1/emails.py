@@ -1247,6 +1247,171 @@ async def set_ticket_status_no_reply(
     return result
 
 
+# Outcomes of the auto-solve half of /post-openreview-reply. Four values rather
+# than a boolean because a chair acts differently on each: a transport failure
+# wants a retry, a closed ticket wants nothing, and a non-Zendesk email has no
+# ticket at all. Collapsing them would force the frontend to re-derive the
+# difference from an error string.
+OPENREVIEW_SOLVE_SOLVED = "solved"
+OPENREVIEW_SOLVE_FAILED = "solve_failed"
+OPENREVIEW_SOLVE_SKIPPED_NO_TICKET = "skipped_no_ticket"
+OPENREVIEW_SOLVE_SKIPPED_CLOSED = "skipped_closed"
+
+
+async def _auto_solve_after_openreview_post(
+    db: AsyncSession, email: Email, post_meta: dict, actor: str
+) -> dict:
+    """Resolve the Zendesk ticket after a successful OpenReview post.
+
+    NEVER RAISES. It is called only once the comment is already public, so any
+    exception escaping here would turn a completed action into a failed request.
+    Every path returns a ``ticket_resolution`` dict instead, and the caller
+    surfaces it as-is.
+
+    Reuses ``ZendeskSender.set_status_only`` — the same transport ``/set-status``
+    drives, called directly rather than through an HTTP hop, which is how the
+    other endpoints already share the sender.
+
+    Deliberately does NOT mark the email ``SEND_FAILED`` when the solve fails,
+    which is where it parts company with ``/set-status``. There, a failed status
+    write is the whole action failing. Here the action succeeded; flagging the
+    row ``SEND_FAILED`` would put an email whose reply is live into the queue's
+    failed-send bucket and invite someone to retry the send. The failure is
+    recorded on ``draft["ticket_resolution"]`` and in the audit trail instead.
+    """
+    base = {
+        "attempted": False,
+        "ticket_id": email.zendesk_ticket_id,
+        "zendesk_status": None,
+        "error": None,
+        "error_type": None,
+        "recovery": None,
+    }
+    audit_context = {
+        "note_id": post_meta.get("note_id"),
+        "parent_note_id": post_meta.get("parent_note_id"),
+        "forum_id": post_meta.get("forum_id"),
+        "zendesk_ticket_id": email.zendesk_ticket_id,
+    }
+
+    # No ticket to solve — the post still happened, so this is not a failure.
+    if (email.source or "") != EmailSource.ZENDESK.value or not email.zendesk_ticket_id:
+        resolution = {
+            **base,
+            "outcome": OPENREVIEW_SOLVE_SKIPPED_NO_TICKET,
+            "recovery": "No Zendesk ticket is associated with this email, so "
+            "there was nothing to resolve.",
+        }
+        await audit_repo.log_action(
+            db, str(email.id), "zendesk_auto_solve_skipped", actor,
+            {**audit_context, "reason": "not a Zendesk-sourced email"},
+        )
+        return resolution
+
+    # Closed tickets are immutable (§2) — the same guard /set-status applies,
+    # except here it cannot fail the request.
+    if (email.zendesk_status or "").lower() == "closed":
+        resolution = {
+            **base,
+            "outcome": OPENREVIEW_SOLVE_SKIPPED_CLOSED,
+            "zendesk_status": email.zendesk_status,
+            "recovery": "The Zendesk ticket is already closed and immutable; it "
+            "needs no action.",
+        }
+        await audit_repo.log_action(
+            db, str(email.id), "zendesk_auto_solve_skipped", actor,
+            {**audit_context, "reason": "ticket is closed"},
+        )
+        return resolution
+
+    try:
+        outcome = await zendesk_sender.set_status_only(
+            ticket_id=int(email.zendesk_ticket_id),
+            status="solved",
+            tags=["ai_status_solved"],
+            updated_stamp=_iso_z(email.zendesk_updated_at),
+        )
+    except ZendeskSendError as exc:
+        # THE partial-success path. The comment is live; the ticket is not.
+        resolution = {
+            **base,
+            "attempted": True,
+            "outcome": OPENREVIEW_SOLVE_FAILED,
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+            "recovery": "The reply WAS posted to OpenReview, but the Zendesk "
+            "ticket could not be auto-solved and is still open. Resolve it with "
+            "the mark-solved action (POST /emails/{id}/set-status); do not "
+            "re-post the reply.",
+        }
+        failed_draft = {
+            **(email.draft or {}),
+            "ticket_resolution": {
+                "state": "solve_failed",
+                "error": str(exc),
+                "status_code": getattr(exc, "status_code", None),
+            },
+        }
+        # Workflow status passed back UNCHANGED — see the docstring on why this
+        # is not SEND_FAILED.
+        await email_repo.update_email_status(
+            db, str(email.id), email.status, {"draft": failed_draft}
+        )
+        await audit_repo.log_action(
+            db, str(email.id), "zendesk_auto_solve_failed", actor,
+            {
+                **audit_context,
+                "requested_status": "solved",
+                "error": str(exc),
+                "status_code": getattr(exc, "status_code", None),
+                # Spelled out so the audit trail alone answers "what state is
+                # this in?" without cross-referencing another entry.
+                "openreview_post_state": "posted",
+                "ticket_state": "not solved",
+            },
+        )
+        return resolution
+
+    # Solved. The email is terminal now, exactly as a no-reply solve leaves it.
+    solved_draft = {
+        **(email.draft or {}),
+        "ticket_resolution": {"state": "solved", "status_set": outcome.status_set},
+    }
+    await email_repo.update_email_status(
+        db, str(email.id), EmailStatus.SOLVED.value, {"draft": solved_draft}
+    )
+    await audit_repo.log_action(
+        db, str(email.id), "zendesk_auto_solved", actor,
+        {
+            **audit_context,
+            "status_set": outcome.status_set,
+            "tags_added": outcome.tags_added,
+            "tag_conflict": outcome.tag_conflict,
+        },
+    )
+
+    # Mirror the status locally so the queue bucket moves at once, then re-sync
+    # best-effort. A reconcile failure must not downgrade a real solve.
+    try:
+        await email_repo.apply_zendesk_fields(
+            db, str(email.id), {"zendesk_status": "solved"}
+        )
+        await zendesk_adapter.refresh_ticket(db, int(email.zendesk_ticket_id))
+    except Exception as exc:  # noqa: BLE001 - reconcile is best-effort
+        logger.warning(
+            "post-OpenReview solve reconcile of ticket %s failed (it WAS solved): %s",
+            email.zendesk_ticket_id, exc,
+        )
+        await db.rollback()
+
+    return {
+        **base,
+        "attempted": True,
+        "outcome": OPENREVIEW_SOLVE_SOLVED,
+        "zendesk_status": "solved",
+    }
+
+
 @router.post("/{email_id}/post-openreview-reply")
 async def post_openreview_reply(
     email_id: str,
@@ -1269,10 +1434,16 @@ async def post_openreview_reply(
        it is where the readers come from.
     3. The reply is posted, threaded under that note, to those readers.
 
-    Nothing about Zendesk happens here. Resolving the ticket afterwards is a
-    separate decision and a separate endpoint; this one's job ends at "posted
-    and audited", so a failure to solve a ticket can never look like a failure
-    to post, and vice versa.
+    4. The Zendesk ticket is auto-solved. Relaying the reply IS the resolution,
+       so the chair does not click twice.
+
+    THREE OUTCOMES, not two, and the response says which. The OpenReview comment
+    is public the instant step 3 returns and cannot be un-posted from here, so a
+    Zendesk failure afterwards must never be reported as though the whole action
+    failed — a chair who read "failed" and retried would either be blocked by the
+    idempotency gate or, worse, post twice. Nor may it be swallowed: the ticket
+    is genuinely still open and somebody has to close it. See
+    ``ticket_resolution`` in the response.
     """
     email = await email_repo.get_email_by_id(db, email_id)
     if email is None:
@@ -1419,9 +1590,22 @@ async def post_openreview_reply(
         db, email_id, "openreview_comment_posted", payload.posted_by, post_meta
     )
 
+    # --- 4. auto-solve the ticket -----------------------------------------
+    # Everything past this point is ABOUT the ticket, never about the post. The
+    # post has already succeeded and been audited, and no branch below is allowed
+    # to raise: an exception here would surface as a failed request for an action
+    # that demonstrably worked.
+    resolution = await _auto_solve_after_openreview_post(
+        db, email, post_meta, payload.posted_by
+    )
+
     refreshed = await email_repo.get_email_by_id(db, email_id)
     result = _email_to_dict(refreshed)
     result["openreview_post"] = post_meta
+    result["ticket_resolution"] = resolution
+    # Mirrors the partial-success convention /send already uses for a tag 409:
+    # a 200 carrying a human-readable warning beside the machine-readable field.
+    result["warning"] = resolution.get("recovery") if resolution["outcome"] != "solved" else None
     return result
 
 
