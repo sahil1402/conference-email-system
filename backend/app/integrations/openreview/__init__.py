@@ -1,9 +1,9 @@
 """OpenReview integration.
 
-Exposes the authentication layer only: the credential/auth error types and the
-config-driven client factory. No note-fetching and no comment-posting logic
-lives here yet — those are later pieces built on top of
-:func:`get_openreview_client`.
+Exposes two layers, in separate modules: authentication (``client.py`` — the
+credential/auth error types and the config-driven client factory) and note
+operations (``notes.py`` — fetch one note, post one threaded reply). The split
+mirrors the Zendesk integration, where auth and writes also live apart.
 
 Nothing in ``app/`` imports this package yet; it is deliberately standalone
 until the piece that posts Official_Comments arrives.
@@ -15,10 +15,32 @@ from app.integrations.openreview.client import (
     OpenReviewDependencyError,
     get_openreview_client,
 )
+from app.integrations.openreview.notes import (
+    OpenReviewAPIError,
+    OpenReviewNote,
+    OpenReviewNoteError,
+    OpenReviewNoteNotFoundError,
+    OpenReviewPermissionError,
+    OpenReviewThreadMismatchError,
+    PostedComment,
+    get_note,
+    post_comment_reply,
+)
 
 __all__ = [
+    # auth (client.py)
     "OpenReviewCredentialError",
     "OpenReviewAuthError",
     "OpenReviewDependencyError",
     "get_openreview_client",
+    # note operations (notes.py)
+    "get_note",
+    "post_comment_reply",
+    "OpenReviewNote",
+    "PostedComment",
+    "OpenReviewNoteError",
+    "OpenReviewNoteNotFoundError",
+    "OpenReviewPermissionError",
+    "OpenReviewAPIError",
+    "OpenReviewThreadMismatchError",
 ]
