@@ -234,6 +234,18 @@ class Settings(BaseSettings):
     # an explicit baseurl. Point this at https://api2.dev.openreview.net to
     # exercise the API against OpenReview's sandbox.
     OPENREVIEW_BASE_URL: str = "https://api2.openreview.net"
+    # The OpenReview venue this deployment posts into, in OpenReview's own group
+    # form, e.g. "AAAI.org/2027/Conference". It builds both the Official_Comment
+    # invitation and the role signature.
+    #
+    # ⚠️ DECISION POINT, flagged rather than guessed. Nothing in the email data
+    # yields this: the extractor's notification sender carries a venue PREFIX
+    # ("aaai2027-notifications@...") which is not the group id and cannot be
+    # mapped to one without a lookup table. It is config because ConfMail is
+    # deployed per conference — one deployment, one venue — the same reasoning as
+    # ZENDESK_SUBDOMAIN. Required at post time; None fails loudly there rather
+    # than defaulting to a guess.
+    OPENREVIEW_VENUE_ID: str | None = None
 
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None

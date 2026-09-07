@@ -32,9 +32,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.events import get_event_broker
+from app.core.openreview_gate import authorize_openreview_post
 from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
 from app.db.database import async_session_factory, get_db
+from app.integrations.openreview import (
+    OpenReviewNoteError,
+    OpenReviewThreadMismatchError,
+    get_note as openreview_get_note,
+    get_openreview_client,
+    post_comment_reply as openreview_post_comment_reply,
+)
+from app.integrations.openreview.client import (
+    OpenReviewAuthError,
+    OpenReviewCredentialError,
+    OpenReviewDependencyError,
+)
 from app.integrations.zendesk.adapter import ZendeskIngestAdapter
 from app.integrations.zendesk.sender import (
     ZendeskSender,
@@ -113,6 +126,34 @@ class RedraftRequest(BaseModel):
         "is appended, so the drafter simply never sees them — there is no prompt "
         "representation of an exclusion. Capped at 10: the ranked set is bounded "
         "by MAX_RETRIEVED_CHUNKS, so a longer list can only be malformed input.",
+    )
+
+
+class PostOpenReviewReplyRequest(BaseModel):
+    """The chair's decision to relay a detected reply onward to OpenReview."""
+
+    # Mirrors ApproveRequest.final_text: the chair may have edited the extracted
+    # text in the review UI, and it is the EDITED text that must be posted.
+    # Required rather than optional — the endpoint must never fall back to
+    # `extraction["extracted_reply_text"]` silently, because that would post
+    # something the chair did not read in the box they were looking at.
+    reply_text: str = Field(
+        ...,
+        min_length=1,
+        description="The final reply text to post, exactly as the chair "
+        "approved it. Sent verbatim; never substituted with the originally "
+        "extracted text.",
+    )
+    submission_number: int = Field(
+        ...,
+        gt=0,
+        description="The submission this comment belongs to, used to build the "
+        "Official_Comment invitation. Supplied by the caller because the "
+        "extractor reports submission_numbers as a LIST (an email may name "
+        "several) and choosing one is not this endpoint's decision to make.",
+    )
+    posted_by: str = Field(
+        default="chair", description="Actor recorded in the audit log."
     )
 
 
@@ -1203,6 +1244,184 @@ async def set_ticket_status_no_reply(
             f"Ticket set to {set_status}, but the state-tag write hit a 409 "
             "(ticket changed concurrently); the tag was NOT overwritten. Re-sync."
         )
+    return result
+
+
+@router.post("/{email_id}/post-openreview-reply")
+async def post_openreview_reply(
+    email_id: str,
+    payload: PostOpenReviewReplyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Relay a detected reply onward to OpenReview as a threaded Official Comment.
+
+    For the case where a reviewer or author replied to an OpenReview
+    notification and their answer landed in the chair inbox instead of on the
+    forum. The chair reviews it and, if it should go where it was meant to go,
+    calls this — and the reply is posted under the ORIGINAL comment, visible to
+    exactly the people who could see that comment.
+
+    Ordering is deliberate and every step is a precondition of the next:
+
+    1. The gate (``authorize_openreview_post``) decides on the email row alone —
+       no I/O — and both outcomes are audited, mirroring ``/send``.
+    2. The parent note is FETCHED. This proves it exists and is not deleted, and
+       it is where the readers come from.
+    3. The reply is posted, threaded under that note, to those readers.
+
+    Nothing about Zendesk happens here. Resolving the ticket afterwards is a
+    separate decision and a separate endpoint; this one's job ends at "posted
+    and audited", so a failure to solve a ticket can never look like a failure
+    to post, and vice versa.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+
+    # --- 1. gate ----------------------------------------------------------
+    decision = authorize_openreview_post(email, payload.reply_text)
+    await audit_repo.log_action(
+        db,
+        email_id,
+        "openreview_post_authorized" if decision.authorized else "openreview_post_blocked",
+        "openreview_gate",
+        {"reason": decision.reason},
+    )
+    if not decision.authorized:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Refused by the OpenReview post gate.",
+                "reason": decision.reason,
+            },
+        )
+
+    venue_id = (settings.OPENREVIEW_VENUE_ID or "").strip()
+    if not venue_id:
+        # Config, not caller error — 501 matches how /send reports "authorized,
+        # but this deployment has no transport for it".
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={
+                "message": "OPENREVIEW_VENUE_ID is not configured, so the "
+                "Official_Comment invitation cannot be built. Set it to the "
+                "venue's OpenReview group id (e.g. AAAI.org/2027/Conference).",
+            },
+        )
+
+    # --- 2. fetch the parent note ----------------------------------------
+    # Its readers are the audience of the comment being answered, and reusing
+    # them is what keeps the reply visible to exactly that audience. They are
+    # never recomputed here.
+    try:
+        client = get_openreview_client(settings)
+        parent = await asyncio.to_thread(openreview_get_note, client, decision.note_id)
+    except (OpenReviewCredentialError, OpenReviewDependencyError) as exc:
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "client", "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={"message": "OpenReview access is not configured.",
+                    "error": str(exc)},
+        ) from exc
+    except OpenReviewAuthError as exc:
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "auth", "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "OpenReview login failed.", "error": str(exc)},
+        ) from exc
+    except OpenReviewNoteError as exc:
+        # Not found / deleted / permission / API — surfaced with its own type
+        # name so the caller keeps the distinction commit 10 drew.
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "get_note", "note_id": decision.note_id,
+             "error_type": type(exc).__name__, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Could not fetch the OpenReview comment being "
+                "replied to; nothing was posted.",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        ) from exc
+
+    # --- 3. post ----------------------------------------------------------
+    try:
+        posted = await asyncio.to_thread(
+            lambda: openreview_post_comment_reply(
+                client,
+                venue_id=venue_id,
+                submission_number=payload.submission_number,
+                parent_note_id=decision.note_id,
+                forum_id=decision.forum_id,
+                comment_text=payload.reply_text,
+                readers=parent.readers,
+                parent_note=parent,
+            )
+        )
+    except (OpenReviewThreadMismatchError, OpenReviewNoteError) as exc:
+        # The email row is left EXACTLY as it was. A failed post must not leave
+        # anything looking posted, or a retry becomes impossible to reason about.
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "post", "note_id": decision.note_id,
+             "forum_id": decision.forum_id,
+             "error_type": type(exc).__name__, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Posting the reply to OpenReview failed; nothing "
+                "was posted and the email is unchanged.",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        ) from exc
+
+    # --- success ----------------------------------------------------------
+    # Recorded on the email as well as in the audit log. The audit trail is the
+    # history; this is the STATE the gate reads to refuse a duplicate post, and
+    # what the follow-up ticket-resolution piece will key on.
+    post_meta = {
+        "state": "posted",
+        "note_id": posted.note_id,
+        "edit_id": posted.edit_id,
+        "parent_note_id": decision.note_id,
+        "forum_id": decision.forum_id,
+        "venue_id": venue_id,
+        "submission_number": payload.submission_number,
+        "readers": list(parent.readers),
+    }
+    updated_draft = {**(email.draft or {}), "openreview_post": post_meta}
+    # The email's own status is passed back UNCHANGED, the same way /set-status
+    # leaves it for a non-terminal transition. This is not an email send, and the
+    # ticket's fate is the next commit's decision, not this one's.
+    #
+    # `update_email_status` rather than `update_email_outputs` specifically
+    # because the latter unconditionally sets `redrafting = False`, which would
+    # silently clear an in-flight redraft flag this endpoint has no business
+    # touching.
+    await email_repo.update_email_status(
+        db, email_id, email.status, {"draft": updated_draft}
+    )
+    await audit_repo.log_action(
+        db, email_id, "openreview_comment_posted", payload.posted_by, post_meta
+    )
+
+    refreshed = await email_repo.get_email_by_id(db, email_id)
+    result = _email_to_dict(refreshed)
+    result["openreview_post"] = post_meta
     return result
 
 
