@@ -147,6 +147,33 @@ export interface ExtractionData {
   submission_numbers: string[];
   /** Deduplicated (case-SENSITIVE — case distinguishes different papers). */
   openreview_forum_ids: string[];
+  /**
+   * The OpenReview note (Official Comment) being replied to, when a forum link
+   * carried one as its `noteId`. Read from the SAME link as its forum id, so it
+   * always names a comment inside a forum this result also reports.
+   */
+  openreview_note_id: string | null;
+  /**
+   * The per-venue OpenReview notification address found in the text
+   * (`<venue>-notifications@openreview.net`), verbatim. Sent as the ADDRESS
+   * rather than a boolean so the venue prefix is visible. Compare
+   * case-insensitively.
+   */
+  openreview_notification_sender: string | null;
+  /**
+   * True iff BOTH signals above are present — this email is a reply to an
+   * OpenReview notification. Derived server-side from the other two, never
+   * stored, so it cannot drift from them.
+   */
+  openreview_reply_candidate: boolean;
+  /**
+   * What the person actually wrote, with quoted reply history removed and the
+   * ends trimmed. Empty string when the body was entirely quoted material —
+   * TEST EMPTINESS ON THIS STRING rather than re-deriving it. This, NOT
+   * `Email.body`, is what should be shown or relayed: the raw body still
+   * carries the whole quoted notification underneath the reply.
+   */
+  extracted_reply_text: string;
   /** Deduplicated, in first-seen order (the sender leads on the regex path). */
   authors: AuthorMention[];
   method: "llm_distiller" | "regex_fallback" | "none";

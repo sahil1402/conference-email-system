@@ -79,6 +79,10 @@ const FULL_EXTRACTION: ExtractionData = {
       affiliation: "Example University",
     },
   ],
+  openreview_note_id: null,
+  openreview_notification_sender: null,
+  openreview_reply_candidate: false,
+  extracted_reply_text: "",
   method: "llm_distiller",
 };
 
@@ -158,6 +162,10 @@ describe("EmailDetail — SubmissionDetails presence", () => {
         submission_numbers: [],
         openreview_forum_ids: [],
         authors: [],
+        openreview_note_id: null,
+        openreview_notification_sender: null,
+        openreview_reply_candidate: false,
+        extracted_reply_text: "",
         method: "llm_distiller",
       },
     });
