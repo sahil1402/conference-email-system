@@ -13,7 +13,9 @@ to "not found" rather than an error.
 
 from datetime import datetime
 
-from sqlalchemy import String, cast, func, or_, select, update
+from typing import Literal
+
+from sqlalchemy import String, and_, cast, func, not_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -41,6 +43,57 @@ _SOLVED_BUCKET_STATUSES = ("solved", "closed")
 # two concerns stay independently changeable.
 _RESOLVED_ZENDESK_STATUSES = ("solved", "closed")
 
+# The extraction key that marks an email as a reply to an OpenReview
+# notification (a computed field on the pipeline's ExtractionResult, persisted
+# inside the `extraction` JSON column).
+_OPENREVIEW_CANDIDATE_KEY = "openreview_reply_candidate"
+
+# How a caller wants the OpenReview split applied. Tri-state rather than a bool
+# because "no opinion" is a REAL and load-bearing third case: analytics
+# aggregates over `get_email_queue` and must keep counting every email, so the
+# default must leave the set untouched. Both queue endpoints opt in explicitly.
+OpenReviewQueueMode = Literal["exclude", "only"]
+
+
+def _unresolved_openreview_candidate():
+    """Emails detected as an OpenReview reply that still need chair action.
+
+    These are pulled OUT of the main queue and shown in their own queue instead,
+    so this one predicate is the SINGLE definition of the split — the main queue
+    negates it, the OpenReview queue asserts it. Deriving both from one
+    expression is what makes them exact complements: no email can be hidden from
+    both queues, and none can appear in both.
+
+    ⚠️ ``.as_boolean().is_(True)``, NEVER ``== True``. The two are not
+    interchangeable here. ``.is_(True)`` renders ``JSON_EXTRACT(...) IS 1`` on
+    SQLite and ``CAST(... AS BOOLEAN) IS true`` on Postgres — ``IS`` comparisons
+    are TOTAL, so a row whose ``extraction`` is NULL (every row processed before
+    that column existed) yields FALSE and is correctly kept by the negation.
+    ``== True`` renders ``!= 1`` / ``!= true`` under negation, which evaluates to
+    NULL for those rows and would SILENTLY DROP every legacy email from the main
+    queue. Same three-valued-logic trap as the ``NULL NOT IN (...)`` note in
+    :meth:`EmailRepository.get_open_tickets`, and verified empirically on both
+    dialects rather than assumed.
+
+    "Unresolved" reuses :data:`_RESOLVED_ZENDESK_STATUSES` — the codebase's
+    existing PIPELINE gate ("is there still work to do on this ticket"), the same
+    constant ``get_open_tickets`` uses — deliberately NOT the display-only
+    ``_SOLVED_BUCKET_STATUSES``. The explicit ``IS NULL`` branch is load-bearing
+    for the same reason it is there: non-Zendesk rows carry a NULL status, and a
+    bare ``NOT IN`` would evaluate to NULL and drop them.
+
+    A resolved candidate is therefore NOT pulled out of the main queue — its
+    visibility is exactly what it was before this split existed.
+    """
+    return and_(
+        Email.extraction[_OPENREVIEW_CANDIDATE_KEY].as_boolean().is_(True),
+        or_(
+            Email.zendesk_status.is_(None),
+            Email.zendesk_status.not_in(_RESOLVED_ZENDESK_STATUSES),
+        ),
+    )
+
+
 # Zendesk-origin columns the ingest adapter may set/patch on an Email row.
 # Kept as an allow-list so ``apply_zendesk_fields`` can never write an arbitrary
 # attribute, mirroring the guarded key set in ``update_email_status``.
@@ -67,6 +120,8 @@ def _queue_conditions(
     zendesk_status: str | None = None,
     received_after: datetime | None = None,
     received_before: datetime | None = None,
+    *,
+    openreview_candidates: OpenReviewQueueMode | None = None,
 ) -> list:
     """Build the shared WHERE conditions for the queue list AND its count.
 
@@ -80,6 +135,15 @@ def _queue_conditions(
     matches the numeric ticket id). ``zendesk_status="solved"`` is
     the combined solved+closed bucket (see _SOLVED_BUCKET_*); other statuses are
     exact-match.
+
+    ``openreview_candidates`` applies the OpenReview split (see
+    :func:`_unresolved_openreview_candidate`): ``"exclude"`` removes unresolved
+    candidates (the main queue), ``"only"`` keeps nothing else (the OpenReview
+    queue), ``None`` leaves the set untouched. It is threaded through HERE rather
+    than applied at the call sites so the list, its ``total`` and the facet
+    counts are filtered identically — the same reason every other filter lives
+    here. Keyword-only, defaulting to ``None``, so the existing positional calls
+    and the analytics full-table read are byte-for-byte unaffected.
 
     ``received_after`` / ``received_before`` bound ``received_at``, INCLUSIVE at
     both ends (``>=`` / ``<=``), and are independent: either may be given alone
@@ -137,6 +201,10 @@ def _queue_conditions(
                 cast(Email.zendesk_ticket_id, String).ilike(pattern),
             )
         )
+    if openreview_candidates == "exclude":
+        conditions.append(not_(_unresolved_openreview_candidate()))
+    elif openreview_candidates == "only":
+        conditions.append(_unresolved_openreview_candidate())
     return conditions
 
 
@@ -596,6 +664,8 @@ class EmailRepository:
         received_before: datetime | None = None,
         limit: int = 20,
         offset: int = 0,
+        *,
+        openreview_candidates: OpenReviewQueueMode | None = None,
     ) -> list[Email]:
         """Return the email queue, filtered server-side by any combination of
         lane / chair / unassigned / status / source / zendesk_status / search /
@@ -610,6 +680,7 @@ class EmailRepository:
         conditions = _queue_conditions(
             lane, chair_id, status, search, unassigned, source, zendesk_status,
             received_after, received_before,
+            openreview_candidates=openreview_candidates,
         )
         stmt = (
             select(Email)
@@ -640,6 +711,8 @@ class EmailRepository:
         zendesk_status: str | None = None,
         received_after: datetime | None = None,
         received_before: datetime | None = None,
+        *,
+        openreview_candidates: OpenReviewQueueMode | None = None,
     ) -> int:
         """Return the total number of emails matching the queue filters.
 
@@ -651,6 +724,7 @@ class EmailRepository:
         conditions = _queue_conditions(
             lane, chair_id, status, search, unassigned, source, zendesk_status,
             received_after, received_before,
+            openreview_candidates=openreview_candidates,
         )
         stmt = select(func.count()).select_from(Email).where(*conditions)
         result = await db.execute(stmt)
@@ -666,6 +740,8 @@ class EmailRepository:
         unassigned: bool = False,
         received_after: datetime | None = None,
         received_before: datetime | None = None,
+        *,
+        openreview_candidates: OpenReviewQueueMode | None = None,
     ) -> dict:
         """Return grouped facet counts for the queue's status bar + source toggle.
 
@@ -701,6 +777,7 @@ class EmailRepository:
             unassigned,
             received_after=received_after,
             received_before=received_before,
+            openreview_candidates=openreview_candidates,
         )
 
         zs_stmt = (

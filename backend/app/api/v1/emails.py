@@ -623,6 +623,17 @@ async def get_queue(
     (see :data:`_RECEIVED_PARAM_CONTRACT`); an inverted range is a 422, not an
     empty page. The RESOLVED datetimes are echoed in ``page_info``, so a client
     can see exactly which window was applied after any end-of-day expansion.
+
+    EMAILS DETECTED AS OPENREVIEW REPLIES ARE EXCLUDED — but only while they are
+    still unresolved. They need a different action (relay the reply onward) and
+    live in their own queue at ``/queue/openreview``, so mixing them in here
+    would put two unrelated decisions in one list. A candidate that is already
+    solved/closed is NOT pulled out: its visibility is exactly what it was before
+    this split existed, so nothing a chair already resolved moves anywhere.
+
+    The two queues are exact complements of ONE predicate
+    (``_unresolved_openreview_candidate``), so no email can be hidden from both
+    or appear in both.
     """
     after, before = _received_range(received_after, received_before)
     kwargs = dict(
@@ -636,8 +647,12 @@ async def get_queue(
         received_after=after,
         received_before=before,
     )
-    emails = await email_repo.get_email_queue(db, limit=limit, offset=offset, **kwargs)
-    total = await email_repo.count_email_queue(db, **kwargs)
+    emails = await email_repo.get_email_queue(
+        db, limit=limit, offset=offset, openreview_candidates="exclude", **kwargs
+    )
+    total = await email_repo.count_email_queue(
+        db, openreview_candidates="exclude", **kwargs
+    )
     return {
         "emails": [_email_to_dict(e) for e in emails],
         "total": total,
@@ -688,7 +703,74 @@ async def get_queue_facets(
         unassigned=unassigned,
         received_after=after,
         received_before=before,
+        # The SAME exclusion ``/queue`` applies. These counts sit directly beside
+        # that list, so leaving it off would make the status bar describe a
+        # larger set than the rows underneath it — the "page and total disagree"
+        # bug class this aggregate exists to avoid in the first place.
+        openreview_candidates="exclude",
     )
+
+
+@router.get("/queue/openreview")
+async def get_openreview_queue(
+    lane: str | None = None,
+    chair_id: int | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    unassigned: bool = False,
+    source: str | None = None,
+    zendesk_status: str | None = None,
+    received_after: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
+    received_before: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return the OpenReview-replies queue — the exact inverse of ``/queue``.
+
+    Emails detected as a reviewer or author replying to an OpenReview
+    notification, still awaiting chair action. They are excluded from the main
+    queue and shown here instead, because the action is different: relay the
+    reply onward to OpenReview rather than answer it by email.
+
+    Identical in every other respect to ``/queue`` — same filters, same
+    pagination bounds, same ``{emails, total, page_info}`` envelope, same
+    newest-first ordering — so a client can reuse the queue's existing patterns
+    unchanged and only swap the URL.
+
+    "Unresolved" is not redefined here. Both queues are built from the SINGLE
+    predicate ``_unresolved_openreview_candidate`` in the repository, one
+    asserting it and one negating it, which is what guarantees they stay exact
+    complements rather than two definitions that can drift apart.
+
+    Named ``/queue/openreview`` to sit alongside the existing ``/queue`` and
+    ``/queue/facets`` rather than as a detached ``/openreview-queue`` sibling; it
+    is a two-segment static path declared BEFORE the ``/{email_id}`` catch-all,
+    exactly like ``/queue/facets``, so it cannot be shadowed by it.
+    """
+    after, before = _received_range(received_after, received_before)
+    kwargs = dict(
+        lane=lane,
+        chair_id=chair_id,
+        status=status,
+        search=search,
+        unassigned=unassigned,
+        source=source,
+        zendesk_status=zendesk_status,
+        received_after=after,
+        received_before=before,
+    )
+    emails = await email_repo.get_email_queue(
+        db, limit=limit, offset=offset, openreview_candidates="only", **kwargs
+    )
+    total = await email_repo.count_email_queue(
+        db, openreview_candidates="only", **kwargs
+    )
+    return {
+        "emails": [_email_to_dict(e) for e in emails],
+        "total": total,
+        "page_info": {"limit": limit, "offset": offset, **kwargs},
+    }
 
 
 # Seconds between SSE heartbeat comments when no events are flowing — keeps the

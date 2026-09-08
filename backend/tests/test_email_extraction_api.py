@@ -39,6 +39,7 @@ from app.pipeline.distiller import DistillResult
 from app.pipeline.orchestrator import EmailPipeline
 
 QUEUE = "/api/v1/emails/queue"
+OPENREVIEW_QUEUE = "/api/v1/emails/queue/openreview"
 
 # A fully populated extraction, exactly as the pipeline stores it.
 _FULL = {
@@ -600,24 +601,36 @@ async def test_all_three_openreview_fields_reach_the_detail_endpoint(
     assert extraction["method"] == "llm_distiller"
 
 
-async def test_all_three_openreview_fields_reach_the_queue_endpoint(
+async def test_all_three_openreview_fields_reach_the_openreview_queue_endpoint(
     pipeline_client, monkeypatch
 ):
     """The list endpoint is a SEPARATE serialization call site from the detail
-    view, so it gets its own assertion rather than being assumed to match."""
+    view, so it gets its own assertion rather than being assumed to match.
+
+    Points at ``/queue/openreview`` rather than ``/queue``, and the RENAME is the
+    substance of the change, not cosmetic: this fixture is a real, unresolved
+    OpenReview candidate, so the queue split now routes it here. The subject
+    under test is unchanged — that a LIST endpoint serializes all three fields —
+    only the list it lives in moved. Both halves of that move are asserted below,
+    so this now also guards the split itself from the serialization side.
+    """
     client, factory = pipeline_client
     email_id = await _process_real_body(factory, monkeypatch)
 
-    response = await client.get(QUEUE)
+    response = await client.get(OPENREVIEW_QUEUE)
     assert response.status_code == 200
 
     rows = [r for r in response.json()["emails"] if str(r["id"]) == str(email_id)]
-    assert len(rows) == 1, "the processed email is not in the queue response"
+    assert len(rows) == 1, "the processed email is not in the OpenReview queue"
     extraction = rows[0]["extraction"]
 
     assert extraction["openreview_note_id"] == "jnHgRMHgrm"
     assert extraction["openreview_notification_sender"] == _ADDRESS
     assert extraction["openreview_reply_candidate"] is True
+
+    # ...and it is NOT in the main queue, which is the whole point of the split.
+    main = await client.get(QUEUE)
+    assert [r for r in main.json()["emails"] if str(r["id"]) == str(email_id)] == []
 
 
 async def test_served_extraction_validates_through_the_schemas_mirror(
