@@ -256,6 +256,28 @@ export async function getEmailThread(
  * its Zendesk ticket id. Same envelope as GET /emails/{email_id}. A 404 (no
  * email maps to the ticket id) rejects with the normalized ApiError via the
  * shared client interceptor, exactly like the other functions here. */
+/** GET /emails/{id} — one email plus its audit trail, by PRIMARY KEY.
+ *
+ * The by-id sibling of `getEmailByTicketId`, returning the identical
+ * `EmailDetailResponse`. It exists because a detail route keyed on `Email.id`
+ * cannot use the by-ticket fetch: `zendesk_ticket_id` is nullable, so a
+ * non-Zendesk row has no ticket to look up. Reaching for the queue list and
+ * filtering client-side is the other alternative and is worse — it only finds
+ * rows on the current page.
+ *
+ * 404 when no such row exists. A non-numeric id also 404s (the backend coerces
+ * the path segment and treats an uncoercible one as not-found), so callers have
+ * a single not-found case rather than the 404/422 split `/tickets/[ticketId]`
+ * has to fold together. */
+export async function getEmailById(
+  emailId: number | string
+): Promise<EmailDetailResponse> {
+  const { data } = await apiClient.get<EmailDetailResponse>(
+    `/emails/${emailId}`
+  );
+  return data;
+}
+
 export async function getEmailByTicketId(
   ticketId: number | string
 ): Promise<EmailDetailResponse> {
