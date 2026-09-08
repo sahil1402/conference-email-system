@@ -89,6 +89,34 @@ export async function getEmailQueue(
   return data;
 }
 
+/** GET /emails/queue/openreview — the OpenReview-replies queue.
+ *
+ * The exact INVERSE of `getEmailQueue`: emails detected as a reviewer or author
+ * replying to an OpenReview notification, still awaiting chair action. The
+ * backend excludes them from `/emails/queue` and serves them here instead,
+ * because the action is different (relay the reply onward rather than answer it
+ * by email). The two are complements of one server-side predicate, so an email
+ * is in exactly one of them.
+ *
+ * Deliberately reuses `EmailQueueParams` / `EmailQueueResponse` rather than
+ * declaring parallel types: the backend routes take the same parameters in the
+ * same order and return the same `{emails, total, page_info}` envelope from the
+ * same serializer (verified against the routes, not assumed). A duplicate type
+ * would be a second definition free to drift from the one the queue already
+ * uses. If the two shapes ever genuinely diverge, split them THEN.
+ *
+ * `total` is the count for this queue's own filter set, so it is accurate
+ * regardless of page size — same contract as `getEmailQueue`. */
+export async function getOpenReviewQueue(
+  params?: EmailQueueParams
+): Promise<EmailQueueResponse> {
+  const { data } = await apiClient.get<EmailQueueResponse>(
+    "/emails/queue/openreview",
+    { params }
+  );
+  return data;
+}
+
 /** GET /emails/queue/facets — grouped counts for the status bar + source toggle.
  * A dedicated server-side aggregate (not a client tally over a capped page), so
  * counts include out-of-window rows. Honors the same context filters as the

@@ -372,7 +372,10 @@ export interface Email {
   updated_at: string | null;
 }
 
-/** GET /emails/queue response envelope (emails.py::get_queue). */
+/** Queue response envelope, shared by BOTH queue endpoints:
+ *  `/emails/queue` (emails.py::get_queue) and `/emails/queue/openreview`
+ *  (emails.py::get_openreview_queue). They take the same parameters and
+ *  return the same shape from the same serializer, so one type covers both. */
 export interface EmailQueueResponse {
   emails: Email[];
   total: number;
