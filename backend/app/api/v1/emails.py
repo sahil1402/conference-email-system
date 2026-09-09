@@ -37,6 +37,7 @@ from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
 from app.db.database import async_session_factory, get_db
 from app.integrations.openreview import (
+    OpenReviewNote,
     OpenReviewNoteError,
     OpenReviewThreadMismatchError,
     get_note as openreview_get_note,
@@ -413,10 +414,151 @@ async def _email_detail_dict(db: AsyncSession, email: Email) -> dict:
     Deliberately NOT folded into ``_email_to_dict``: that serializer also runs
     per-row over the queue page, where a lookup would be an N+1 across up to
     ``limit`` emails. Hydration is one extra query, on single-email reads only.
+
+    ``openreview_readers`` is here for the SAME reason and one more: it is an
+    outbound network call, and ``/queue/openreview`` is a page of nothing but
+    reply candidates, so on the row serializer every list render would become up
+    to ``limit`` live OpenReview round-trips. See :func:`_openreview_readers` —
+    it is skipped entirely for anything that is not a reply candidate, so this
+    helper still performs no I/O beyond the DB for an ordinary email.
     """
     data = _email_to_dict(email)
     data["retrieved_chunks"] = await _hydrate_retrieved_chunks(db, email)
+    data["openreview_readers"] = await _openreview_readers(email)
     return data
+
+
+# How long a detail read waits on OpenReview before reporting the readers as
+# unavailable.
+#
+# This endpoint had NO external dependency before this field existed, so the
+# bound matters more than the number: an unbounded SDK call would leave the
+# chair's detail page hanging indefinitely on a third party, which is strictly
+# worse than showing the audience as unavailable and letting the rest of the
+# email render. Note that ``asyncio.wait_for`` bounds the RESPONSE, not the
+# work — the worker thread is not cancelled and runs to completion. That is an
+# acceptable leak here because the call is a read whose result is advisory.
+_OPENREVIEW_READERS_TIMEOUT_SECONDS = 10.0
+
+
+def _openreview_readers_result(
+    state: str,
+    *,
+    readers: list[str] | None = None,
+    note_id: str | None = None,
+    error: str | None = None,
+    error_type: str | None = None,
+) -> dict:
+    """One shape for all three states, so no key is ever merely absent."""
+    return {
+        "state": state,
+        "readers": readers,
+        "note_id": note_id,
+        "error": error,
+        "error_type": error_type,
+    }
+
+
+async def _openreview_readers(email: Email) -> dict:
+    """Who would see this reply if it were relayed — read LIVE from OpenReview.
+
+    WHY LIVE, NOT STORED AT DETECTION TIME
+    --------------------------------------
+    Caching was the cheaper option and was rejected on correctness, not effort:
+
+    * ``post_comment_reply`` posts to the readers of the parent note as fetched
+      AT POST TIME, and never to a list ConfMail computed. A stored copy could
+      therefore show a chair one audience while the post reaches another — and
+      the whole reason this field exists is that a chair approving a public
+      relay should see who will see it. A display that can disagree with the
+      action it is authorising is worse than no display.
+    * Filling it at detection time would put an OpenReview API call on the
+      INGEST path — inside the Zendesk poller, across every synced ticket,
+      requiring OpenReview credentials to be configured before ordinary email
+      processing works. Extraction is deliberately text-only (it has no
+      OpenReview API integration at all, by design), and this commit is not the
+      place to reverse that.
+
+    WHAT LIVE COSTS, AND WHAT PAYS IT
+    ---------------------------------
+    The call is made ONLY for a genuine reply candidate carrying a note id, so
+    every other email — the overwhelming majority, and every row of the main
+    queue — pays exactly nothing and this endpoint behaves as it always did.
+    For a candidate it is one bounded call on a page a chair opened deliberately,
+    one at a time.
+
+    Failure NEVER propagates. Any exception becomes the ``failed`` state and the
+    rest of the email still renders; a broken OpenReview must not be able to
+    take the detail page down with it.
+
+    THE THREE STATES ARE THE POINT. ``not_applicable`` (not a candidate, so
+    there is no parent comment and no audience to show) and ``failed`` (there IS
+    an audience, but we could not read it) are completely different facts, and
+    collapsing them would hide a real error behind a UI that simply shows
+    nothing. ``readers`` is ``None`` in both, never ``[]`` — an empty LIST is a
+    fourth, genuine fact ("fetched; the note names no readers") and must stay
+    distinguishable, exactly as a null ``extraction`` stays distinct from an
+    examined-but-empty one.
+    """
+    extraction = dict(getattr(email, "extraction", None) or {})
+    note_id = (extraction.get("openreview_note_id") or "").strip()
+
+    # Mirrors the first two conditions of ``authorize_openreview_post``, and
+    # deliberately does not call it: that gate needs the chair's final reply
+    # text and enforces idempotency, neither of which a read has or wants. An
+    # already-posted reply still has an audience worth showing.
+    if not extraction.get("openreview_reply_candidate") or not note_id:
+        return _openreview_readers_result("not_applicable")
+
+    def _fetch() -> OpenReviewNote:
+        # Client construction performs a real LOGIN over the network, so it runs
+        # in the worker thread alongside the fetch rather than blocking the
+        # event loop ahead of it.
+        client = get_openreview_client(settings)
+        return openreview_get_note(client, note_id)
+
+    try:
+        note = await asyncio.wait_for(
+            asyncio.to_thread(_fetch),
+            timeout=_OPENREVIEW_READERS_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "OpenReview readers lookup timed out for email %s (note %s)",
+            email.id,
+            note_id,
+        )
+        return _openreview_readers_result(
+            "failed",
+            note_id=note_id,
+            error=(
+                "OpenReview did not respond within "
+                f"{_OPENREVIEW_READERS_TIMEOUT_SECONDS:g}s."
+            ),
+            error_type="TimeoutError",
+        )
+    except Exception as exc:  # noqa: BLE001 - reported in-band, never swallowed
+        # Deliberately broad. The specific credential/auth/note errors are all
+        # caught here, and so is anything the SDK raises that this code has not
+        # anticipated — because on a READ the correct response to an unknown
+        # failure is the same as to a known one: say the readers are unavailable
+        # and render everything else.
+        logger.warning(
+            "OpenReview readers lookup failed for email %s (note %s): %s",
+            email.id,
+            note_id,
+            exc,
+        )
+        return _openreview_readers_result(
+            "failed",
+            note_id=note_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+    return _openreview_readers_result(
+        "fetched", readers=list(note.readers), note_id=note.id
+    )
 
 
 async def _hydrate_retrieved_chunks(db: AsyncSession, email: Email) -> list[dict] | None:
