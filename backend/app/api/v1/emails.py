@@ -15,7 +15,7 @@ import re
 
 import bleach
 from datetime import datetime, time, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -1711,9 +1711,25 @@ async def post_openreview_reply(
     # Its readers are the audience of the comment being answered, and reusing
     # them is what keeps the reply visible to exactly that audience. They are
     # never recomputed here.
+    #
+    # BOTH the connect and the fetch run in ONE worker thread. Building the
+    # client is not a cheap local construction: openreview-py's
+    # ``OpenReviewClient.__init__`` performs a real LOGIN over the network when
+    # given a username and password (see client.py), so calling it on the event
+    # loop stalls every other request in this worker for the duration of that
+    # round-trip. Threading only the fetch that follows left the two halves of
+    # one remote conversation inconsistently isolated.
+    #
+    # They share a thread rather than taking one each so that the SAME client is
+    # reused for the post in step 3 — one login per relay, exactly as before.
+    def _connect_and_fetch() -> tuple[Any, OpenReviewNote]:
+        openreview_client = get_openreview_client(settings)
+        return openreview_client, openreview_get_note(
+            openreview_client, decision.note_id
+        )
+
     try:
-        client = get_openreview_client(settings)
-        parent = await asyncio.to_thread(openreview_get_note, client, decision.note_id)
+        client, parent = await asyncio.to_thread(_connect_and_fetch)
     except (OpenReviewCredentialError, OpenReviewDependencyError) as exc:
         await audit_repo.log_action(
             db, email_id, "openreview_post_failed", payload.posted_by,

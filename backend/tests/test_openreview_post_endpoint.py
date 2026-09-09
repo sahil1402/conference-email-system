@@ -11,6 +11,9 @@ handler, because the ordering this endpoint depends on — gate, then fetch, the
 post — is only meaningful as an HTTP request/response.
 """
 
+import asyncio
+import time
+
 import httpx
 import pytest
 import pytest_asyncio
@@ -65,19 +68,33 @@ def _extraction(**overrides) -> dict:
 class Recorder:
     """Records every call to the three OpenReview seams."""
 
-    def __init__(self, *, note=None, get_exc=None, post_exc=None, posted=None):
+    def __init__(
+        self,
+        *,
+        note=None,
+        get_exc=None,
+        post_exc=None,
+        posted=None,
+        client_delay=0.0,
+    ):
         self._note = note if note is not None else OpenReviewNote(
             id=NOTE_ID, forum=FORUM_ID, readers=list(PARENT_READERS), content={}
         )
         self._get_exc = get_exc
         self._post_exc = post_exc
         self._posted = posted or PostedComment(edit_id="edit-1", note_id="new-1")
+        #: Stands in for the network LOGIN that the real client's constructor
+        #: performs. Blocking, on purpose — that is the whole property under
+        #: test.
+        self._client_delay = client_delay
         self.client_calls = 0
         self.get_calls = []
         self.post_calls = []
 
     def client(self, _settings):
         self.client_calls += 1
+        if self._client_delay:
+            time.sleep(self._client_delay)
         return object()
 
     def get_note(self, client, note_id):
@@ -255,6 +272,64 @@ async def test_the_emails_workflow_status_is_not_changed(client_and_factory, rec
             await session.execute(select(Email).where(Email.id == int(email_id)))
         ).scalars().one()
     assert email.status == "DRAFT_GENERATED"
+
+
+# ---------------------------------------------------------------------------
+# The OpenReview SDK is synchronous, so it must not run on the event loop
+# ---------------------------------------------------------------------------
+async def test_the_openreview_calls_do_not_block_the_event_loop(
+    client_and_factory, rec, monkeypatch
+):
+    """Building the client is a network LOGIN, not a local construction.
+
+    ⚠️ THE DELAY IS ON ``client``, NOT ON ``get_note``, and that placement is
+    the entire test. The fetch and the post have run in worker threads since
+    commit 11, so a delay on either would keep the loop responsive even with
+    the client built inline — the test would pass against the very bug it
+    exists to catch. Only a delay in the constructor distinguishes the two
+    shapes.
+
+    Asserted by keeping a coroutine ticking for the duration: if the login ran
+    on the loop, nothing else in this worker could advance while it was in
+    flight, and the ticker would stall.
+    """
+    use(monkeypatch, Recorder(client_delay=0.3))
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    ticks = 0
+
+    async def _ticker():
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.01)
+            ticks += 1
+
+    task = asyncio.create_task(_ticker())
+    try:
+        resp = await _post(client, email_id)
+    finally:
+        task.cancel()
+
+    assert resp.status_code == 200
+    assert ticks > 5, f"event loop appears to have been blocked (ticks={ticks})"
+
+
+async def test_one_login_per_relay_not_one_per_call(client_and_factory, rec):
+    """The connect and the fetch share a worker thread so they share a CLIENT.
+
+    Giving each its own thread would be equally non-blocking and would silently
+    double the logins — the post in step 3 reuses this client, and a second
+    round-trip per relay is a real cost with no benefit.
+    """
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    await _post(client, email_id)
+
+    assert rec.client_calls == 1
+    assert len(rec.get_calls) == 1
+    assert len(rec.post_calls) == 1
 
 
 # ---------------------------------------------------------------------------
