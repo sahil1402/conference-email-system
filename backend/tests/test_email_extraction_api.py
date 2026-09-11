@@ -26,6 +26,7 @@ nothing here asserts on querying or filtering by it.
 from __future__ import annotations
 
 import httpx
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -63,6 +64,29 @@ _EXAMINED_EMPTY = {
     "authors": [],
     "method": "llm_distiller",
 }
+
+
+@pytest.fixture(autouse=True)
+def _no_openreview_network(monkeypatch):
+    """⚠️ THIS FILE WAS MAKING REAL NETWORK CALLS TO OPENREVIEW. Not theoretical:
+    caught in captured logs as a 429 ``RateLimitError`` from
+    ``api2.dev.openreview.net``, using the live credentials in the environment.
+
+    The fixtures here seed genuine reply candidates (a note id AND a venue
+    notification address — that pairing is the point of several tests), and
+    ``GET /emails/{id}`` fetches the parent note's readers LIVE for exactly those
+    rows. The lookup arrived with that endpoint's readers field and predates
+    nothing in this file, so the two met without anyone noticing.
+
+    Failing the client factory keeps it in-process: the helper catches broadly
+    and reports its ``failed`` state, which no assertion here looks at.
+    """
+    from app.api.v1 import emails as emails_module
+
+    def _no_client(*_args, **_kwargs):
+        raise RuntimeError("OpenReview access is blocked in tests")
+
+    monkeypatch.setattr(emails_module, "get_openreview_client", _no_client)
 
 
 @pytest_asyncio.fixture
