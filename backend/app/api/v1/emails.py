@@ -153,6 +153,13 @@ class PostOpenReviewReplyRequest(BaseModel):
         "extractor reports submission_numbers as a LIST (an email may name "
         "several) and choosing one is not this endpoint's decision to make.",
     )
+    visibility: Literal["public", "internal"] = Field(
+        default="public",
+        description="Who may read the relayed comment. 'public' (the default) "
+        "gives it the SAME readers as the parent note, so it reaches exactly "
+        "the audience of the comment it answers. 'internal' restricts it to the "
+        "Program Chairs and the paper's own Authors group.",
+    )
     posted_by: str = Field(
         default="chair", description="Actor recorded in the audit log."
     )
@@ -1636,6 +1643,42 @@ async def _auto_solve_after_openreview_post(
     }
 
 
+def _internal_reply_readers(venue_id: str, submission_number: int) -> list[str]:
+    """The audience for a relay the chair marked ``internal``.
+
+    A FIXED list, built from the venue and the submission — deliberately NOT
+    derived from, filtered from, or merged with the parent note's readers. The
+    point of the internal option is to be narrower than the thread, and a
+    computation that started from the parent's list could only ever be narrower
+    BY ACCIDENT: any group the parent happens to carry would carry over.
+    Constructing the audience from scratch means the result cannot depend on
+    what was in the thread.
+
+    Both entries are load-bearing and neither is decoration:
+
+    * ``Program_Chairs`` is the group this account posts AS (``_role_signature``
+      in notes.py builds the same string), so omitting it would post a comment
+      the poster cannot read.
+    * ``Submission{n}/Authors`` is here because the reply concerns the authors'
+      OWN paper. Narrower than the thread is the intent; invisible to the people
+      it is about is not.
+
+    Lives in the endpoint rather than in ``notes.py`` because that module states
+    its own boundary outright — "No readers computation. ``post_comment_reply``
+    posts to the readers it is GIVEN. Deriving them belongs to the caller."
+    Putting it there would contradict the contract the transport documents.
+
+    ⚠️ The group names share ``_role_signature``'s PENDING CONFIRMATION from
+    AAAI/OpenReview. A wrong group name is rejected by OpenReview at post time
+    rather than silently widening the audience, so the failure is loud — but
+    confirm both before the first live internal post.
+    """
+    return [
+        f"{venue_id}/Program_Chairs",
+        f"{venue_id}/Submission{submission_number}/Authors",
+    ]
+
+
 @router.post("/{email_id}/post-openreview-reply")
 async def post_openreview_reply(
     email_id: str,
@@ -1647,16 +1690,25 @@ async def post_openreview_reply(
     For the case where a reviewer or author replied to an OpenReview
     notification and their answer landed in the chair inbox instead of on the
     forum. The chair reviews it and, if it should go where it was meant to go,
-    calls this — and the reply is posted under the ORIGINAL comment, visible to
-    exactly the people who could see that comment.
+    calls this — and the reply is posted under the ORIGINAL comment.
 
     Ordering is deliberate and every step is a precondition of the next:
 
     1. The gate (``authorize_openreview_post``) decides on the email row alone —
        no I/O — and both outcomes are audited, mirroring ``/send``.
-    2. The parent note is FETCHED. This proves it exists and is not deleted, and
-       it is where the readers come from.
-    3. The reply is posted, threaded under that note, to those readers.
+    2. The parent note is FETCHED. This proves it exists and is not deleted, it
+       pins the thread the reply must land in, and — for a ``public`` relay — it
+       is where the readers come from.
+    3. The reply is posted, threaded under that note.
+
+    VISIBILITY IS A SEPARATE AXIS FROM THE TARGET THREAD, and step 2 runs in
+    full either way. ``public`` (the default, and the only behaviour before this
+    option existed) reuses the parent's readers, so the reply reaches exactly
+    the audience of the comment it answers. ``internal`` replaces them with the
+    Program Chairs and the paper's own Authors group. Neither value changes
+    WHERE the comment is posted, and neither relaxes the forum-id verification:
+    the wrong submission's discussion is the wrong place for a narrow comment
+    just as much as for a wide one.
 
     4. The Zendesk ticket is auto-solved. Relaying the reply IS the resolution,
        so the chair does not click twice.
@@ -1768,6 +1820,17 @@ async def post_openreview_reply(
         ) from exc
 
     # --- 3. post ----------------------------------------------------------
+    # WHO reads the reply and WHICH THREAD it lands in are independent, and the
+    # ordering here keeps them that way. ``parent`` was fetched above and is
+    # passed through to ``post_comment_reply`` in BOTH branches, so the
+    # forum-id mismatch verification runs unconditionally — an internal comment
+    # posted into another submission's discussion is a leak, not a lesser one,
+    # so narrowing the audience is never a reason to relax the target check.
+    readers = (
+        _internal_reply_readers(venue_id, payload.submission_number)
+        if payload.visibility == "internal"
+        else list(parent.readers)
+    )
     try:
         posted = await asyncio.to_thread(
             lambda: openreview_post_comment_reply(
@@ -1777,7 +1840,7 @@ async def post_openreview_reply(
                 parent_note_id=decision.note_id,
                 forum_id=decision.forum_id,
                 comment_text=payload.reply_text,
-                readers=parent.readers,
+                readers=readers,
                 parent_note=parent,
             )
         )
@@ -1788,6 +1851,7 @@ async def post_openreview_reply(
             db, email_id, "openreview_post_failed", payload.posted_by,
             {"stage": "post", "note_id": decision.note_id,
              "forum_id": decision.forum_id,
+             "visibility": payload.visibility,
              "error_type": type(exc).__name__, "error": str(exc)},
         )
         raise HTTPException(
@@ -1812,7 +1876,13 @@ async def post_openreview_reply(
         "forum_id": decision.forum_id,
         "venue_id": venue_id,
         "submission_number": payload.submission_number,
-        "readers": list(parent.readers),
+        # Both, not one or the other. `readers` is the audience that was
+        # actually used and is the fact that matters; `visibility` records the
+        # chair's INTENT, which a reader list alone cannot be reverse-engineered
+        # into — an internal list and a parent thread that happened to hold the
+        # same two groups are indistinguishable after the fact.
+        "visibility": payload.visibility,
+        "readers": list(readers),
     }
     updated_draft = {**(email.draft or {}), "openreview_post": post_meta}
     # The email's own status is passed back UNCHANGED, the same way /set-status

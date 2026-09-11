@@ -33,6 +33,9 @@ from app.integrations.openreview import (
     OpenReviewPermissionError,
     OpenReviewThreadMismatchError,
     PostedComment,
+    # The SHIPPING implementation, used where a test must exercise the real
+    # thread verification rather than a stubbed error.
+    post_comment_reply as real_post_comment_reply,
 )
 
 NOTE_ID = "jnHgRMHgrm"
@@ -392,6 +395,290 @@ async def test_readers_are_not_recomputed_from_the_email(client_and_factory, mon
     await _post(client, email_id)
 
     assert rec.post_calls[0]["readers"] == ["odd/group/one"]
+
+
+# ---------------------------------------------------------------------------
+# Visibility: public (default) vs internal
+#
+# ⚠️ The failure that matters here is ASYMMETRIC. "internal" is the NARROWER
+# audience, so a bug that leaks the public list into the internal branch is a
+# disclosure — the reply reaches the thread's reviewers when the chair asked for
+# chairs-and-authors only. The reverse (internal groups on a public post) merely
+# under-shares and is visible to the chair immediately. So the internal tests
+# assert exact equality AND name the group that must be absent, rather than only
+# checking that the two expected groups are present.
+#
+# ⚠️ ``PARENT_READERS`` CONTAINS ``Program_Chairs``, which is deliberate and
+# makes these tests sharper: an implementation that reuses the parent list still
+# satisfies "Program_Chairs is in there". Only the Reviewers/Authors difference
+# separates the two lists.
+# ---------------------------------------------------------------------------
+INTERNAL_READERS = [f"{VENUE}/Program_Chairs", f"{VENUE}/Submission1030/Authors"]
+
+
+async def test_internal_visibility_posts_to_chairs_and_the_papers_authors(
+    client_and_factory, rec
+):
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    resp = await _post(client, email_id, visibility="internal")
+
+    assert resp.status_code == 200
+    (call,) = rec.post_calls
+    assert call["readers"] == INTERNAL_READERS
+
+
+async def test_internal_visibility_does_not_leak_the_parent_threads_audience(
+    client_and_factory, rec
+):
+    """The disclosure direction, asserted by name.
+
+    Exact equality above already implies this, but a future change that appends
+    to the internal list — "also keep whoever could already see it" — would read
+    as a small, reasonable edit and is exactly the mistake worth naming.
+    """
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    await _post(client, email_id, visibility="internal")
+
+    readers = rec.post_calls[0]["readers"]
+    assert f"{VENUE}/Submission1030/Reviewers" not in readers
+    assert not set(readers) - set(INTERNAL_READERS)
+
+
+async def test_internal_readers_ignore_whatever_the_parent_note_carries(
+    client_and_factory, monkeypatch
+):
+    """Built from scratch, not filtered from the parent.
+
+    The parent's readers are made unrecognisable, so any implementation that
+    derives the internal list from them — by filtering, intersecting or
+    subsetting — produces something other than the fixed two groups.
+    """
+    client, factory = client_and_factory
+    rec = use(
+        monkeypatch,
+        Recorder(
+            note=OpenReviewNote(
+                id=NOTE_ID,
+                forum=FORUM_ID,
+                readers=["some/unrelated/group", "another/one"],
+                content={},
+            )
+        ),
+    )
+    monkeypatch.setattr(settings, "OPENREVIEW_VENUE_ID", VENUE)
+    email_id = await _seed(factory)
+
+    await _post(client, email_id, visibility="internal")
+
+    assert rec.post_calls[0]["readers"] == INTERNAL_READERS
+
+
+@pytest.mark.parametrize("body", [{}, {"visibility": "public"}])
+async def test_public_and_omitted_are_the_same_unchanged_behaviour(
+    client_and_factory, rec, body
+):
+    """The default exists so every pre-existing caller keeps working untouched."""
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    resp = await _post(client, email_id, **body)
+
+    assert resp.status_code == 200
+    assert rec.post_calls[0]["readers"] == PARENT_READERS
+
+
+async def test_the_internal_readers_track_the_submission_number(
+    client_and_factory, rec
+):
+    """The Authors group is per-paper, so a different submission is a different
+    audience — a hardcoded number would silently address the wrong authors."""
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    await _post(client, email_id, visibility="internal", submission_number=4127)
+
+    assert rec.post_calls[0]["readers"] == [
+        f"{VENUE}/Program_Chairs",
+        f"{VENUE}/Submission4127/Authors",
+    ]
+
+
+async def test_an_unknown_visibility_is_rejected_by_validation(
+    client_and_factory, rec
+):
+    """Closed set, so a typo fails loudly instead of falling back to public.
+
+    A silent fallback would be the worst outcome available: the caller asked for
+    a narrow audience and would get the wide one, with a 200 to say it worked.
+    """
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    resp = await _post(client, email_id, visibility="private")
+
+    assert resp.status_code == 422
+    assert rec.post_calls == []
+
+
+# --- visibility does NOT relax the thread verification ----------------------
+@pytest.mark.parametrize("visibility", ["public", "internal"])
+async def test_the_forum_mismatch_check_runs_for_every_visibility(
+    client_and_factory, monkeypatch, visibility
+):
+    """⚠️ Exercises the REAL verification in notes.py, not a stubbed error.
+
+    The file's other mismatch test injects ``post_exc`` and so only proves the
+    endpoint reports the error — it would pass even if the endpoint stopped
+    passing ``parent_note`` through. Here the genuine ``post_comment_reply``
+    runs against a parent note whose forum disagrees with the extracted one, so
+    the check itself has to fire. It raises before ``_load_note_class()``, so no
+    SDK import happens and the test stays hermetic.
+
+    Parametrised over BOTH values rather than just the new one: the property is
+    that the check is independent of visibility, and a test that only covered
+    ``internal`` could not distinguish "independent" from "happens to also run
+    there".
+    """
+    client, factory = client_and_factory
+    use(
+        monkeypatch,
+        Recorder(
+            note=OpenReviewNote(
+                id=NOTE_ID, forum="SOMEOTHERFORUM", readers=list(PARENT_READERS),
+                content={},
+            )
+        ),
+    )
+    # The real implementation, so the verification is the one that ships.
+    monkeypatch.setattr(
+        emails_module, "openreview_post_comment_reply", real_post_comment_reply
+    )
+    monkeypatch.setattr(settings, "OPENREVIEW_VENUE_ID", VENUE)
+    email_id = await _seed(factory)
+
+    resp = await _post(client, email_id, visibility=visibility)
+
+    assert resp.status_code == 502
+    # This exact type is also the proof that the SDK was never reached: the
+    # recorder's client is a bare ``object()``, so a call that got as far as
+    # ``post_note_edit`` would raise AttributeError and be classified as
+    # OpenReviewAPIError instead. A narrowed audience must not buy a relaxed
+    # target check.
+    assert resp.json()["detail"]["error_type"] == "OpenReviewThreadMismatchError"
+    async with factory() as session:
+        email = (
+            await session.execute(select(Email).where(Email.id == int(email_id)))
+        ).scalars().one()
+    assert "openreview_post" not in (email.draft or {})
+
+
+@pytest.mark.parametrize("visibility", ["public", "internal"])
+async def test_the_parent_note_is_fetched_for_every_visibility(
+    client_and_factory, rec, visibility
+):
+    """Internal readers need nothing from the parent — the fetch is still
+    mandatory, because it is what proves the note exists, is not deleted, and
+    belongs to the forum being targeted."""
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    await _post(client, email_id, visibility=visibility)
+
+    assert rec.get_calls == [NOTE_ID]
+    assert rec.post_calls[0]["parent_note"] is not None
+
+
+async def test_a_missing_parent_note_still_blocks_an_internal_post(
+    client_and_factory, monkeypatch
+):
+    """The fetch is a precondition, not an input — so its failure still stops
+    the post even when its result would not have been used for the readers."""
+    client, factory = client_and_factory
+    rec = use(monkeypatch, Recorder(get_exc=OpenReviewNoteNotFoundError("gone")))
+    monkeypatch.setattr(settings, "OPENREVIEW_VENUE_ID", VENUE)
+    email_id = await _seed(factory)
+
+    resp = await _post(client, email_id, visibility="internal")
+
+    assert resp.status_code == 502
+    assert rec.post_calls == []
+
+
+# --- the trail records which visibility was used ----------------------------
+@pytest.mark.parametrize(
+    "body, expected, expected_readers",
+    [
+        ({}, "public", PARENT_READERS),
+        ({"visibility": "public"}, "public", PARENT_READERS),
+        ({"visibility": "internal"}, "internal", INTERNAL_READERS),
+    ],
+)
+async def test_the_audit_trail_records_the_visibility_used(
+    client_and_factory, rec, body, expected, expected_readers
+):
+    """Both the intent and the resulting audience.
+
+    ``readers`` alone cannot be reverse-engineered into the chair's choice — a
+    thread that happens to hold the same two groups produces an identical list —
+    so the trail carries the decision as well as its effect.
+    """
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    await _post(client, email_id, **body)
+
+    async with factory() as session:
+        row = (
+            await session.execute(
+                select(AuditLog).where(AuditLog.action == "openreview_comment_posted")
+            )
+        ).scalars().one()
+    assert row.extra_metadata["visibility"] == expected
+    assert row.extra_metadata["readers"] == expected_readers
+
+
+async def test_the_email_row_records_the_visibility_used(client_and_factory, rec):
+    """Recorded on the row too, so a later reader of the ticket can see the
+    audience without joining against the audit log."""
+    client, factory = client_and_factory
+    email_id = await _seed(factory)
+
+    await _post(client, email_id, visibility="internal")
+
+    async with factory() as session:
+        email = (
+            await session.execute(select(Email).where(Email.id == int(email_id)))
+        ).scalars().one()
+    post = email.draft["openreview_post"]
+    assert post["visibility"] == "internal"
+    assert post["readers"] == INTERNAL_READERS
+
+
+async def test_a_failed_internal_post_is_audited_with_its_visibility(
+    client_and_factory, monkeypatch
+):
+    """Which audience was ATTEMPTED is part of diagnosing a rejected post — an
+    internal group name that OpenReview refuses looks nothing like a transport
+    error, but the two are indistinguishable without this."""
+    client, factory = client_and_factory
+    use(monkeypatch, Recorder(post_exc=OpenReviewPermissionError("nope")))
+    monkeypatch.setattr(settings, "OPENREVIEW_VENUE_ID", VENUE)
+    email_id = await _seed(factory)
+
+    await _post(client, email_id, visibility="internal")
+
+    async with factory() as session:
+        row = (
+            await session.execute(
+                select(AuditLog).where(AuditLog.action == "openreview_post_failed")
+            )
+        ).scalars().one()
+    assert row.extra_metadata["stage"] == "post"
+    assert row.extra_metadata["visibility"] == "internal"
 
 
 # ---------------------------------------------------------------------------
