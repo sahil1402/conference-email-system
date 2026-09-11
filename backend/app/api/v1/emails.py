@@ -165,6 +165,22 @@ class PostOpenReviewReplyRequest(BaseModel):
     )
 
 
+class DismissOpenReviewCandidateRequest(BaseModel):
+    """A chair's judgment that a detected OpenReview reply is a false positive."""
+
+    reason: str = Field(
+        ...,
+        min_length=1,
+        description="Why this email is not actually a reply to an OpenReview "
+        "notification. Required — the detection is text-based and its false "
+        "positives are the feedback signal for improving it, so a dismissal "
+        "with no stated reason records that it happened and nothing about why.",
+    )
+    dismissed_by: str = Field(
+        default="chair", description="Actor recorded in the audit log."
+    )
+
+
 class SetStatusRequest(BaseModel):
     """Options for setting a ticket's Zendesk status WITHOUT sending a reply."""
 
@@ -394,6 +410,10 @@ def _email_to_dict(email: Email) -> dict:
         # ("examined, found nothing"). Coercing null to {} here would erase that
         # difference at the API boundary.
         "extraction": email.extraction,
+        # Whether a chair has ruled the OpenReview detection a false positive.
+        # Serialized beside `extraction` but sourced from its own column, which
+        # is the distinction that matters: this one survives a reprocess.
+        "openreview_candidate_dismissed": bool(email.openreview_candidate_dismissed),
         "redrafting": bool(email.redrafting),
         "retrieval_context": email.retrieval_context,
         # Derived from retrieval_context (no column, no duplicated state). Sits
@@ -1916,6 +1936,92 @@ async def post_openreview_reply(
     # Mirrors the partial-success convention /send already uses for a tag 409:
     # a 200 carrying a human-readable warning beside the machine-readable field.
     result["warning"] = resolution.get("recovery") if resolution["outcome"] != "solved" else None
+    return result
+
+
+@router.post("/{email_id}/dismiss-openreview-candidate")
+async def dismiss_openreview_candidate(
+    email_id: str,
+    payload: DismissOpenReviewCandidateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Mark a detected OpenReview reply as a false positive.
+
+    The detection in the extraction pipeline is text-based: an email carrying
+    both a note id and a venue notification address is treated as a reply to
+    that notification. That is a heuristic, and a chair reading the email is the
+    authority on whether it is actually one. This records that judgment, after
+    which the email falls through the normal ``/queue`` predicate instead of
+    ``/queue/openreview``.
+
+    DELIBERATELY NOT AN EXTENSION OF ``/reroute``, despite both being "this went
+    to the wrong place". That endpoint calls ``_record_rl_feedback(existing,
+    original_lane, "rerouted")``, which penalises the ``(intent, lane)`` arm of
+    the RL bandit on the premise that the LANE was wrong, and
+    ``_record_flag_events``, which feeds active learning on classifier
+    confidence. A false-positive OpenReview detection says nothing about either:
+    the lane router and the classifier may both have been perfectly correct on
+    this email. Firing those here would train two models against decisions they
+    got right. Neither is called below, and ``routing`` is not touched at all.
+
+    WHAT IT WRITES is a dedicated column, not a key inside ``extraction`` — see
+    ``Email.openreview_candidate_dismissed``. Every pipeline pass rewrites
+    ``extraction`` from the email text, so a dismissal stored there would be
+    recomputed away by the next follow-up reply or re-draft.
+
+    409 if the email was never a candidate: there is nothing to dismiss, and
+    silently succeeding would tell a caller it had changed something it had not.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+
+    extraction = dict(email.extraction or {})
+    if not extraction.get("openreview_reply_candidate"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "This email was never detected as an OpenReview "
+                "reply candidate, so there is nothing to dismiss.",
+                "reason": "openreview_reply_candidate is not true"
+                if email.extraction is not None
+                else "this email has no extraction record",
+            },
+        )
+
+    # Idempotent, and quiet about it. A second dismissal changes nothing, so it
+    # writes no second audit entry: the audit log records state CHANGES, and two
+    # entries would read as two separate chair decisions when the row was
+    # already in that state. The response says which happened, so a caller can
+    # tell "I did this" from "this was already done" without guessing.
+    if email.openreview_candidate_dismissed:
+        result = _email_to_dict(email)
+        result["already_dismissed"] = True
+        return result
+
+    updated = await email_repo.dismiss_openreview_candidate(db, email_id)
+    await audit_repo.log_action(
+        db,
+        email_id,
+        "openreview_candidate_dismissed",
+        payload.dismissed_by,
+        {
+            "reason": payload.reason,
+            "openreview_note_id": extraction.get("openreview_note_id"),
+            "openreview_notification_sender": extraction.get(
+                "openreview_notification_sender"
+            ),
+            # The lane is recorded but NOT changed — so a later reader can see
+            # it was left alone rather than wonder whether it was.
+            "lane": (email.routing or {}).get("lane"),
+        },
+    )
+
+    result = _email_to_dict(updated)
+    result["already_dismissed"] = False
     return result
 
 

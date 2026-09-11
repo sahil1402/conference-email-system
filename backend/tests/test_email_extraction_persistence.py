@@ -77,6 +77,15 @@ _EMAIL = {
 # Migration round-trip (subprocess, temp SQLite file)
 # ---------------------------------------------------------------------------
 _PREV_REVISION = "f8b2c4d6e0a1"  # suggestion_audit_logs — this migration's down_revision.
+# The revision under test. ⚠️ PINNED, NOT "head": this exercises the round-trip
+# of the EXTRACTION migration specifically, and it used to say "head" only
+# because that migration happened to be head when it was written. Any later
+# revision that adds an index to `emails` then breaks it for the wrong reason —
+# `before` is snapshotted at head and includes the newer index, while the
+# downgrade to _PREV_REVISION necessarily unwinds that revision too, so the
+# index sets cannot match. Caught exactly that way when
+# c9f3a1b7d204 (openreview_candidate_dismissed) landed.
+_REVISION = "57b59f3ef990"
 
 
 def _run_alembic(args, db_url: str):
@@ -123,7 +132,7 @@ def test_extraction_migration_round_trips(tmp_path):
     db_file = tmp_path / "extraction_roundtrip.db"
     db_url = f"sqlite:///{db_file.as_posix()}"
 
-    up = _run_alembic(["upgrade", "head"], db_url)
+    up = _run_alembic(["upgrade", _REVISION], db_url)
     assert up.returncode == 0, f"upgrade failed:\n{up.stderr}"
     for table in ("emails", "email_processing_results"):
         assert "extraction" in _columns(db_file, table), table
@@ -147,7 +156,7 @@ def test_extraction_migration_round_trips(tmp_path):
     assert con.execute("SELECT count(*) FROM emails").fetchone()[0] == 1
     con.close()
 
-    up2 = _run_alembic(["upgrade", "head"], db_url)
+    up2 = _run_alembic(["upgrade", _REVISION], db_url)
     assert up2.returncode == 0, f"re-upgrade failed:\n{up2.stderr}"
     for table in ("emails", "email_processing_results"):
         assert "extraction" in _columns(db_file, table), table

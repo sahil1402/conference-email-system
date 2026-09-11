@@ -87,6 +87,17 @@ def _unresolved_openreview_candidate():
     """
     return and_(
         Email.extraction[_OPENREVIEW_CANDIDATE_KEY].as_boolean().is_(True),
+        # A chair's dismissal of a false positive. Read from a COLUMN, never
+        # from the extraction dict: that dict is rewritten from the email text on
+        # every pipeline pass, so a dismissal stored there would be recomputed
+        # away on the next follow-up or re-draft. See the note on
+        # ``Email.openreview_candidate_dismissed``.
+        #
+        # ``.is_(False)`` for the same total-comparison reason as the line above,
+        # even though the column is NOT NULL: the negated form used by the main
+        # queue must stay NULL-safe by construction rather than by relying on a
+        # constraint elsewhere continuing to hold.
+        Email.openreview_candidate_dismissed.is_(False),
         or_(
             Email.zendesk_status.is_(None),
             Email.zendesk_status.not_in(_RESOLVED_ZENDESK_STATUSES),
@@ -260,6 +271,39 @@ class EmailRepository:
             if key in {"classification", "routing", "draft"}:
                 setattr(email, key, value)
 
+        await db.commit()
+        await db.refresh(email)
+        return email
+
+    async def dismiss_openreview_candidate(
+        self, db: AsyncSession, email_id: str
+    ) -> Email | None:
+        """Mark an email as NOT an OpenReview reply candidate. Returns the row.
+
+        Writes exactly one column and nothing else. Deliberately NOT routed
+        through ``update_email_status``, which would also overwrite ``status``:
+        a dismissal is a correction to the DETECTION, not a lifecycle
+        transition, and moving the email's workflow status would change what the
+        main queue shows about work still to be done on it.
+
+        ``routing`` is untouched for the same reason. The email keeps whatever
+        lane normal routing assigned it and simply resumes being an ordinary
+        email — there is nothing to re-route, because the lane was never the
+        thing that was wrong.
+
+        Idempotent: dismissing an already-dismissed row is a no-op write. The
+        caller decides whether that is worth auditing.
+        """
+        pk = _coerce_id(email_id)
+        if pk is None:
+            return None
+
+        result = await db.execute(select(Email).where(Email.id == pk))
+        email = result.scalar_one_or_none()
+        if email is None:
+            return None
+
+        email.openreview_candidate_dismissed = True
         await db.commit()
         await db.refresh(email)
         return email
