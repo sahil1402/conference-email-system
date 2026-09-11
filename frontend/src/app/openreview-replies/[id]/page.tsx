@@ -5,20 +5,28 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
   ExternalLink,
   FileQuestion,
   Info,
   Users,
 } from "lucide-react";
 
-import { useEmailById } from "@/hooks";
+import { useEmailById, usePostOpenReviewReply } from "@/hooks";
 import { EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Email, OpenReviewReaders } from "@/types";
+import type {
+  ApiError,
+  Email,
+  OpenReviewReaders,
+  OpenReviewVisibility,
+  PostOpenReviewReplyResponse,
+} from "@/types";
 
 /** The reply's audience. Mirrors the backend's `visibility` request field. */
-type Visibility = "public" | "internal";
+type Visibility = OpenReviewVisibility;
 
 const FIELD_STYLE = {
   backgroundColor: "var(--surface)",
@@ -85,9 +93,8 @@ export default function OpenReviewReplyDetailPage({
   const { email, isLoading, isError, error, refetch } = useEmailById(id);
 
   const [replyText, setReplyText] = useState("");
-  // Local only, deliberately. Nothing submits from this page yet, so this value
-  // is read by nothing but the preview line beneath the control.
   const [visibility, setVisibility] = useState<Visibility>("public");
+  const post = usePostOpenReviewReply();
 
   // Adopt the server's text once it arrives, and again if a later poll changes
   // it — but keyed on the FETCHED value, not on every render, so a chair's
@@ -102,6 +109,36 @@ export default function OpenReviewReplyDetailPage({
   // /tickets/[ticketId] there is no 422 case to fold in — every failure that is
   // not a 404 is genuinely unexpected.
   const isNotFound = isError && error?.status === 404;
+
+  const submissionNumber = email ? submissionNumberFor(email) : null;
+  const trimmedReply = replyText.trim();
+  // ⚠️ EVERY REASON THE BUTTON IS DISABLED IS ALSO A SENTENCE ON SCREEN. A
+  // silently dead submit on the one page whose whole purpose is submitting is
+  // indistinguishable from a broken page, so each guard names itself below.
+  const blockedReason =
+    trimmedReply === ""
+      ? "Write the reply before posting it."
+      : submissionNumber === null
+        ? "No submission number was extracted from this email, so there is no " +
+          "OpenReview discussion to post under."
+        : null;
+
+  function handlePost() {
+    if (blockedReason !== null || submissionNumber === null) return;
+    post.mutate({
+      id,
+      data: {
+        // The EDITED text, read straight off the box the chair is looking at —
+        // never `serverText`, which is what the extractor produced before any
+        // edit. The backend posts this verbatim.
+        reply_text: replyText,
+        submission_number: submissionNumber,
+        visibility,
+      },
+    });
+  }
+
+  const alreadyPosted = isAlreadyPosted(post.error);
 
   return (
     <div className="mx-auto w-full max-w-4xl px-8 py-10">
@@ -174,8 +211,14 @@ export default function OpenReviewReplyDetailPage({
             readers={email.openreview_readers}
           />
 
-          {/* The reply itself — editable, because the chair may adjust it
-              before it is relayed. */}
+          {post.isSuccess ? (
+            <PostedPanel
+              result={post.data}
+              commentUrl={openReviewCommentUrl(email)}
+            />
+          ) : (
+          /* The reply itself — editable, because the chair may adjust it
+             before it is relayed. */
           <section className="flex flex-col gap-2">
             <label className="flex flex-col gap-2">
               <span
@@ -210,14 +253,68 @@ export default function OpenReviewReplyDetailPage({
               </p>
             )}
 
+            {alreadyPosted ? (
+              // Not an error, and deliberately not styled as one. The chair
+              // asked for something that is already true — most often a
+              // double-click or a revisit of a handled item — and a red banner
+              // would read as "your action failed" when in fact it succeeded,
+              // just not now.
+              <div
+                className="flex items-start gap-2 rounded-lg border p-3 text-sm"
+                style={{
+                  borderColor: "var(--border)",
+                  backgroundColor: "var(--surface-raised)",
+                  color: "var(--text-primary)",
+                }}
+                role="status"
+              >
+                <CheckCircle2
+                  className="h-4 w-4 shrink-0 translate-y-0.5"
+                  style={{ color: "var(--success)" }}
+                  aria-hidden
+                />
+                <span>
+                  This reply is already on OpenReview — it was posted earlier,
+                  so nothing was sent again.
+                </span>
+              </div>
+            ) : (
+              post.isError && (
+                <ErrorBanner message={postFailureMessage(post.error)} />
+              )
+            )}
+
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                onClick={handlePost}
+                // `isPending` is in the disabled set, so a double-click cannot
+                // fire a second request: the idempotency gate is the backstop
+                // for a revisit, not for the button's own behaviour.
+                disabled={post.isPending || blockedReason !== null}
+                aria-busy={post.isPending}
+              >
+                {post.isPending && (
+                  <LoadingSpinner size="sm" className="!text-white" />
+                )}
+                {post.isPending ? "Posting…" : "Approve & Post"}
+              </Button>
+
+              {blockedReason && (
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {blockedReason}
+                </span>
+              )}
+            </div>
+
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              {/* Stated in the UI, not just in a code comment: a chair who types
-                  here and finds no way to submit should know that is expected
-                  rather than assume the page failed. */}
-              Posting this reply isn&apos;t wired up yet — edits here are not
-              saved.
+              {/* Said plainly before the fact, because the action cannot be
+                  undone from this page — or from anywhere in this app. */}
+              Posting publishes this comment on OpenReview. It can&apos;t be
+              undone here.
             </p>
           </section>
+          )}
         </>
       ) : null}
     </div>
@@ -552,6 +649,228 @@ function AudiencePreview({
       <Info className="h-3.5 w-3.5 shrink-0 translate-y-px" aria-hidden />
       {text}
     </p>
+  );
+}
+
+/**
+ * What happened, once the reply is on OpenReview.
+ *
+ * Replaces the editor rather than sitting above it. The comment is public and
+ * cannot be un-posted from here, so leaving an editable box and a live button
+ * on screen would invite a second post of text that no longer matches what is
+ * actually on the forum.
+ */
+function PostedPanel({
+  result,
+  commentUrl,
+}: {
+  result: PostOpenReviewReplyResponse;
+  commentUrl: string | null;
+}) {
+  const { openreview_post: post, ticket_resolution: resolution } = result;
+  // ⚠️ BRANCHED ON `outcome`, NEVER ON THE TOP-LEVEL `warning`. The backend
+  // sets `warning` for every non-`solved` outcome, including both benign skips
+  // ("this email has no Zendesk ticket"), so keying on it would raise an alarm
+  // about nothing on perfectly complete relays.
+  const solveFailed = resolution.outcome === "solve_failed";
+
+  return (
+    <section className="flex flex-col gap-4">
+      <div
+        className="flex flex-col gap-3 rounded-lg border p-4"
+        style={{
+          borderColor: "var(--success)",
+          backgroundColor: "var(--success-subtle)",
+        }}
+        role="status"
+      >
+        <p
+          className="flex items-center gap-2 text-sm font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          <CheckCircle2
+            className="h-4 w-4 shrink-0"
+            style={{ color: "var(--success)" }}
+            aria-hidden
+          />
+          Reply posted to OpenReview
+        </p>
+
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          Posted on submission {post.submission_number} as a{" "}
+          {post.visibility === "internal" ? "restricted" : "public"} comment,
+          visible to {post.readers.length}{" "}
+          {post.readers.length === 1 ? "group" : "groups"}.
+        </p>
+
+        {commentUrl && (
+          <a
+            href={commentUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="View the posted comment on OpenReview (opens in new tab)"
+            className="inline-flex w-fit items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline"
+            style={{ color: "var(--accent)" }}
+          >
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            View it on OpenReview
+          </a>
+        )}
+      </div>
+
+      {solveFailed && (
+        // ⚠️ PLACEHOLDER — COMMIT 16b OWNS THIS STATE.
+        //
+        // Deliberately only a statement of fact with no recovery control. The
+        // real handling (a retry that calls /set-status, or a route back into
+        // the queue's failed bucket) is a separate piece, and a half-built
+        // version would be worse than none: a button that looks like it fixes
+        // the ticket but does not is how an open ticket gets marked handled.
+        <div
+          className="flex items-start gap-2 rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: "var(--warning)",
+            backgroundColor: "var(--warning-subtle)",
+            color: "var(--text-primary)",
+          }}
+          role="alert"
+        >
+          <AlertTriangle
+            className="h-4 w-4 shrink-0 translate-y-0.5"
+            style={{ color: "var(--warning)" }}
+            aria-hidden
+          />
+          <span>
+            The reply is posted, but the Zendesk ticket couldn&apos;t be closed
+            automatically and is still open. It needs attention — closing it
+            from here isn&apos;t wired up yet.
+          </span>
+        </div>
+      )}
+
+      <Link
+        href="/openreview-replies"
+        className="inline-flex w-fit items-center gap-1.5 text-sm transition-colors hover:text-[var(--accent)]"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        <ArrowLeft className="h-4 w-4" aria-hidden />
+        Back to OpenReview Replies
+      </Link>
+    </section>
+  );
+}
+
+/**
+ * The submission number to post under, or null.
+ *
+ * The endpoint REQUIRES this (`submission_number: int, gt=0`) — it builds the
+ * `Official_Comment` invitation from it — and the extractor reports
+ * `submission_numbers` as a LIST, so a value has to be picked. The first is
+ * taken, matching what the header already displays as "the" paper, and a
+ * non-numeric or absent entry yields null so the caller can refuse to submit
+ * rather than send something the backend will reject with a 422.
+ */
+function submissionNumberFor(email: Email): number | null {
+  const raw = email.extraction?.submission_numbers?.[0];
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** The structured `detail` body the backend returns for a refused post. */
+type ErrorDetail = {
+  message?: string;
+  reason?: string;
+  error?: string;
+  error_type?: string;
+};
+
+function errorDetail(error: ApiError | null): ErrorDetail {
+  const raw = error?.data;
+  return raw && typeof raw === "object" ? (raw as ErrorDetail) : {};
+}
+
+/**
+ * True when the gate refused because this reply is ALREADY on OpenReview.
+ *
+ * ⚠️ MATCHED ON PROSE, which is a real weakness and not a stylistic one. The
+ * gate returns `{message, reason}` with no machine-readable code, so "already
+ * posted" is indistinguishable from "not a candidate" except by reading the
+ * sentence — and a reworded reason silently turns a handled, benign state back
+ * into a red error. The fix belongs in the backend (a `code` field on the gate
+ * decision); until then this is deliberately narrow, and every other 409 falls
+ * through to the generic gate message rather than being guessed at.
+ */
+function isAlreadyPosted(error: ApiError | null): boolean {
+  if (!error || error.status !== 409) return false;
+  return /already been posted/i.test(errorDetail(error).reason ?? "");
+}
+
+/**
+ * A specific, actionable sentence for each way a post can fail.
+ *
+ * Generic failure text is the thing to avoid here above all: every branch below
+ * leads to a DIFFERENT next action — retry, edit and retry, reroute, or call
+ * someone — and "something went wrong" leaves a chair to guess which, holding a
+ * reply that never reached the person waiting for it.
+ *
+ * Every case here means NOTHING WAS POSTED. The partial-success case (posted,
+ * ticket not closed) arrives as a 200 and is handled in the success path.
+ */
+function postFailureMessage(error: ApiError): string {
+  const detail = errorDetail(error);
+
+  switch (detail.error_type) {
+    case "OpenReviewNoteNotFoundError":
+      return (
+        "The comment being replied to no longer exists on OpenReview — it may " +
+        "have been deleted. Nothing was posted. Check the original discussion " +
+        "before trying again."
+      );
+    case "OpenReviewPermissionError":
+      return (
+        "OpenReview refused the post: this account isn't allowed to comment on " +
+        "this submission. Nothing was posted, and retrying won't help until " +
+        "the account's venue permissions are changed."
+      );
+    case "OpenReviewThreadMismatchError":
+      return (
+        "The comment being replied to belongs to a different submission than " +
+        "this email names, so posting would have put it in the wrong paper's " +
+        "discussion. Nothing was posted."
+      );
+    case "OpenReviewAPIError":
+      return `OpenReview rejected the request, and nothing was posted.${
+        detail.error ? ` ${detail.error}` : ""
+      } Retrying may work if this was temporary.`;
+    default:
+      break;
+  }
+
+  if (error.status === 409) {
+    // A gate refusal other than already-posted: not a candidate, no note id, no
+    // forum id, empty text. The gate's own `reason` is written for a person, so
+    // it is shown rather than paraphrased.
+    return (
+      detail.reason ??
+      "This reply can't be posted to OpenReview. Nothing was posted."
+    );
+  }
+  if (error.status === 501) {
+    return (
+      "This deployment isn't configured to post to OpenReview" +
+      `${detail.error ? ` (${detail.error})` : ""}. Nothing was posted — ` +
+      "this needs a configuration change, not a retry."
+    );
+  }
+  if (error.status === 404) {
+    // ⚠️ The one error whose `detail` is a plain string, not an object.
+    return error.detail || "This email no longer exists.";
+  }
+  return (
+    detail.message ??
+    error.detail ??
+    "Posting the reply to OpenReview failed. Nothing was posted."
   );
 }
 

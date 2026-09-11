@@ -2,6 +2,7 @@ export * from "./useEmailQueue";
 export * from "./useOpenReviewQueue";
 export * from "./useEmailByTicket";
 export * from "./useEmailById";
+export * from "./usePostOpenReviewReply";
 export * from "./useEmailQueueStream";
 export * from "./useAnalytics";
 export * from "./useEmailActions";

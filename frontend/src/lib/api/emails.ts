@@ -8,6 +8,8 @@ import type {
   EmailThreadResponse,
   IngestRequest,
   PipelineResult,
+  PostOpenReviewReplyRequest,
+  PostOpenReviewReplyResponse,
   QueueFacets,
   ReassignChairRequest,
   RerouteRequest,
@@ -283,6 +285,39 @@ export async function getEmailByTicketId(
 ): Promise<EmailDetailResponse> {
   const { data } = await apiClient.get<EmailDetailResponse>(
     `/emails/by-ticket/${ticketId}`
+  );
+  return data;
+}
+
+/** Relay a detected reply onward to OpenReview as a threaded Official Comment.
+ *
+ * `reply_text` is the chair's FINAL text and is posted verbatim — the backend
+ * never falls back to the originally extracted string, so whatever sits in the
+ * editor is what becomes visible on the forum.
+ *
+ * ⚠️ A 200 IS NOT UNCONDITIONALLY A FULL SUCCESS. The OpenReview comment is live
+ * the moment this resolves, but the Zendesk auto-solve that follows can fail
+ * independently — `ticket_resolution.outcome` says which of four things
+ * happened. A caller that reads 200 as "all done" silently drops the
+ * partial-success case, which is precisely the one that leaves a ticket open.
+ *
+ * Failure statuses, ALL of which mean nothing was posted:
+ *  - 409 — refused by the post gate (not a candidate, no note id, or already
+ *    posted). `detail.reason` says which.
+ *  - 501 — OpenReview access or the venue id is not configured here.
+ *  - 502 — OpenReview was reached and the call failed; `detail.error_type` names
+ *    which (`OpenReviewNoteNotFoundError`, `OpenReviewPermissionError`,
+ *    `OpenReviewThreadMismatchError`, `OpenReviewAPIError`).
+ *  - 404 — no such email. ⚠️ This one's `detail` is a plain STRING, unlike the
+ *    structured objects above.
+ */
+export async function postOpenReviewReply(
+  emailId: number | string,
+  payload: PostOpenReviewReplyRequest
+): Promise<PostOpenReviewReplyResponse> {
+  const { data } = await apiClient.post<PostOpenReviewReplyResponse>(
+    `/emails/${emailId}/post-openreview-reply`,
+    payload
   );
   return data;
 }

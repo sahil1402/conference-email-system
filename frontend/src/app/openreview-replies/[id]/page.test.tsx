@@ -20,9 +20,10 @@ import type { ReactNode } from "react";
 import type { Email, EmailDetailResponse } from "@/types";
 
 const getEmailById = vi.hoisted(() => vi.fn());
+const postOpenReviewReply = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
-  return { ...actual, getEmailById };
+  return { ...actual, getEmailById, postOpenReviewReply };
 });
 
 import OpenReviewReplyDetailPage from "./page";
@@ -97,7 +98,57 @@ const renderPage = (id = "7") =>
 
 const editor = () => screen.getByRole("textbox", { name: /reply to post/i });
 
-beforeEach(() => getEmailById.mockReset());
+beforeEach(() => {
+  getEmailById.mockReset();
+  postOpenReviewReply.mockReset();
+});
+
+// ---------------------------------------------------------------------------
+// Submit-action fixtures
+// ---------------------------------------------------------------------------
+const postButton = () =>
+  screen.getByRole("button", { name: /approve & post/i });
+
+/** A 200 response. `outcome` drives which of the four ticket fates it carries. */
+function posted(
+  outcome: "solved" | "solve_failed" | "skipped_no_ticket" | "skipped_closed" =
+    "solved",
+  overrides: Record<string, unknown> = {}
+) {
+  return {
+    ...email(),
+    openreview_post: {
+      state: "posted",
+      note_id: "new-note-1",
+      edit_id: "edit-1",
+      parent_note_id: NOTE_ID,
+      forum_id: FORUM_ID,
+      venue_id: VENUE,
+      submission_number: 1030,
+      visibility: "public",
+      readers: READER_GROUPS,
+      ...((overrides.openreview_post as object) ?? {}),
+    },
+    ticket_resolution: {
+      outcome,
+      attempted: outcome === "solved" || outcome === "solve_failed",
+      ticket_id: 21567,
+      zendesk_status: outcome === "solved" ? "solved" : null,
+      error: outcome === "solve_failed" ? "Zendesk returned 500" : null,
+      error_type: outcome === "solve_failed" ? "ZendeskSendError" : null,
+      // ⚠️ NON-NULL FOR EVERY NON-`solved` OUTCOME, including the benign skips.
+      recovery: outcome === "solved" ? null : "…next step…",
+    },
+    warning: outcome === "solved" ? null : "…next step…",
+  };
+}
+
+/** The ApiError shape the axios interceptor produces for a structured detail. */
+const apiError = (status: number, detail: Record<string, string>) => ({
+  status,
+  detail: JSON.stringify(detail),
+  data: detail,
+});
 
 // ---------------------------------------------------------------------------
 // Read-only context
@@ -544,10 +595,11 @@ describe("detail — visibility choice", () => {
     expect(internalOption()).not.toBeChecked();
   });
 
-  it("still wires no submit control", async () => {
-    /* ⚠️ DELETE/INVERT when the post action lands. The selection is local state
-       with no destination, and the page must not grow a control that looks like
-       it sends. */
+  it("keeps the choice available right up to the submit control", async () => {
+    /* Inverted from "still wires no submit control" now that commit 16 landed
+       the action. The property that still matters: the choice and the button
+       that acts on it are on screen together, so the visibility in effect is
+       never off-screen at the moment of posting. */
     const user = userEvent.setup();
     getEmailById.mockResolvedValue(detail(email()));
 
@@ -555,9 +607,8 @@ describe("detail — visibility choice", () => {
     await waitFor(() => expect(publicOption()).toBeChecked());
     await user.click(internalOption());
 
-    for (const name of [/post/i, /approve/i, /send/i, /submit/i]) {
-      expect(screen.queryByRole("button", { name })).toBeNull();
-    }
+    expect(internalOption()).toBeChecked();
+    expect(postButton()).toBeEnabled();
   });
 });
 
@@ -677,32 +728,476 @@ describe("detail — audience preview", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Approve & Post — what gets sent
+// ---------------------------------------------------------------------------
+describe("post — the request", () => {
+  it("sends the reply text, submission number and visibility", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockResolvedValue(posted());
+
+    renderPage("7");
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    await user.click(postButton());
+
+    await waitFor(() =>
+      expect(postOpenReviewReply).toHaveBeenCalledWith("7", {
+        reply_text: REPLY,
+        submission_number: 1030,
+        visibility: "public",
+      })
+    );
+  });
+
+  it("⚠️ sends the EDITED text, never the originally extracted string", async () => {
+    /* The frontend twin of the backend's own guard. `extracted_reply_text` is
+       still on the email and is still a plausible-looking string to read, so
+       wiring it here would produce a request that succeeds and posts something
+       the chair never approved — invisible in review, and public once sent. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockResolvedValue(posted());
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    await user.clear(editor());
+    await user.type(editor(), "Rewritten by the chair before posting.");
+    await user.click(postButton());
+
+    await waitFor(() => expect(postOpenReviewReply).toHaveBeenCalled());
+    const [, payload] = postOpenReviewReply.mock.calls[0];
+    expect(payload.reply_text).toBe("Rewritten by the chair before posting.");
+    expect(payload.reply_text).not.toBe(REPLY);
+  });
+
+  it("sends the SELECTED visibility, not always the default", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockResolvedValue(posted());
+
+    renderPage();
+    await waitFor(() => expect(publicOption()).toBeChecked());
+
+    await user.click(internalOption());
+    await user.click(postButton());
+
+    await waitFor(() => expect(postOpenReviewReply).toHaveBeenCalled());
+    expect(postOpenReviewReply.mock.calls[0][1].visibility).toBe("internal");
+  });
+
+  it("disables the button while the post is in flight", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    let release: (v: unknown) => void = () => {};
+    postOpenReviewReply.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    await user.click(postButton());
+
+    // The label becomes "Posting…" while in flight, so the button must be found
+    // by its new name — `postButton()` would throw here, which is itself the
+    // evidence that the in-flight state is rendering.
+    const inFlight = screen.getByRole("button", { name: /posting/i });
+    expect(inFlight).toBeDisabled();
+    expect(inFlight).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByRole("button", { name: /approve & post/i })).toBeNull();
+    release(posted());
+  });
+
+  it("a double-click posts only ONCE", async () => {
+    /* The comment is public and cannot be un-posted, so a second request is not
+       a harmless duplicate. The in-flight disable is the structural guard; the
+       backend's idempotency gate is the backstop for a revisit, not for this. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    let release: (v: unknown) => void = () => {};
+    postOpenReviewReply.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    const button = postButton();
+    await user.click(button);
+    await user.click(button);
+    await user.click(button);
+
+    expect(postOpenReviewReply).toHaveBeenCalledTimes(1);
+    release(posted());
+  });
+
+  it("refuses to submit an empty reply, and says why", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(
+      detail(
+        email({
+          extraction: { ...email().extraction!, extracted_reply_text: "" },
+        })
+      )
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(""));
+
+    expect(postButton()).toBeDisabled();
+    expect(screen.getByText(/write the reply before posting it/i)).toBeInTheDocument();
+
+    await user.click(postButton());
+    expect(postOpenReviewReply).not.toHaveBeenCalled();
+  });
+
+  it("refuses to submit with no submission number, and says why", async () => {
+    /* The endpoint requires `submission_number` (gt=0) to build the invitation.
+       Submitting without one would be a 422 the chair cannot act on, so the
+       reason is stated instead. */
+    getEmailById.mockResolvedValue(
+      detail(
+        email({
+          extraction: { ...email().extraction!, submission_numbers: [] },
+        })
+      )
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    expect(postButton()).toBeDisabled();
+    expect(
+      screen.getByText(/no submission number was extracted/i)
+    ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approve & Post — success
+// ---------------------------------------------------------------------------
+describe("post — success", () => {
+  it("confirms what was posted and links to it", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockResolvedValue(posted("solved"));
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    expect(
+      await screen.findByText(/reply posted to openreview/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/posted on submission 1030/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /view the posted comment on openreview/i })
+    ).toHaveAttribute(
+      "href",
+      `https://openreview.net/forum?id=${FORUM_ID}&noteId=${NOTE_ID}`
+    );
+  });
+
+  it("retires the editor and the button once posted", async () => {
+    /* The comment is live and cannot be un-posted, so leaving an editable box
+       and a working button would invite posting text that no longer matches
+       what is actually on the forum. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockResolvedValue(posted("solved"));
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    await screen.findByText(/reply posted to openreview/i);
+    expect(screen.queryByRole("textbox", { name: /reply to post/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /approve & post/i })).toBeNull();
+  });
+
+  it("names the restricted audience when posted internally", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockResolvedValue(
+      posted("solved", { openreview_post: { visibility: "internal" } })
+    );
+
+    renderPage();
+    await waitFor(() => expect(publicOption()).toBeChecked());
+    await user.click(internalOption());
+    await user.click(postButton());
+
+    expect(
+      await screen.findByText(/as a restricted comment/i)
+    ).toBeInTheDocument();
+  });
+
+  it.each(["skipped_no_ticket", "skipped_closed"] as const)(
+    "treats %s as a clean success, with no warning",
+    async (outcome) => {
+      /* ⚠️ THE TRAP THIS PINS: the backend sets the top-level `warning` for
+         EVERY non-`solved` outcome, so a UI keyed on `warning != null` raises
+         an alarm about "this email has no Zendesk ticket". Only `solve_failed`
+         is a problem. */
+      const user = userEvent.setup();
+      getEmailById.mockResolvedValue(detail(email()));
+      postOpenReviewReply.mockResolvedValue(posted(outcome));
+
+      renderPage();
+      await waitFor(() => expect(editor()).toHaveValue(REPLY));
+      await user.click(postButton());
+
+      await screen.findByText(/reply posted to openreview/i);
+      expect(screen.queryByText(/needs attention/i)).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+    }
+  );
+
+  it("flags solve_failed as needing attention (PLACEHOLDER — commit 16b)", async () => {
+    /* ⚠️ PLACEHOLDER ASSERTION. This pins only that the state is SURFACED, not
+       how it is handled — there is deliberately no recovery control yet. When
+       16b lands, this test should grow, not be deleted. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockResolvedValue(posted("solve_failed"));
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    expect(
+      await screen.findByText(/reply posted to openreview/i)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /zendesk ticket couldn't be closed automatically/i
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approve & Post — failure
+//
+// Every case here means NOTHING was posted, so the page must keep the chair
+// where they are, with the editor intact and a sentence specific enough to act
+// on. A generic "something went wrong" is the failure mode being guarded.
+// ---------------------------------------------------------------------------
+describe("post — failure", () => {
+  it.each([
+    [
+      "OpenReviewNoteNotFoundError",
+      502,
+      /no longer exists on openreview/i,
+    ],
+    [
+      "OpenReviewPermissionError",
+      502,
+      /isn't allowed to comment on this submission/i,
+    ],
+    [
+      "OpenReviewThreadMismatchError",
+      502,
+      /belongs to a different submission/i,
+    ],
+    ["OpenReviewAPIError", 502, /openreview rejected the request/i],
+  ])("shows a specific message for %s", async (errorType, status, expected) => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue(
+      apiError(status, {
+        message: "Posting the reply to OpenReview failed",
+        error_type: errorType,
+        error: "boom",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(expected);
+    // Distinct per type, not one message with a code appended.
+    expect(banner).not.toHaveTextContent(/something went wrong/i);
+  });
+
+  it("keeps the chair on the page with the edited text intact", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue(
+      apiError(502, {
+        message: "failed",
+        error_type: "OpenReviewAPIError",
+        error: "upstream 500",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.clear(editor());
+    await user.type(editor(), "Edited then failed.");
+    await user.click(postButton());
+
+    await screen.findByRole("alert");
+    expect(editor()).toHaveValue("Edited then failed.");
+    expect(postButton()).toBeEnabled();
+    expect(screen.queryByText(/reply posted to openreview/i)).toBeNull();
+  });
+
+  it("surfaces the gate's own reason for a non-idempotency refusal", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue(
+      apiError(409, {
+        message: "Refused by the OpenReview post gate.",
+        reason:
+          "This email is not an OpenReview reply candidate " +
+          "(openreview_reply_candidate is false), so there is no parent " +
+          "comment to reply to.",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /not an openreview reply candidate/i
+    );
+  });
+
+  it("explains a 501 as configuration, not something to retry", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue(
+      apiError(501, {
+        message: "OpenReview access is not configured.",
+        error: "OPENREVIEW_USERNAME to be set",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/isn't configured to post to openreview/i);
+    expect(banner).toHaveTextContent(/not a retry/i);
+  });
+
+  it("handles a plain-string 404 detail without rendering JSON at a chair", async () => {
+    /* ⚠️ The 404's `detail` is a STRING while every other error's is an object.
+       Reading `.message` off it yields undefined, and a naive fallback prints
+       the stringified body. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue({
+      status: 404,
+      detail: "Email 7 not found",
+      data: "Email 7 not found",
+    });
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("Email 7 not found");
+    expect(banner.textContent).not.toMatch(/[{}]/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Already posted — not an error
+// ---------------------------------------------------------------------------
+describe("post — already posted", () => {
+  it("reports it as done, not as a failure", async () => {
+    /* The chair asked for something that is already true. A red banner would
+       say "your action failed" about an action that in fact succeeded — just
+       not now. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue(
+      apiError(409, {
+        message: "Refused by the OpenReview post gate.",
+        reason:
+          "This reply has already been posted to OpenReview (note abc123). " +
+          "Refusing to post a duplicate.",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    expect(
+      await screen.findByText(/already on openreview/i)
+    ).toBeInTheDocument();
+    // Announced as status, never as an alert — that is the whole distinction.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/refusing to post a duplicate/i)).toBeNull();
+  });
+
+  it("does not mistake another 409 for an already-posted one", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue(
+      apiError(409, {
+        message: "Refused by the OpenReview post gate.",
+        reason: "The reply text is empty; there is nothing to post.",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /the reply text is empty/i
+    );
+    expect(screen.queryByText(/already on openreview/i)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // No actions are wired
 // ---------------------------------------------------------------------------
-describe("detail — actions are not wired yet", () => {
-  it("renders no post/approve/reroute control", async () => {
-    /* ⚠️ DELETE/INVERT when the actions land. The page renders NO action button
-       at all rather than disabled ones, so a chair cannot mistake a dead
-       control for a broken one. */
+// INVERTED from "detail — actions are not wired yet". Commit 16 landed the post
+// action, so the old assertions (no action button; a note saying edits are not
+// saved) are now the bug rather than the guard. What carries over is the
+// SCOPE: exactly one action lives here, and the actions that belong to the main
+// queue must not drift onto this page.
+describe("detail — exactly one action", () => {
+  it("offers Approve & Post, and nothing else", async () => {
     getEmailById.mockResolvedValue(detail(email()));
 
     renderPage();
     await waitFor(() => expect(editor()).toHaveValue(REPLY));
 
-    for (const name of [/post/i, /approve/i, /reroute/i, /send/i, /submit/i]) {
+    expect(postButton()).toBeInTheDocument();
+    // The queue's own actions are deliberately absent: this page relays a reply
+    // to OpenReview, it does not triage the ticket.
+    for (const name of [/reroute/i, /reassign/i, /re-draft/i, /mark solved/i]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
   });
 
-  it("tells the chair in the UI that edits are not saved", async () => {
-    /* Stated on screen, not only in a code comment — someone who types here and
-       finds no submit needs to know that is expected. */
+  it("warns that posting cannot be undone, before it is clicked", async () => {
+    /* Replaces the old "edits are not saved" note. The action publishes to a
+       public venue and there is no un-post anywhere in this app, so the warning
+       has to precede the click rather than explain it afterwards. */
     getEmailById.mockResolvedValue(detail(email()));
 
     renderPage();
 
     expect(
-      await screen.findByText(/isn't wired up yet — edits here are not saved/i)
+      await screen.findByText(/posting publishes this comment on openreview/i)
     ).toBeInTheDocument();
+    expect(screen.getByText(/can't be undone here/i)).toBeInTheDocument();
   });
 });

@@ -22,7 +22,21 @@ const state = vi.hoisted(() => ({
   error: null as ApiError | null,
   refetch: vi.fn(),
 }));
-vi.mock("@/hooks", () => ({ useEmailById: () => state }));
+/** Idle mutation. Every state in this file renders BEFORE an email exists, so
+ *  the post action is unreachable here — but the barrel is replaced wholesale,
+ *  so the hook still has to be defined or the page throws on render. */
+const idlePost = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  isPending: false,
+  isError: false,
+  isSuccess: false,
+  error: null,
+  data: undefined,
+}));
+vi.mock("@/hooks", () => ({
+  useEmailById: () => state,
+  usePostOpenReviewReply: () => idlePost,
+}));
 
 import OpenReviewReplyDetailPage from "./page";
 

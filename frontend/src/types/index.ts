@@ -317,6 +317,65 @@ export interface ReassignmentEvent {
 // Persisted record — emails.py::_email_to_dict
 // ---------------------------------------------------------------------------
 
+/** Who may read a relayed reply. Mirrors the backend's `visibility` field. */
+export type OpenReviewVisibility = "public" | "internal";
+
+/**
+ * What happened to the Zendesk ticket after a successful OpenReview post.
+ *
+ * ⚠️ FOUR VALUES, NOT A BOOLEAN, and the UI must branch on `outcome` rather
+ * than on the response's top-level `warning`. The backend sets `warning` for
+ * every non-`solved` outcome, INCLUDING the two benign skips — so treating a
+ * non-null warning as a problem would flag "this email has no Zendesk ticket"
+ * as something needing attention. Only `solve_failed` is a failure.
+ */
+export type OpenReviewSolveOutcome =
+  | "solved"
+  | "solve_failed"
+  | "skipped_no_ticket"
+  | "skipped_closed";
+
+export interface OpenReviewTicketResolution {
+  outcome: OpenReviewSolveOutcome;
+  /** Whether a Zendesk write was actually attempted (false for both skips). */
+  attempted: boolean;
+  ticket_id: number | null;
+  zendesk_status: string | null;
+  error: string | null;
+  error_type: string | null;
+  /** Plain-language next step; present for every non-`solved` outcome. */
+  recovery: string | null;
+}
+
+/** The comment that was posted, as recorded on `draft.openreview_post`. */
+export interface OpenReviewPostMeta {
+  state: string;
+  note_id: string | null;
+  edit_id: string | null;
+  parent_note_id: string;
+  forum_id: string;
+  venue_id: string;
+  submission_number: number;
+  visibility: OpenReviewVisibility;
+  /** The audience the comment was actually posted to. */
+  readers: string[];
+}
+
+export interface PostOpenReviewReplyRequest {
+  /** The chair's FINAL text — never the originally extracted string. */
+  reply_text: string;
+  submission_number: number;
+  visibility: OpenReviewVisibility;
+  posted_by?: string;
+}
+
+/** The refreshed email, plus what this action did. */
+export interface PostOpenReviewReplyResponse extends Email {
+  openreview_post: OpenReviewPostMeta;
+  ticket_resolution: OpenReviewTicketResolution;
+  warning: string | null;
+}
+
 /**
  * The audience of the OpenReview note a reply candidate is answering.
  *
@@ -700,6 +759,17 @@ export interface ReassignChairRequest {
 export interface ApiError {
   detail: string;
   status: number;
+  /**
+   * The raw `detail` body, BEFORE the interceptor flattens it to a string.
+   *
+   * Purely additive — `detail` is unchanged for every existing consumer. It
+   * exists because some endpoints return a structured detail
+   * (`{message, error_type, error}`, `{message, reason}`) that carries the
+   * distinction the caller needs to act on, and stringifying it forces the UI
+   * to re-derive that distinction by pattern-matching prose. `undefined` when
+   * the response carried no `detail` at all.
+   */
+  data?: unknown;
 }
 
 // ---------------------------------------------------------------------------
