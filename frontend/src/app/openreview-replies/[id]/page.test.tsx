@@ -21,9 +21,11 @@ import type { Email, EmailDetailResponse } from "@/types";
 
 const getEmailById = vi.hoisted(() => vi.fn());
 const postOpenReviewReply = vi.hoisted(() => vi.fn());
+/** The SAME client fn the main Inbox's mark-solved control uses. */
+const setEmailStatus = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
-  return { ...actual, getEmailById, postOpenReviewReply };
+  return { ...actual, getEmailById, postOpenReviewReply, setEmailStatus };
 });
 
 import OpenReviewReplyDetailPage from "./page";
@@ -101,6 +103,7 @@ const editor = () => screen.getByRole("textbox", { name: /reply to post/i });
 beforeEach(() => {
   getEmailById.mockReset();
   postOpenReviewReply.mockReset();
+  setEmailStatus.mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -954,29 +957,193 @@ describe("post — success", () => {
       await user.click(postButton());
 
       await screen.findByText(/reply posted to openreview/i);
-      expect(screen.queryByText(/needs attention/i)).toBeNull();
+      expect(screen.queryByText(/couldn't be closed automatically/i)).toBeNull();
       expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByRole("button", { name: /mark solved/i })).toBeNull();
     }
   );
+});
 
-  it("flags solve_failed as needing attention (PLACEHOLDER — commit 16b)", async () => {
-    /* ⚠️ PLACEHOLDER ASSERTION. This pins only that the state is SURFACED, not
-       how it is handled — there is deliberately no recovery control yet. When
-       16b lands, this test should grow, not be deleted. */
-    const user = userEvent.setup();
-    getEmailById.mockResolvedValue(detail(email()));
-    postOpenReviewReply.mockResolvedValue(posted("solve_failed"));
+// ---------------------------------------------------------------------------
+// solve_failed — the partial success, and its recovery
+//
+// GREW OUT OF commit 16a's placeholder test, which pinned only that the state
+// was surfaced and carried a note saying it should grow rather than be deleted
+// when the recovery landed. The original assertions (post confirmed, amber
+// alert present) are kept verbatim in the first test below; everything after it
+// is the recovery the placeholder deliberately did not build.
+// ---------------------------------------------------------------------------
+/** Drive the page to the solve_failed state and return the user-event handle. */
+async function reachSolveFailed() {
+  const user = userEvent.setup();
+  getEmailById.mockResolvedValue(detail(email()));
+  postOpenReviewReply.mockResolvedValue(posted("solve_failed"));
 
-    renderPage();
-    await waitFor(() => expect(editor()).toHaveValue(REPLY));
-    await user.click(postButton());
+  renderPage();
+  await waitFor(() => expect(editor()).toHaveValue(REPLY));
+  await user.click(postButton());
+  await screen.findByText(/reply posted to openreview/i);
+  return user;
+}
 
-    expect(
-      await screen.findByText(/reply posted to openreview/i)
-    ).toBeInTheDocument();
+const solveButton = () => screen.getByRole("button", { name: /^mark solved/i });
+
+describe("post — solve_failed recovery", () => {
+  it("states the post succeeded but the ticket did not close", async () => {
+    await reachSolveFailed();
+
+    expect(screen.getByText(/reply posted to openreview/i)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
       /zendesk ticket couldn't be closed automatically/i
     );
+  });
+
+  it("offers a Mark solved action instead of a dead end", async () => {
+    await reachSolveFailed();
+
+    expect(solveButton()).toBeEnabled();
+  });
+
+  it("calls the EXISTING set-status endpoint with this email and 'solved'", async () => {
+    /* ⚠️ Deliberately the same call the main Inbox makes — `setEmailStatus`,
+       not a new OpenReview-specific route. The OpenReview comment is already
+       public; only the Zendesk half is outstanding, so re-entering the post
+       path would be blocked by the idempotency gate at best and duplicate a
+       public comment at worst. */
+    const user = await reachSolveFailed();
+    setEmailStatus.mockResolvedValue({});
+
+    await user.click(solveButton());
+
+    await waitFor(() =>
+      expect(setEmailStatus).toHaveBeenCalledWith(7, "solved")
+    );
+  });
+
+  it("reports full resolution and clears the alert on success", async () => {
+    const user = await reachSolveFailed();
+    setEmailStatus.mockResolvedValue({});
+
+    await user.click(solveButton());
+
+    expect(
+      await screen.findByText(/ticket marked solved — this reply is now fully resolved/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.queryByText(/couldn't be closed automatically/i)
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /mark solved/i })).toBeNull();
+  });
+
+  it("does not raise a SECOND success message competing with the first", async () => {
+    /* The OpenReview post was already confirmed above; this is the same state
+       completing, not a new achievement. One confirmation panel, one quiet line
+       — not two green boxes arguing for attention. */
+    const user = await reachSolveFailed();
+    setEmailStatus.mockResolvedValue({});
+
+    await user.click(solveButton());
+    await screen.findByText(/now fully resolved/i);
+
+    expect(screen.getAllByText(/reply posted to openreview/i)).toHaveLength(1);
+  });
+
+  it("shows an error specific to THIS retry when it fails", async () => {
+    const user = await reachSolveFailed();
+    setEmailStatus.mockRejectedValue({
+      status: 502,
+      detail: "Zendesk returned 500",
+    });
+
+    await user.click(solveButton());
+
+    const banners = await screen.findAllByRole("alert");
+    const retryError = banners.find((b) =>
+      /marking the ticket solved failed/i.test(b.textContent ?? "")
+    );
+    expect(retryError).toBeDefined();
+    expect(retryError).toHaveTextContent("Zendesk returned 500");
+  });
+
+  it("keeps the OpenReview confirmation intact when the retry fails", async () => {
+    /* ⚠️ THE PROPERTY THAT MATTERS MOST HERE. The post succeeded and nothing on
+       this page can undo it, so a failed retry must not read as the whole
+       action coming apart — a chair who concludes the reply never went out
+       would post it a second time. */
+    const user = await reachSolveFailed();
+    setEmailStatus.mockRejectedValue({ status: 502, detail: "boom" });
+
+    await user.click(solveButton());
+    await screen.findByText(/marking the ticket solved failed/i);
+
+    expect(screen.getByText(/reply posted to openreview/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /view the posted comment on openreview/i })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/the reply IS posted on OpenReview/i)).toBeInTheDocument();
+  });
+
+  it("stays retryable after a failure", async () => {
+    const user = await reachSolveFailed();
+    setEmailStatus.mockRejectedValueOnce({ status: 502, detail: "boom" });
+
+    await user.click(solveButton());
+    await screen.findByText(/marking the ticket solved failed/i);
+
+    setEmailStatus.mockResolvedValue({});
+    await user.click(solveButton());
+
+    expect(await screen.findByText(/now fully resolved/i)).toBeInTheDocument();
+  });
+
+  it("disables the button while the retry is in flight", async () => {
+    const user = await reachSolveFailed();
+    let release: (v: unknown) => void = () => {};
+    setEmailStatus.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    await user.click(solveButton());
+
+    const inFlight = screen.getByRole("button", { name: /marking solved/i });
+    expect(inFlight).toBeDisabled();
+    expect(inFlight).toHaveAttribute("aria-busy", "true");
+    release({});
+  });
+
+  it("a double-click marks solved only ONCE", async () => {
+    const user = await reachSolveFailed();
+    let release: (v: unknown) => void = () => {};
+    setEmailStatus.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    const button = solveButton();
+    await user.click(button);
+    await user.click(button);
+    await user.click(button);
+
+    expect(setEmailStatus).toHaveBeenCalledTimes(1);
+    release({});
+  });
+
+  it("never re-posts to OpenReview from the recovery path", async () => {
+    /* The comment is already public. Any path from here back into
+       /post-openreview-reply is a duplicate-post risk, so it is asserted
+       absent rather than assumed. */
+    const user = await reachSolveFailed();
+    setEmailStatus.mockResolvedValue({});
+    const postCallsBefore = postOpenReviewReply.mock.calls.length;
+
+    await user.click(solveButton());
+    await screen.findByText(/now fully resolved/i);
+
+    expect(postOpenReviewReply).toHaveBeenCalledTimes(postCallsBefore);
   });
 });
 

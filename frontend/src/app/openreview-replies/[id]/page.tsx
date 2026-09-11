@@ -12,7 +12,11 @@ import {
   Users,
 } from "lucide-react";
 
-import { useEmailById, usePostOpenReviewReply } from "@/hooks";
+import {
+  useEmailById,
+  usePostOpenReviewReply,
+  useSetEmailStatus,
+} from "@/hooks";
 import { EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
@@ -653,6 +657,98 @@ function AudiencePreview({
 }
 
 /**
+ * Recovery for the partial-success case: posted to OpenReview, ticket still open.
+ *
+ * The action is `POST /emails/{id}/set-status` with `"solved"` — the SAME
+ * endpoint and the same `useSetEmailStatus` hook the main Inbox already uses
+ * for its mark-solved control. Nothing new is added backend-side: the auto-solve
+ * in commit 12 calls `ZendeskSender.set_status_only` directly, and this calls it
+ * over HTTP, so a manual retry is genuinely the same write the automatic attempt
+ * made — which is why retrying it is a real fix and not a hopeful gesture.
+ *
+ * ⚠️ THE OPENREVIEW POST IS NOT RE-SENT AND CANNOT BE. That comment is already
+ * public; only the Zendesk half is outstanding. Wiring this to anything that
+ * touched `/post-openreview-reply` again would be blocked by the idempotency
+ * gate at best, and duplicate a public comment at worst.
+ */
+function SolveRecovery({ emailId }: { emailId: number }) {
+  const solve = useSetEmailStatus();
+
+  if (solve.isSuccess) {
+    // Reads as the amber block RESOLVING, not as a second success competing
+    // with the OpenReview confirmation above: no panel, no border, no second
+    // green box — one quiet line completing the state that was incomplete.
+    return (
+      <p
+        className="flex items-center gap-2 text-sm"
+        style={{ color: "var(--text-secondary)" }}
+        role="status"
+      >
+        <CheckCircle2
+          className="h-4 w-4 shrink-0"
+          style={{ color: "var(--success)" }}
+          aria-hidden
+        />
+        Ticket marked solved — this reply is now fully resolved.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div
+        className="flex items-start gap-2 rounded-lg border p-3 text-sm"
+        style={{
+          borderColor: "var(--warning)",
+          backgroundColor: "var(--warning-subtle)",
+          color: "var(--text-primary)",
+        }}
+        role="alert"
+      >
+        <AlertTriangle
+          className="h-4 w-4 shrink-0 translate-y-0.5"
+          style={{ color: "var(--warning)" }}
+          aria-hidden
+        />
+        <span>
+          The reply is posted, but the Zendesk ticket couldn&apos;t be closed
+          automatically and is still open.
+        </span>
+      </div>
+
+      {solve.isError && (
+        // Scoped to THIS retry. The OpenReview confirmation above stays exactly
+        // where it is and stays true — the post succeeded and nothing here can
+        // change that, so an error must not read as though the whole action
+        // came undone.
+        <ErrorBanner
+          message={`Marking the ticket solved failed${
+            solve.error?.detail ? `: ${solve.error.detail}` : "."
+          } The reply IS posted on OpenReview; only the ticket is still open. Try again, or close it from the ticket itself.`}
+        />
+      )}
+
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => solve.mutate({ id: emailId, status: "solved" })}
+        // Same in-flight guard as Approve & Post: a disabled button is the
+        // structural protection against a double-click, not a hope that the
+        // second request is harmless.
+        disabled={solve.isPending}
+        aria-busy={solve.isPending}
+        className="w-fit"
+      >
+        {solve.isPending && (
+          <LoadingSpinner size="sm" className="!text-[var(--text-primary)]" />
+        )}
+        {solve.isPending ? "Marking solved…" : "Mark solved"}
+      </Button>
+    </div>
+  );
+}
+
+/**
  * What happened, once the reply is on OpenReview.
  *
  * Replaces the editor rather than sitting above it. The comment is public and
@@ -718,35 +814,7 @@ function PostedPanel({
         )}
       </div>
 
-      {solveFailed && (
-        // ⚠️ PLACEHOLDER — COMMIT 16b OWNS THIS STATE.
-        //
-        // Deliberately only a statement of fact with no recovery control. The
-        // real handling (a retry that calls /set-status, or a route back into
-        // the queue's failed bucket) is a separate piece, and a half-built
-        // version would be worse than none: a button that looks like it fixes
-        // the ticket but does not is how an open ticket gets marked handled.
-        <div
-          className="flex items-start gap-2 rounded-lg border p-3 text-sm"
-          style={{
-            borderColor: "var(--warning)",
-            backgroundColor: "var(--warning-subtle)",
-            color: "var(--text-primary)",
-          }}
-          role="alert"
-        >
-          <AlertTriangle
-            className="h-4 w-4 shrink-0 translate-y-0.5"
-            style={{ color: "var(--warning)" }}
-            aria-hidden
-          />
-          <span>
-            The reply is posted, but the Zendesk ticket couldn&apos;t be closed
-            automatically and is still open. It needs attention — closing it
-            from here isn&apos;t wired up yet.
-          </span>
-        </div>
-      )}
+      {solveFailed && <SolveRecovery emailId={result.id} />}
 
       <Link
         href="/openreview-replies"
