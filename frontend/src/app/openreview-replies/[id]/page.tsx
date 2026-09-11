@@ -2,13 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, FileQuestion, Info } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ExternalLink,
+  FileQuestion,
+  Info,
+  Users,
+} from "lucide-react";
 
 import { useEmailById } from "@/hooks";
 import { EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Email } from "@/types";
+import type { Email, OpenReviewReaders } from "@/types";
+
+/** The reply's audience. Mirrors the backend's `visibility` request field. */
+type Visibility = "public" | "internal";
 
 const FIELD_STYLE = {
   backgroundColor: "var(--surface)",
@@ -75,6 +85,9 @@ export default function OpenReviewReplyDetailPage({
   const { email, isLoading, isError, error, refetch } = useEmailById(id);
 
   const [replyText, setReplyText] = useState("");
+  // Local only, deliberately. Nothing submits from this page yet, so this value
+  // is read by nothing but the preview line beneath the control.
+  const [visibility, setVisibility] = useState<Visibility>("public");
 
   // Adopt the server's text once it arrives, and again if a later poll changes
   // it — but keyed on the FETCHED value, not on every render, so a chair's
@@ -148,6 +161,19 @@ export default function OpenReviewReplyDetailPage({
             <OpenReviewCommentLink email={email} />
           </section>
 
+          {/* A FACT about the parent note: who can see the comment being
+              answered. Does not move when the toggle does — the original
+              comment's audience is not something this page changes. */}
+          <OriginalCommentAudience readers={email.openreview_readers} />
+
+          {/* The CONSEQUENCE of the chair's choice, kept visually and
+              structurally separate from the fact above. */}
+          <VisibilityChoice
+            value={visibility}
+            onChange={setVisibility}
+            readers={email.openreview_readers}
+          />
+
           {/* The reply itself — editable, because the chair may adjust it
               before it is relayed. */}
           <section className="flex flex-col gap-2">
@@ -195,6 +221,337 @@ export default function OpenReviewReplyDetailPage({
         </>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The longest shared `/`-separated prefix across reader ids, or `""`.
+ *
+ * Used ONLY to decide what to de-emphasise visually — never to shorten, rename
+ * or hide anything. Every group id is rendered in full; the shared venue head
+ * is just drawn in a muted colour so the eye lands on the part that differs.
+ *
+ * The `p.length > i + 1` guard is the mechanism that matters: it stops the scan
+ * one segment before the end of the SHORTEST id, so every reader always keeps at
+ * least one distinguishing segment at full weight — even for two identical ids,
+ * which would otherwise be dimmed into two blank-looking rows.
+ *
+ * NOT exported — same constraint as `openReviewCommentUrl` below: an App Router
+ * `page.tsx` may only export `default` plus a fixed set of framework names, and
+ * a stray named export fails `next build` while passing tsc, lint AND the tests.
+ */
+function commonGroupPrefix(readers: string[]): string {
+  if (readers.length < 2) return "";
+  const parts = readers.map((r) => r.split("/"));
+  const shared: string[] = [];
+  for (let i = 0; i < parts[0].length; i += 1) {
+    const segment = parts[0][i];
+    // Bounding the loop at `parts[0].length - 1` as well was tried and removed:
+    // it provably never changes the result, because this guard already stops the
+    // scan first on every input. A redundant bound reads as a second safeguard
+    // and would send the next reader looking for the case that needs it.
+    const allMatch = parts.every((p) => p.length > i + 1 && p[i] === segment);
+    if (!allMatch) break;
+    shared.push(segment);
+  }
+  return shared.length > 0 ? `${shared.join("/")}/` : "";
+}
+
+/**
+ * One OpenReview group id.
+ *
+ * ⚠️ RENDERED VERBATIM. These are ugly — `AAAI.org/2027/Submission1030/Reviewers`
+ * — and the temptation is to prettify them into "Reviewers". That is not done
+ * anywhere here, on purpose: a friendly label is a CLAIM about who is included,
+ * and this page is where a chair decides who may read something. A relabelling
+ * that is subtly wrong (Reviewers vs Area Chairs vs Senior Area Chairs, all of
+ * which exist in a real venue) would misinform exactly the decision it decorates.
+ *
+ * So the id is shown complete, monospaced, and selectable; only the shared venue
+ * prefix is dimmed. Nothing is removed, so nothing can be misread.
+ *
+ * ⚠️ THE COMPLETENESS IS STRUCTURAL, NOT A CONVENTION TO UPHOLD: `head` is only
+ * ever a prefix `id` actually starts with, and `tail` is the remainder by
+ * `slice`, so `head + tail === id` for every input — including a prefix computed
+ * wrongly, or not at all. `commonGroupPrefix` can therefore only change how much
+ * of the id is dimmed; it cannot drop, reorder or truncate a character of it.
+ * That is what makes the dimming safe to do at all on a page about disclosure.
+ */
+function ReaderGroup({ id, prefix }: { id: string; prefix: string }) {
+  const head = prefix && id.startsWith(prefix) ? prefix : "";
+  const tail = head ? id.slice(head.length) : id;
+
+  return (
+    <li
+      className="inline-flex max-w-full items-center rounded-md border px-2 py-1 font-mono text-xs"
+      style={{
+        borderColor: "var(--border)",
+        backgroundColor: "var(--surface)",
+      }}
+    >
+      <span className="truncate">
+        {head && <span style={{ color: "var(--text-muted)" }}>{head}</span>}
+        <span style={{ color: "var(--text-primary)" }}>{tail}</span>
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Who can currently see the OpenReview comment being replied to.
+ *
+ * Three states, handled as three genuinely different things:
+ *
+ * - `not_applicable` → renders NOTHING. There is no parent comment, so there is
+ *   no audience, and an empty panel would imply one exists and is empty.
+ *   ⚠️ This IS reachable here, not merely defensive — see the note in the
+ *   component body.
+ * - `failed` → says so, and shows the error. Never a blank list: "we could not
+ *   find out" and "nobody can see it" are opposite facts and must not share a
+ *   rendering.
+ * - `fetched` → the live list, verbatim. An EMPTY list is a real answer and gets
+ *   its own wording, distinct from the failure above.
+ */
+function OriginalCommentAudience({
+  readers,
+}: {
+  readers: OpenReviewReaders | undefined;
+}) {
+  // Absent entirely: an older backend, or a response shape that predates the
+  // field. Treated like not-applicable rather than guessed at.
+  if (!readers || readers.state === "not_applicable") return null;
+
+  const heading = (
+    <span
+      className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide"
+      style={{ color: "var(--text-muted)" }}
+    >
+      <Users className="h-3.5 w-3.5" aria-hidden />
+      Who can see the original comment
+    </span>
+  );
+
+  if (readers.state === "failed") {
+    return (
+      <section
+        className="mb-6 flex flex-col gap-2 rounded-lg border p-4"
+        style={{
+          borderColor: "var(--border)",
+          backgroundColor: "var(--surface-raised)",
+        }}
+      >
+        {heading}
+        <p
+          className="flex items-start gap-1.5 text-sm"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <AlertTriangle
+            className="h-4 w-4 shrink-0 translate-y-0.5"
+            style={{ color: "var(--warning)" }}
+            aria-hidden
+          />
+          <span>
+            Couldn&apos;t confirm the audience — OpenReview didn&apos;t answer.
+            The reply can still be posted; it will reach whoever can see the
+            original comment.
+          </span>
+        </p>
+        {readers.error && (
+          <p className="pl-6 font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+            {readers.error}
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  const list = readers.readers ?? [];
+  const prefix = commonGroupPrefix(list);
+
+  return (
+    <section
+      className="mb-6 flex flex-col gap-2 rounded-lg border p-4"
+      style={{
+        borderColor: "var(--border)",
+        backgroundColor: "var(--surface-raised)",
+      }}
+    >
+      {heading}
+      {list.length === 0 ? (
+        // Fetched, and genuinely empty. Worded so it cannot be read as the
+        // failure above: we DID find out, and the answer was "no groups".
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          OpenReview lists no reader groups on this comment.
+        </p>
+      ) : (
+        <ul
+          aria-label="Reader groups on the original comment"
+          className="flex flex-wrap gap-1.5"
+        >
+          {list.map((groupId) => (
+            <ReaderGroup key={groupId} id={groupId} prefix={prefix} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+const VISIBILITY_OPTIONS: {
+  value: Visibility;
+  label: string;
+  blurb: string;
+}[] = [
+  {
+    value: "public",
+    label: "Public",
+    blurb: "Same audience as the original comment.",
+  },
+  {
+    value: "internal",
+    label: "Internal",
+    blurb: "Only the Program Chairs and this paper's authors.",
+  },
+];
+
+/**
+ * Choose the reply's audience.
+ *
+ * A RADIO GROUP, not a switch, and that is a correction rather than a
+ * preference. The app had a two-state visibility switch on the Zendesk send
+ * path and it was removed (2026-08-05) because a switch is a MODE the chair has
+ * to remember to set, and a wrong setting was silent in both directions. Here
+ * both options are on screen at once, each spelled out, with the selected one
+ * marked — there is no state to remember, only a choice to read.
+ *
+ * Native `<input type="radio">` under an `sr-only` class rather than
+ * `aria-checked` buttons: grouping, arrow-key navigation and screen-reader
+ * announcement come from the browser instead of from ARIA this file would have
+ * to keep correct.
+ */
+function VisibilityChoice({
+  value,
+  onChange,
+  readers,
+}: {
+  value: Visibility;
+  onChange: (next: Visibility) => void;
+  readers: OpenReviewReaders | undefined;
+}) {
+  return (
+    <section className="mb-6 flex flex-col gap-3">
+      <fieldset className="flex flex-col gap-2">
+        <legend
+          className="mb-2 text-xs font-medium uppercase tracking-wide"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Reply visibility
+        </legend>
+
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {VISIBILITY_OPTIONS.map((option) => {
+            const selected = value === option.value;
+            return (
+              <label
+                key={option.value}
+                className={cn(
+                  "flex cursor-pointer flex-col gap-1 rounded-lg border p-3 transition-colors",
+                  "focus-within:ring-2 focus-within:ring-[var(--accent)]",
+                  "focus-within:ring-offset-2 focus-within:ring-offset-[var(--background)]"
+                )}
+                style={{
+                  borderColor: selected ? "var(--accent)" : "var(--border)",
+                  backgroundColor: selected
+                    ? "var(--accent-subtle)"
+                    : "var(--surface-raised)",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="openreview-reply-visibility"
+                  value={option.value}
+                  checked={selected}
+                  onChange={() => onChange(option.value)}
+                  className="sr-only"
+                />
+                <span
+                  className="text-sm font-semibold"
+                  style={{
+                    color: selected ? "var(--accent)" : "var(--text-primary)",
+                  }}
+                >
+                  {option.label}
+                </span>
+                <span
+                  className="text-xs leading-relaxed"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {option.blurb}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      <AudiencePreview value={value} readers={readers} />
+    </section>
+  );
+}
+
+/**
+ * What the current choice means for this reply, in one line.
+ *
+ * ⚠️ THE INTERNAL BRANCH DELIBERATELY SHOWS NO GROUP IDS. It cannot: the
+ * internal audience is `{venue}/Program_Chairs` + `{venue}/Submission{n}/Authors`,
+ * built server-side from `OPENREVIEW_VENUE_ID` — backend-only config that never
+ * reaches the browser — and from a submission number the backend is given per
+ * request. Rendering a guess at those two strings would put fabricated ids in
+ * the same monospace pills as the REAL fetched ones above, where they would read
+ * as equally authoritative. Plain language is the honest form of an answer this
+ * page does not have.
+ *
+ * The public branch has the opposite property: it can point at the real list,
+ * because the real list is right above it.
+ */
+function AudiencePreview({
+  value,
+  readers,
+}: {
+  value: Visibility;
+  readers: OpenReviewReaders | undefined;
+}) {
+  let text: string;
+
+  if (value === "internal") {
+    text =
+      "Your reply will be visible only to the Program Chairs and this paper's " +
+      "authors — narrower than the audience above. OpenReview resolves the " +
+      "exact groups when the reply is posted.";
+  } else if (readers?.state === "fetched" && readers.readers) {
+    const count = readers.readers.length;
+    text =
+      count === 0
+        ? "Your reply will inherit the original comment's audience, which lists no groups."
+        : `Your reply will be visible to the ${count} group${
+            count === 1 ? "" : "s"
+          } listed above.`;
+  } else {
+    // Failed, not applicable, or absent — the inheritance is still true, the
+    // list simply isn't known. Stated without a number rather than with a
+    // fabricated one.
+    text = "Your reply will inherit the original comment's audience.";
+  }
+
+  return (
+    <p
+      data-testid="reply-audience"
+      className="flex items-start gap-1.5 text-xs"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      <Info className="h-3.5 w-3.5 shrink-0 translate-y-px" aria-hidden />
+      {text}
+    </p>
   );
 }
 

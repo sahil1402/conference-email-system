@@ -317,6 +317,37 @@ export interface ReassignmentEvent {
 // Persisted record — emails.py::_email_to_dict
 // ---------------------------------------------------------------------------
 
+/**
+ * The audience of the OpenReview note a reply candidate is answering.
+ *
+ * ⚠️ THREE STATES, NOT A LIST-OR-NOTHING, and they must not be collapsed. The
+ * backend builds this from one shape with every key always present
+ * (`_openreview_readers_result` in emails.py), precisely so a consumer never has
+ * to tell an absent key from a null value:
+ *
+ * - `not_applicable` — this email is not an OpenReview reply candidate, so there
+ *   is no parent comment and no audience to speak of.
+ * - `failed`         — there IS an audience, but OpenReview could not be reached
+ *   or refused. `error` / `error_type` say why.
+ * - `fetched`        — `readers` is the live list.
+ *
+ * `readers` is `null` in the first two and an array only in `fetched`. An EMPTY
+ * array is a fourth, genuine fact ("fetched; the note names no readers") and
+ * stays distinguishable from `null` — rendering "nobody can see this" where the
+ * truth is "we could not find out" would be a real error shown as a fact.
+ */
+export interface OpenReviewReaders {
+  state: "fetched" | "failed" | "not_applicable";
+  /** The live audience — an array ONLY when `state === "fetched"`. */
+  readers: string[] | null;
+  /** The note that was looked up; null when not applicable. */
+  note_id: string | null;
+  /** Human-readable failure text; null unless `state === "failed"`. */
+  error: string | null;
+  /** Exception class name, e.g. `OpenReviewNoteNotFoundError`. */
+  error_type: string | null;
+}
+
 export interface Email {
   id: number;
   sender: string;
@@ -393,6 +424,14 @@ export interface Email {
    * `draft.citations`.
    */
   retrieved_chunks?: RetrievedChunk[] | null;
+  /**
+   * Who can currently see the OpenReview comment this email replies to, read
+   * live from OpenReview on each detail fetch. Like `retrieved_chunks`, served
+   * only by the email-detail endpoints (`GET /emails/{id}`,
+   * `/emails/by-ticket/{id}`) and absent on queue rows — there the lookup would
+   * be a live API round-trip per row.
+   */
+  openreview_readers?: OpenReviewReaders;
   /** Retriever inputs + grounding set captured at draft time. */
   retrieval_context?: RetrievalContext | null;
   created_at: string | null;

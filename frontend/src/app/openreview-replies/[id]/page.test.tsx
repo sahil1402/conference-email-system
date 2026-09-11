@@ -12,7 +12,7 @@
  * in review, so it is pinned by value.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -29,6 +29,12 @@ import OpenReviewReplyDetailPage from "./page";
 
 const FORUM_ID = "ll0avn6ylq";
 const NOTE_ID = "jnHgRMHgrm";
+const VENUE = "AAAI.org/2027";
+/** Two ids sharing a venue prefix — the shape the prefix dimming operates on. */
+const READER_GROUPS = [
+  `${VENUE}/Program_Chairs`,
+  `${VENUE}/Submission1030/Reviewers`,
+];
 const REPLY = "Thank you — I will submit my review by Friday.";
 /** Only in `body`; must never surface, since the page shows the extracted text. */
 const RAW_BODY = `${REPLY}\n\n-----Original Message-----\nQUOTED_SENTINEL`;
@@ -58,9 +64,23 @@ function email(overrides: Partial<Email> = {}): Email {
       authors: [],
       method: "llm_distiller",
     },
+    openreview_readers: {
+      state: "fetched",
+      readers: READER_GROUPS,
+      note_id: NOTE_ID,
+      error: null,
+      error_type: null,
+    },
     ...overrides,
   } as unknown as Email;
 }
+
+/** Override just the readers block, leaving the rest of the fixture alone. */
+const withReaders = (readers: unknown) =>
+  email({ openreview_readers: readers } as unknown as Partial<Email>);
+
+const groupList = () =>
+  screen.queryByRole("list", { name: /reader groups on the original comment/i });
 
 const detail = (e: Email): EmailDetailResponse =>
   ({ email: e, audit_trail: [] }) as unknown as EmailDetailResponse;
@@ -295,6 +315,364 @@ describe("detail — reply editor", () => {
     expect(
       screen.queryByText(/appears to be entirely quoted content/i)
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Who can see the original comment
+//
+// ⚠️ Group ids are asserted on the LIST ITEM's textContent, never with
+// `getByText(id)`. The component splits each id into two spans (shared venue
+// prefix dimmed, tail at full weight), so a whole-string text query matches
+// nothing even when the id renders perfectly. Asserting the reassembled
+// textContent is what proves the split is cosmetic — that nothing was dropped,
+// truncated or reordered on the way to the screen.
+// ---------------------------------------------------------------------------
+describe("detail — original comment audience", () => {
+  it("lists the fetched reader groups", async () => {
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+
+    await screen.findByText(/who can see the original comment/i);
+    const items = within(groupList()!).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual(READER_GROUPS);
+  });
+
+  it("shows each group id in FULL, never a prettified name", async () => {
+    /* The whole point of the presentation decision: dimming the shared venue
+       prefix must not shorten or rename anything. A friendly "Reviewers" label
+       would be a claim about who is included, on the page where a chair decides
+       exactly that. */
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+
+    const list = await screen.findByRole("list", {
+      name: /reader groups on the original comment/i,
+    });
+    for (const id of READER_GROUPS) {
+      expect(list.textContent).toContain(id);
+    }
+  });
+
+  it("keeps every group distinguishable when they share a long prefix", async () => {
+    /* Guards the prefix scan: it must stop a segment short, so two ids under the
+       same submission never collapse to identical-looking rows. */
+    const siblings = [
+      `${VENUE}/Submission1030/Reviewers`,
+      `${VENUE}/Submission1030/Area_Chairs`,
+    ];
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "fetched",
+          readers: siblings,
+          note_id: NOTE_ID,
+          error: null,
+          error_type: null,
+        })
+      )
+    );
+
+    renderPage();
+
+    await screen.findByText(/who can see the original comment/i);
+    const items = within(groupList()!).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual(siblings);
+    expect(items[0].textContent).not.toEqual(items[1].textContent);
+  });
+
+  it("says the audience could not be confirmed when the fetch failed", async () => {
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "failed",
+          readers: null,
+          note_id: NOTE_ID,
+          error: "OpenReview did not respond within 10s.",
+          error_type: "TimeoutError",
+        })
+      )
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/couldn't confirm the audience/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/openreview did not respond within 10s/i)
+    ).toBeInTheDocument();
+  });
+
+  it("renders NO group list on failure — absent, not empty", async () => {
+    /* ⚠️ THE DISCRIMINATOR between the two non-happy states. "We could not find
+       out" and "nobody can see it" are opposite facts; an empty list rendered
+       for a failure would show a real error as a reassuring answer. */
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "failed",
+          readers: null,
+          note_id: NOTE_ID,
+          error: "boom",
+          error_type: "OpenReviewAPIError",
+        })
+      )
+    );
+
+    renderPage();
+    await screen.findByText(/couldn't confirm the audience/i);
+
+    expect(groupList()).toBeNull();
+    expect(screen.queryByText(/lists no reader groups/i)).toBeNull();
+  });
+
+  it("distinguishes a genuinely empty audience from a failed lookup", async () => {
+    /* The fourth fact: fetched, and the note names no groups. It gets its own
+       wording, and must not borrow the failure's. */
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "fetched",
+          readers: [],
+          note_id: NOTE_ID,
+          error: null,
+          error_type: null,
+        })
+      )
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/lists no reader groups/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't confirm the audience/i)).toBeNull();
+  });
+
+  it("renders nothing at all when the email is not a candidate", async () => {
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "not_applicable",
+          readers: null,
+          note_id: null,
+          error: null,
+          error_type: null,
+        })
+      )
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    expect(screen.queryByText(/who can see the original comment/i)).toBeNull();
+    expect(groupList()).toBeNull();
+  });
+
+  it("renders nothing when the field is absent entirely", async () => {
+    /* An older backend, or a response predating the field. Treated as
+       not-applicable rather than crashing or guessing. */
+    getEmailById.mockResolvedValue(
+      detail(email({ openreview_readers: undefined } as unknown as Partial<Email>))
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    expect(screen.queryByText(/who can see the original comment/i)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visibility choice
+// ---------------------------------------------------------------------------
+const publicOption = () => screen.getByRole("radio", { name: /^public/i });
+const internalOption = () => screen.getByRole("radio", { name: /^internal/i });
+const audience = () => screen.getByTestId("reply-audience");
+
+describe("detail — visibility choice", () => {
+  it("offers exactly two options and defaults to Public", async () => {
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+
+    await waitFor(() => expect(publicOption()).toBeChecked());
+    expect(internalOption()).not.toBeChecked();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+  });
+
+  it("explains each option in plain language", async () => {
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/same audience as the original comment/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/only the program chairs and this paper's authors/i)
+    ).toBeInTheDocument();
+  });
+
+  it("selects Internal when clicked, and deselects Public", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+    await waitFor(() => expect(publicOption()).toBeChecked());
+
+    await user.click(internalOption());
+
+    expect(internalOption()).toBeChecked();
+    expect(publicOption()).not.toBeChecked();
+  });
+
+  it("switches back to Public", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+    await waitFor(() => expect(publicOption()).toBeChecked());
+
+    await user.click(internalOption());
+    await user.click(publicOption());
+
+    expect(publicOption()).toBeChecked();
+    expect(internalOption()).not.toBeChecked();
+  });
+
+  it("still wires no submit control", async () => {
+    /* ⚠️ DELETE/INVERT when the post action lands. The selection is local state
+       with no destination, and the page must not grow a control that looks like
+       it sends. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+    await waitFor(() => expect(publicOption()).toBeChecked());
+    await user.click(internalOption());
+
+    for (const name of [/post/i, /approve/i, /send/i, /submit/i]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The audience preview follows the choice
+// ---------------------------------------------------------------------------
+describe("detail — audience preview", () => {
+  it("counts the inherited groups under Public", async () => {
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(audience()).toHaveTextContent(/visible to the 2 groups listed above/i)
+    );
+  });
+
+  it("switches to the narrower description under Internal", async () => {
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+    await waitFor(() => expect(publicOption()).toBeChecked());
+
+    await user.click(internalOption());
+
+    expect(audience()).toHaveTextContent(
+      /only to the program chairs and this paper's authors/i
+    );
+    expect(audience()).toHaveTextContent(/narrower than the audience above/i);
+  });
+
+  it("⚠️ shows NO group ids under Internal — never a fabricated list", async () => {
+    /* The safety property behind the preview design. The internal audience is
+       built server-side from OPENREVIEW_VENUE_ID, which never reaches the
+       browser, so any group id rendered here would be a guess — and it would
+       appear in the same monospace pills as the REAL fetched ids above, reading
+       as equally authoritative. The venue string is present elsewhere on the
+       page, so this asserts on the preview element specifically. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+    await waitFor(() => expect(publicOption()).toBeChecked());
+    await user.click(internalOption());
+
+    expect(audience().textContent).not.toMatch(/AAAI\.org/);
+    expect(audience().textContent).not.toMatch(/Program_Chairs/);
+    expect(audience().textContent).not.toMatch(/Submission\d/);
+  });
+
+  it("drops the count under Public when the audience is unknown", async () => {
+    /* A failed lookup means the reply still inherits the parent's audience — we
+       simply cannot say how many groups that is. Stated without a number rather
+       than with a made-up one. */
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "failed",
+          readers: null,
+          note_id: NOTE_ID,
+          error: "boom",
+          error_type: "OpenReviewAPIError",
+        })
+      )
+    );
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(audience()).toHaveTextContent(
+        /inherit the original comment's audience\.$/i
+      )
+    );
+    expect(audience().textContent).not.toMatch(/\d+ group/);
+  });
+
+  it("says so when the inherited audience is genuinely empty", async () => {
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "fetched",
+          readers: [],
+          note_id: NOTE_ID,
+          error: null,
+          error_type: null,
+        })
+      )
+    );
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(audience()).toHaveTextContent(/which lists no groups/i)
+    );
+  });
+
+  it("uses the singular for exactly one group", async () => {
+    getEmailById.mockResolvedValue(
+      detail(
+        withReaders({
+          state: "fetched",
+          readers: [`${VENUE}/Program_Chairs`],
+          note_id: NOTE_ID,
+          error: null,
+          error_type: null,
+        })
+      )
+    );
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(audience()).toHaveTextContent(/visible to the 1 group listed above/i)
+    );
   });
 });
 
