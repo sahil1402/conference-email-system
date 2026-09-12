@@ -99,8 +99,21 @@ from typing import NamedTuple
 # rule characters are both false-positive guards: `-- ` (a signature delimiter,
 # not a quote) and a casual `--- update ---` are rejected, while every real
 # divider seen in this project's traffic is matched.
+#
+# ⚠️ THE `\r?` BEFORE `$` IS LOAD-BEARING, not defensive punctuation. Under
+# ``re.MULTILINE`` the ``$`` anchor matches immediately BEFORE a ``\n``, so on
+# CRLF input the ``\r`` sits between the last matched character and the anchor —
+# and ``\r`` is in neither ``[ \t]`` nor ``[-_=]``. Without it the match SILENTLY
+# FAILS on every ``\r\n`` body, which is to say on ordinary email: CRLF is the
+# RFC 5322 line ending, and Zendesk's ``plain_body`` is a mechanical HTML→text
+# conversion that emits it. Measured before the fix: ten of fifteen real marker
+# variants — every divider form this pattern exists to catch, in both English and
+# Chinese — produced no cue at all on CRLF while matching perfectly on LF.
+#
+# It also makes a bare ``\r`` line ending (classic Mac, and what some converters
+# leave behind mid-body) match, which costs nothing.
 _DIVIDER_RE = re.compile(
-    r"^[ \t]*(?:[-_=]{4,}[^\n]{0,60}[-_=]{4,}|[-_=]{8,})[ \t]*$",
+    r"^[ \t]*(?:[-_=]{4,}[^\n]{0,60}[-_=]{4,}|[-_=]{8,})[ \t]*\r?$",
     re.MULTILINE,
 )
 
@@ -126,8 +139,14 @@ _QUOTED_LINE_RE = re.compile(r"^[ \t]*>")
 # trailing `wrote:` lands on its own line. DOTALL lets the match cross that
 # newline; the 200-character bound stops it running away across a whole body and
 # is what rejects prose like "On the other hand I wrote: some notes".
+#
+# ⚠️ `\r?` before `$` for exactly the reason spelled out on _DIVIDER_RE above —
+# the same anchor, the same silent failure on real email. Both patterns are
+# applied to the RAW body rather than going through _iter_lines, which is what
+# separates them from the header_block and quoted_lines cues: those strip the
+# line ending themselves (`rstrip("\r\n")`) and were never affected.
 _ATTRIBUTION_RE = re.compile(
-    r"^[ \t]*On\b.{0,200}?\bwrote:[ \t]*$",
+    r"^[ \t]*On\b.{0,200}?\bwrote:[ \t]*\r?$",
     re.MULTILINE | re.DOTALL,
 )
 

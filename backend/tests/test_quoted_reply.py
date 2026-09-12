@@ -499,3 +499,267 @@ def test_reply_text_does_not_include_any_part_of_the_quote():
         for marker in ("-----", "From:", "\u53d1\u4ef6\u4eba", "openreview.net", "Subject:"):
             assert marker not in result, marker
 
+
+# =============================================================================
+# LINE ENDINGS
+#
+# READ THIS BEFORE ADDING A FIXTURE TO THIS FILE.
+#
+# Everything above uses "\n" \u2014 175 LF escapes and, until this section existed,
+# ZERO "\r". That was not a style choice but a structural blind spot: it made
+# the whole suite incapable of observing a bug class that silently disabled the
+# two cues scanned by regex.
+#
+# The bug: `_DIVIDER_RE` and `_ATTRIBUTION_RE` both end `[ \t]*$` under
+# re.MULTILINE, where `$` matches immediately BEFORE the "\n". On CRLF input the
+# "\r" sits between the last matched character and the anchor, and "\r" is in
+# neither `[ \t]` nor `[-_=]`, so the match fails \u2014 silently, producing no cue at
+# all, which the caller reads as "the whole body is the person's own text" and
+# hands on the entire quoted notification. Ten of fifteen real marker variants
+# were dead this way.
+#
+# CRLF IS THE NORMAL CASE, not an edge case: it is the RFC 5322 line ending, and
+# Zendesk's `plain_body` is a mechanical HTML-to-text conversion that emits it.
+# Every LF-only fixture above is therefore testing the rarer input.
+#
+# `header_block` and `quoted_lines` were never affected \u2014 they read lines through
+# `_iter_lines`, which strips the ending itself. Only the two raw-body regexes
+# needed fixing, and the parametrisation below covers both endings for every cue
+# so that asymmetry cannot silently return.
+# =============================================================================
+
+import pytest
+
+_EOLS = [pytest.param("\n", id="lf"), pytest.param("\r\n", id="crlf")]
+
+
+def _body(eol: str, *lines: str) -> str:
+    """Join lines with the given ending \u2014 the one knob these tests turn."""
+    return eol.join(lines)
+
+
+#: Every divider/attribution form measured dead on CRLF before the fix, with the
+#: client that emits it. Kept as data so a new client shape is one row rather
+#: than a new test, and so the ids name the real thing being covered.
+_MARKERS = [
+    pytest.param("-----Original Message-----", "divider", id="outlook-en"),
+    # The live production case that prompted this fix.
+    pytest.param("---- Replied Message ----", "divider", id="netease-replied"),
+    pytest.param(
+        "------------------ Original ------------------", "divider", id="qqmail-en"
+    ),
+    pytest.param(
+        "---------- Forwarded message ---------", "divider", id="gmail-forward"
+    ),
+    pytest.param("-----\u539f\u59cb\u90ae\u4ef6-----", "divider", id="outlook-zh"),
+    pytest.param(
+        "---- \u56de\u590d\u7684\u539f\u90ae\u4ef6 ----", "divider", id="netease-zh"
+    ),
+    pytest.param(
+        "------------------ \u539f\u59cb\u90ae\u4ef6 ------------------",
+        "divider",
+        id="qqmail-zh",
+    ),
+    pytest.param(
+        "---------- \u8f6c\u53d1\u90ae\u4ef6 ----------", "divider", id="forward-zh"
+    ),
+    pytest.param("________________________________", "divider", id="outlook-rule"),
+    pytest.param(
+        "On Mon, Sep 1, 2026 at 10:00 AM X <a@b.net> wrote:",
+        "attribution",
+        id="attribution-en",
+    ),
+]
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize("marker, expected_cue", _MARKERS)
+def test_marker_is_detected_under_both_line_endings(eol, marker, expected_cue):
+    """The regression table, asserted as behaviour.
+
+    Under LF every one of these passed before the fix; under CRLF every one
+    returned NO CUE.
+    """
+    body = _body(eol, "Thanks, I will fix it.", "", marker, "quoted note body")
+
+    cues = find_quote_cues(body)
+
+    assert cues, f"no cue fired for {marker!r} under {eol!r}"
+    assert cues[0].cue == expected_cue
+    assert find_quote_boundary(body) == body.index(marker)
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize("marker, expected_cue", _MARKERS)
+def test_no_part_of_the_marker_survives_into_the_reply(eol, marker, expected_cue):
+    """The consequence that actually matters.
+
+    A cue firing at the wrong offset is as bad as one not firing: this is the
+    text that gets posted to a public venue.
+    """
+    body = _body(eol, "Thanks, I will fix it.", "", marker, "quoted note body")
+
+    assert extract_reply_text(body) == "Thanks, I will fix it."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_boundary_indexes_the_original_string_not_a_normalized_copy(eol):
+    """Guards the fix that was NOT taken.
+
+    Normalising "\\r\\n" to "\\n" before scanning also finds the marker, but every
+    offset then under-counts by one per preceding line \u2014 and `extract_reply_text`
+    slices the ORIGINAL body with it, so the reply comes back truncated by
+    exactly the number of lines above the quote. The deeper the quote, the more
+    words are silently eaten.
+
+    Several lines sit above the boundary here so that drift, if reintroduced,
+    could not be mistaken for a stray trailing character.
+    """
+    body = _body(
+        eol,
+        "Dear chairs,",
+        "",
+        "Line one of my reply.",
+        "Line two of my reply.",
+        "Line three of my reply.",
+        "",
+        "-----Original Message-----",
+        "From: AAAI <a@b.net>",
+    )
+
+    boundary = find_quote_boundary(body)
+
+    assert boundary == body.index("-----Original Message-----")
+    assert body[boundary:].startswith("-----Original Message-----")
+    # No word is clipped off the end of the kept text.
+    assert extract_reply_text(body).endswith("Line three of my reply.")
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("-- ", id="signature-delimiter"),
+        pytest.param("--- update ---", id="casual-three-dash"),
+        pytest.param("---", id="too-short"),
+        pytest.param("____", id="bare-rule-under-eight"),
+        pytest.param(
+            "On the other hand I wrote: some notes", id="prose-containing-wrote"
+        ),
+    ],
+)
+def test_non_cues_are_still_rejected_under_both_line_endings(eol, text):
+    """The `\\r?` must widen only the line ending, never the cue itself.
+
+    These are the false positives commit 5's guards exist to reject; a fix that
+    bought CRLF support by relaxing the pattern would show up here first.
+    """
+    body = _body(eol, "Some reply text.", "", text, "more of my own text")
+
+    assert find_quote_cues(body) == []
+    assert find_quote_boundary(body) is None
+
+
+def test_the_reported_production_case_crlf_replied_message():
+    """The exact shape that leaked a whole OpenReview notification into a reply.
+
+    CRLF, a `---- Replied Message ----` divider, and blank lines between the
+    quoted header fields. Before this fix it produced NO CUES: the divider was
+    killed by the "\\r", and the blank lines independently broke the
+    header-block run (Root Cause B, a SEPARATE defect still open here).
+
+    This commit fixes the divider half \u2014 and because the divider is the EARLIEST
+    cue, that alone fully strips this body. The header-block defect is bypassed
+    rather than repaired; the test below pins the shape where it still bites.
+    """
+    body = "\r\n".join(
+        [
+            "Thanks, I will fix it.",
+            "",
+            "---- Replied Message ----",
+            "",
+            "From: AAAI 2027 <aaai2027-notifications@openreview.net>",
+            "",
+            "Date: 2026/09/01 10:00",
+            "",
+            "To: reviewer <r@x.edu>",
+            "",
+            "Subject: SPC commented on a paper",
+            "",
+            "Please see the original comment text here.",
+        ]
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["divider"]
+    kept = extract_reply_text(body)
+    assert kept == "Thanks, I will fix it."
+    for leaked in ("openreview.net", "From:", "Subject:", "original comment"):
+        assert leaked not in kept, leaked
+
+
+def test_root_cause_b_is_still_open_without_a_divider():
+    """NOT A PASSING FEATURE \u2014 a pin on a KNOWN, UNFIXED defect.
+
+    The same body with the divider removed: blank lines between the header
+    fields break `_find_header_block`'s consecutive-run requirement, no cue
+    fires, and the entire quoted notification comes back as the person's reply.
+
+    This commit deliberately does not address that (Root Cause B is the next
+    commit). The test exists so the gap is visible in the suite rather than only
+    in a report, and INVERTING it is part of fixing B.
+    """
+    body = "\r\n".join(
+        [
+            "Thanks, I will fix it.",
+            "",
+            "From: AAAI 2027 <aaai2027-notifications@openreview.net>",
+            "",
+            "Date: 2026/09/01 10:00",
+            "",
+            "To: reviewer <r@x.edu>",
+            "",
+            "Subject: SPC commented on a paper",
+            "",
+            "Please see the original comment text here.",
+        ]
+    )
+
+    assert find_quote_cues(body) == []
+    assert "openreview.net" in extract_reply_text(body)
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_real_chinese_quote_under_both_line_endings(eol):
+    """This file's headline real-world fixture, which was LF-only."""
+    body = (_REPLY + _CHINESE_QUOTE).replace("\n", eol)
+
+    boundary = find_quote_boundary(body)
+
+    assert boundary is not None
+    assert body[boundary:].startswith("-----\u539f\u59cb\u90ae\u4ef6-----")
+    assert "openreview.net" not in extract_reply_text(body)
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_quoted_lines_and_header_block_were_never_affected(eol):
+    """Pins the asymmetry the fix did NOT need to touch.
+
+    Both cues read through `_iter_lines`, which strips the line ending itself,
+    so both already worked on CRLF. Asserted so that a future tidy-up routing
+    them through a raw regex reintroduces the bug loudly instead of silently.
+    """
+    quoted = _body(eol, "My reply.", "", "> quoted line one", "> quoted line two")
+    headers = _body(
+        eol,
+        "My reply.",
+        "",
+        "From: A <a@b.net>",
+        "To: B <c@d.net>",
+        "Subject: something",
+    )
+
+    assert [c.cue for c in find_quote_cues(quoted)] == ["quoted_lines"]
+    assert [c.cue for c in find_quote_cues(headers)] == ["header_block"]
+    assert extract_reply_text(quoted) == "My reply."
+    assert extract_reply_text(headers) == "My reply."
+
