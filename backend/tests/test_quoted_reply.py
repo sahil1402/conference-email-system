@@ -416,14 +416,24 @@ def test_reply_text_strips_unicode_whitespace_a_cjk_client_leaves():
 
 # --- what trimming must NOT touch -------------------------------------------
 def test_reply_text_preserves_interior_blank_lines():
-    """THE conservative-trim guard.
+    """THE conservative-trim guard — REVISED, deliberately, not relaxed.
 
-    Collapsing these would silently reformat authored content. One extra blank
-    line is cosmetic; a dropped one changes what was written.
+    Commit 6 refused to touch interior blank lines at all, reasoning that "one
+    extra blank line is cosmetic; a dropped one changes what was written". That
+    asymmetry still holds and still governs. What changed is the recognition
+    that a run of SIX blank lines is not authored structure at all — it is
+    Zendesk's HTML-to-text conversion, and protecting it protected debris.
+
+    So the guard now has a threshold instead of an absolute: up to
+    `_MAX_BLANK_LINES` (2) survive untouched, which is already more than anyone
+    types on purpose. This fixture's THREE blank lines cap to two.
+
+    The single- and double-blank cases — the ones that are plausibly authored —
+    are pinned separately below, and those are the assertions that matter.
     """
     body = "First paragraph.\n\n\n\nSecond paragraph.\n\n" + _ENGLISH_QUOTE
 
-    assert extract_reply_text(body) == "First paragraph.\n\n\n\nSecond paragraph."
+    assert extract_reply_text(body) == "First paragraph.\n\n\nSecond paragraph."
 
 
 def test_reply_text_preserves_interior_indentation():
@@ -1011,7 +1021,12 @@ def test_a_users_own_field_list_is_still_rejected_even_with_blank_lines(eol):
     )
 
     assert find_quote_cues(body) == []
-    assert extract_reply_text(body) == body.strip()
+    # Compared against the LF form: right-trimming each line also removes the
+    # "\r" of a CRLF ending, so the returned text always uses "\n". That is a
+    # transport artifact with no authored meaning — see the note on
+    # `_normalize_reply` — and every character the person actually wrote is
+    # still here, which is what this assertion is about.
+    assert extract_reply_text(body) == body.replace("\r\n", "\n").strip()
 
 
 @pytest.mark.parametrize("eol", _EOLS)
@@ -1073,4 +1088,202 @@ def test_a_users_own_contact_block_is_a_known_false_positive(eol):
 
     assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
     assert extract_reply_text(body) == "Hello chairs,"
+
+
+# =============================================================================
+# CONVERSION-ARTIFACT NORMALISATION
+#
+# Zendesk's HTML-to-text rendering leaves debris nobody typed: runs of six blank
+# lines, trailing spaces on every line. Commit 6 refused to touch any of it, and
+# that refusal was RIGHT about authored structure and WRONG about debris.
+#
+# The whole section is one harm asymmetry: this text is posted essentially
+# verbatim to a public venue, so removing something a person meant is materially
+# worse than leaving a stray blank line. Every threshold below errs that way,
+# and the preservation tests are the ones that matter — the collapsing tests
+# only prove the feature does anything at all.
+# =============================================================================
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_an_excessive_blank_run_is_capped(eol):
+    """The reported symptom: a wall of blank lines between salutation and body."""
+    body = _body(
+        eol, "Dear chairs,", "", "", "", "", "", "", "I think there is a mix-up."
+    )
+
+    assert extract_reply_text(body) == "Dear chairs,\n\n\nI think there is a mix-up."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize("blanks", [pytest.param(1, id="one"), pytest.param(2, id="two")])
+def test_authored_blank_lines_are_preserved_exactly(eol, blanks):
+    """⚠️ THE CRITICAL REGRESSION TEST for commit 6's original intent.
+
+    One blank line is an ordinary paragraph break; two is a deliberate section
+    break. Both are plausibly typed, both survive byte-for-byte. The cap exists
+    to remove debris, not to reformat prose — if this ever fails, the
+    normalisation has started editing people's writing.
+    """
+    body = _body(eol, "Para one.", *([""] * blanks), "Para two.")
+
+    assert extract_reply_text(body) == "Para one." + "\n" * (blanks + 1) + "Para two."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_indentation_is_preserved_including_nesting_depth(eol):
+    """⚠️ THE OFFLINE MINER'S RULE, MEASURED AND REJECTED.
+
+    `mine_extract_marc.py` collapses every space/tab run to one
+    (`_WS.sub(" ", text)`). Applied here it would turn "    - first" into
+    " - first" and flatten a 4-space and an 8-space indent to the same thing,
+    erasing nesting outright — on somebody's words on their way to a public
+    forum. It was also a no-op on the leading-space artifact it was cited for.
+
+    So indentation is preserved, at every depth. Asserted on the DEPTHS, not
+    just on presence, because collapsing preserves "some indentation" while
+    destroying the structure.
+    """
+    body = _body(
+        eol,
+        "My points:",
+        "    - first sub-point",
+        "        * nested detail",
+        "    - second sub-point",
+    )
+
+    assert extract_reply_text(body) == (
+        "My points:\n    - first sub-point\n        * nested detail"
+        "\n    - second sub-point"
+    )
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_trailing_whitespace_is_removed_from_every_line(eol):
+    """Safe by construction: trailing whitespace renders as nothing anywhere.
+
+    It is also what makes the cap work at all — see the next test.
+    """
+    body = _body(eol, "First line.   ", "Second line.\t", "Third line.")
+
+    assert extract_reply_text(body) == "First line.\nSecond line.\nThird line."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_whitespace_only_lines_count_as_blank_for_the_cap(eol):
+    """⚠️ WHY THE RIGHT-TRIM IS NOT COSMETIC.
+
+    A converter's "blank" line usually carries spaces, or a decoded NBSP. Those
+    lines look empty to a person and are not empty to a regex, so without the
+    per-line trim the cap would silently do nothing on exactly the bodies it
+    exists for.
+    """
+    body = _body(
+        eol, "Dear chairs,", "   ", " ", "\t", "　", "  ", "The actual ask."
+    )
+
+    assert extract_reply_text(body) == "Dear chairs,\n\n\nThe actual ask."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_normalisation_applies_above_a_quote_too(eol):
+    """The debris sits in the reply half, so cutting the quote is not enough."""
+    body = _body(
+        eol,
+        "Thanks.",
+        "",
+        "",
+        "",
+        "",
+        "I will fix it.",
+        "",
+        "-----Original Message-----",
+        "From: AAAI <a@openreview.net>",
+    )
+
+    assert extract_reply_text(body) == "Thanks.\n\n\nI will fix it."
+
+
+# --- boundary detection must be COMPLETELY unaffected ------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_normalisation_does_not_touch_boundary_detection(eol):
+    """⚠️ THE PLACEMENT GUARD.
+
+    Normalising happens AFTER the slice. `find_quote_boundary` reads the RAW
+    body and returns an offset into it, so normalising first would change the
+    string's length and desynchronise the offset from the text being cut — the
+    same drift the CRLF commit chose a regex anchor to avoid, and the entity
+    commit chose ingestion-time decoding to avoid.
+
+    Asserted as an exact offset into the raw body, so any reordering shows up
+    here rather than as a quietly truncated reply.
+    """
+    body = _body(
+        eol,
+        "Dear chairs,",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "Please see below.   ",
+        "",
+        "-----Original Message-----",
+        "From: AAAI <a@openreview.net>",
+        "Date: 2026/09/01",
+        "To: reviewer <r@x.edu>",
+    )
+
+    assert find_quote_boundary(body) == body.index("-----Original Message-----")
+    assert body[find_quote_boundary(body):].startswith("-----Original Message-----")
+    # Both cues still fire, and in the same order, on the untouched body — the
+    # full header block is present here so this is a real check on cue
+    # computation rather than on the divider alone.
+    assert [c.cue for c in find_quote_cues(body)] == ["divider", "header_block"]
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_body_that_is_entirely_quoted_still_yields_nothing(eol):
+    """Normalisation must not resurrect text from an empty slice."""
+    body = _body(eol, "-----Original Message-----", "From: AAAI <a@openreview.net>")
+
+    assert find_quote_boundary(body) == 0
+    assert extract_reply_text(body) == ""
+
+
+# --- Root Cause G, ENDS ONLY --------------------------------------------------
+def test_zero_width_characters_are_trimmed_from_the_ends():
+    """⚠️ FOLDED IN DELIBERATELY, and only at the two ends.
+
+    `extract_reply_text`'s docstring claimed `str.strip()` handled the invisible
+    characters a CJK client leaves around the text. That claim was true for NBSP
+    and the ideographic space and FALSE for zero-width characters, which Python
+    does not classify as whitespace — the diagnostic measured it. Since this
+    commit rewrites that exact trim, leaving a known-false claim beside it was
+    the worse option.
+
+    INTERIOR zero-width removal is a different operation — deletion, not
+    trimming — and stays with the rest of Root Cause G. Pinned below.
+    """
+    for invisible in ("​", "‌", "‍", "﻿"):
+        body = invisible + "Thanks, I will fix it." + invisible
+
+        assert extract_reply_text(body) == "Thanks, I will fix it."
+
+
+def test_interior_zero_width_characters_are_left_alone():
+    """⚠️ PINS THE SCOPE BOUNDARY, not a desired behaviour.
+
+    Removing these mid-string is Root Cause G's job. Flipping this test is part
+    of that commit; it is here so the remaining gap is visible in the suite
+    rather than only in a report.
+    """
+    body = "Thanks​, I will fix it."
+
+    assert extract_reply_text(body) == "Thanks​, I will fix it."
+
+
+def test_a_reply_of_only_invisible_characters_is_empty(eol="\n"):
+    """The empty-reply signal must survive the wider trim."""
+    assert extract_reply_text("​   ﻿\n\n　") == ""
 

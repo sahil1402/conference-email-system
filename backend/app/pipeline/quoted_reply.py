@@ -183,6 +183,87 @@ def _iter_lines(body: str):
         offset += len(line)
 
 
+# --- output normalisation ---------------------------------------------------
+# Applied to what the person wrote, AFTER the quote has been cut away. Never to
+# the body being scanned for cues — see _normalize_reply.
+
+# At most this many consecutive blank lines survive. Three or more in a row is a
+# conversion artifact, not a paragraph break; two is already more than anyone
+# types on purpose, so capping THERE rather than at one keeps a deliberate
+# double break intact while still removing the runs of six the converter emits.
+_MAX_BLANK_LINES = 2
+
+# A run of blank lines longer than the cap. Only meaningful AFTER each line has
+# been right-trimmed, because the converter's "blank" lines usually carry spaces
+# or a decoded NBSP and would not otherwise match `\n`.
+# `_MAX_BLANK_LINES` blank lines is `_MAX_BLANK_LINES + 1` newlines, so a run of
+# 4+ collapses to 3.
+_EXCESSIVE_BLANKS_RE = re.compile(r"\n{4,}")
+
+# Trim at the two ends: Unicode whitespace (`\s` covers NBSP and the ideographic
+# space) PLUS the zero-width characters, which `str.strip()` does NOT remove
+# because Python does not classify them as whitespace.
+_EDGE_TRIM_RE = re.compile(r"^[\s​‌‍﻿]+|[\s​‌‍﻿]+$")
+
+
+def _normalize_reply(text: str) -> str:
+    """Tidy the CONVERSION artifacts out of a reply, and nothing else.
+
+    Zendesk's ``plain_body`` is a mechanical HTML-to-text rendering, and it
+    leaves debris a person never typed: runs of six blank lines between a
+    salutation and a one-line body, trailing spaces on every line. Commit 6
+    deliberately refused to touch interior whitespace, reasoning that "dropping a
+    line someone deliberately wrote changes what they said". That reasoning was
+    protecting AUTHORED STRUCTURE and it still holds — but it was being applied
+    to debris. Nobody deliberately writes six blank lines.
+
+    THREE STEPS, each chosen to be the conservative side of a harm asymmetry:
+    this text is posted essentially verbatim to a public venue, so removing
+    something a person meant is materially worse than leaving one stray blank
+    line behind.
+
+    1. RIGHT-TRIM EACH LINE. Trailing whitespace carries no meaning in any
+       rendering, so removing it cannot change what was said. It is also the
+       ENABLER for step 2: a converter's "blank" line usually holds spaces or a
+       decoded NBSP, so without this it is not blank to a regex.
+    2. CAP BLANK-LINE RUNS at :data:`_MAX_BLANK_LINES`.
+    3. TRIM THE TWO ENDS, including zero-width characters.
+
+    ⚠️ WHAT IS DELIBERATELY NOT DONE, and why — the offline miner
+    ``scripts/data_mining/mine_extract_marc.py`` collapses every run of spaces
+    and tabs to one (``_WS.sub(" ", text)``), and that rule was measured against
+    this use and REJECTED on both counts:
+
+    * It does not fix the artifact it was cited for. A single leading space is
+      already a run of one, so the substitution is a no-op on
+      ``" I think there is a mix-up..."`` — the exact reported symptom.
+    * It destroys authored indentation. ``"    - first sub-point"`` becomes
+      ``" - first sub-point"``, and a 4-space and an 8-space indent both flatten
+      to one, erasing nesting levels outright.
+
+    That script caps bodies at 2000 characters and deletes quoted lines
+    wholesale; it is building a corpus FEATURE, where a little lossiness costs
+    noise in an aggregate. Here the output is somebody's words on their way to a
+    public forum. Same regex, different contract.
+
+    LEADING whitespace is therefore left exactly as written. A leading ASCII
+    space is indistinguishable from deliberate indentation, and under the harm
+    asymmetry the tie goes to the author. So the reported "odd leading space"
+    symptom is NOT fixed by this function, and that is a decision rather than an
+    oversight.
+
+    ⚠️ ONE CONSEQUENCE WORTH NAMING: right-trimming a line also removes the
+    ``\\r`` of a CRLF ending, so the returned text always uses ``\\n``. A line
+    ending is transport framing, never something a person authored, and the text
+    goes on to a web API rather than back into a mail client — but it IS a
+    visible change to this function's output and is pinned by test rather than
+    left to be discovered.
+    """
+    lines = [line.rstrip() for line in text.split("\n")]
+    capped = _EXCESSIVE_BLANKS_RE.sub("\n" * (_MAX_BLANK_LINES + 1), "\n".join(lines))
+    return _EDGE_TRIM_RE.sub("", capped)
+
+
 def _is_blank(line: str) -> bool:
     """A line carrying no visible characters — the one interruption a header
     block is allowed to survive.
@@ -406,9 +487,17 @@ def extract_reply_text(body: str) -> str:
 
     boundary = find_quote_boundary(body)
     if boundary is None:
-        return body.strip()
+        return _normalize_reply(body)
     # `0` needs no special case: ``body[:0]`` is already "". Spelled as one
     # slice rather than three branches because the two are genuinely the same
     # operation, and a separate `if boundary == 0` would only invite the two
     # paths to drift.
-    return body[:boundary].strip()
+    #
+    # ⚠️ NORMALISED AFTER THE SLICE, NEVER BEFORE. `find_quote_boundary` reads
+    # the RAW body and returns an offset into it; normalising first would
+    # change the string's length and desynchronise the offset from the text
+    # being cut — the same drift the CRLF commit chose a regex anchor to avoid
+    # and the entity commit chose ingestion-time decoding to avoid. Doing it
+    # here means boundary detection is untouched by this change, which is
+    # pinned by test.
+    return _normalize_reply(body[:boundary])
