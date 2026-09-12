@@ -1287,3 +1287,180 @@ def test_a_reply_of_only_invisible_characters_is_empty(eol="\n"):
     """The empty-reply signal must survive the wider trim."""
     assert extract_reply_text("​   ﻿\n\n　") == ""
 
+
+
+# =============================================================================
+# UNICODE-INDENTED HEADER LINES
+#
+# `_HEADER_LINE_RE` used to allow only `[ \t]` before the label. NBSP and the
+# ideographic space are `\s` to Python but are in neither that class nor the
+# label's own `[^\s:：]` opening, so a header line indented with either matched
+# NOTHING — it could not even begin contributing to a run.
+#
+# ⚠️ DIFFERENT FROM THE BLANK-LINE BRIDGE, though both involve NBSP. That one
+# was about a blank line INTERRUPTING a run of otherwise-matching headers. This
+# is about a header line being unrecognised because ITS OWN indentation is not
+# ASCII — a different failure at a different point in the same regex.
+# =============================================================================
+
+from app.pipeline.quoted_reply import _HEADER_LINE_RE
+
+_ZERO_WIDTH = "​"
+
+
+@pytest.mark.parametrize(
+    "indent",
+    [
+        pytest.param("", id="none"),
+        pytest.param(" ", id="ascii-space"),
+        pytest.param("\t", id="tab"),
+        pytest.param(_NBSP, id="nbsp"),
+        pytest.param(_NBSP * 4, id="nbsp-run"),
+        pytest.param(_IDEOGRAPHIC, id="ideographic-space"),
+        pytest.param(_NBSP + " " + _IDEOGRAPHIC, id="mixed"),
+    ],
+)
+def test_a_header_line_is_recognised_whatever_indents_it(indent):
+    """The regex-level fact, asserted directly.
+
+    Everything else in this section is a consequence of this one line matching.
+    """
+    assert _HEADER_LINE_RE.match(f"{indent}From: AAAI <a@openreview.net>")
+
+
+def test_zero_width_indentation_is_unaffected_by_this_change():
+    """⚠️ PINS A NON-CHANGE.
+
+    Zero-width characters already matched before this commit — they are NOT
+    `\\s` to Python, so the label's `[^\\s:：]` opening accepts one directly and
+    the leading class never had to. This commit neither helped nor broke that,
+    and asserting it keeps a future widening from being credited here.
+    """
+    assert _HEADER_LINE_RE.match(f"{_ZERO_WIDTH}From: AAAI <a@openreview.net>")
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "indent",
+    [pytest.param(_NBSP * 2, id="nbsp"), pytest.param(_IDEOGRAPHIC, id="ideographic")],
+)
+def test_an_indented_header_block_is_now_detected(eol, indent):
+    """The reported scenario, end to end.
+
+    An HTML client that indents quoted headers with `&nbsp;` — a real NBSP now
+    that entity decoding happens at ingestion — produced a block that read as
+    plainly quoted to a human and yielded NO CUES at all, so the whole
+    notification came back as the person's own reply.
+    """
+    body = _body(
+        eol,
+        "Thanks, I will fix it.",
+        "",
+        f"{indent}From: AAAI 2027 <aaai2027-notifications@openreview.net>",
+        f"{indent}Date: 2026/09/01 10:00",
+        f"{indent}To: reviewer <r@x.edu>",
+        "",
+        "Please see the original comment text here.",
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    kept = extract_reply_text(body)
+    assert kept == "Thanks, I will fix it."
+    assert "openreview.net" not in kept
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_an_indented_block_broken_by_blank_lines_is_still_detected(eol):
+    """Composes with the blank-line bridge: both defects in one body.
+
+    A converter that indents with `&nbsp;` tends to leave blank lines between
+    the fields too, so a realistic body needs both fixes to be found at all.
+    """
+    body = _body(
+        eol,
+        "Thanks.",
+        "",
+        f"{_NBSP * 2}From: AAAI <a@openreview.net>",
+        "",
+        f"{_NBSP * 2}Date: 2026/09/01",
+        "",
+        f"{_NBSP * 2}To: reviewer <r@x.edu>",
+        "",
+        "original comment text",
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    assert extract_reply_text(body) == "Thanks."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_boundary_includes_the_indentation_of_the_first_header(eol):
+    """The cut lands before the indent, not after it.
+
+    Otherwise the NBSP run would be left dangling on the end of the reply — the
+    quote stripped, but its indentation posted.
+    """
+    body = _body(
+        eol,
+        "Thanks.",
+        "",
+        f"{_NBSP * 2}From: AAAI <a@openreview.net>",
+        f"{_NBSP * 2}Date: 2026/09/01",
+        f"{_NBSP * 2}To: reviewer <r@x.edu>",
+    )
+
+    boundary = find_quote_boundary(body)
+
+    assert body[boundary:].startswith(f"{_NBSP * 2}From:")
+    assert _NBSP not in extract_reply_text(body)
+
+
+# --- the address guard still does the work -----------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "indent",
+    [pytest.param(_NBSP * 2, id="nbsp"), pytest.param(_IDEOGRAPHIC, id="ideographic")],
+)
+def test_an_indented_user_field_list_is_still_rejected(eol, indent):
+    """⚠️ THE NAMED REGRESSION RISK for this commit.
+
+    Widening what counts as header-shaped widens what could truncate somebody's
+    message. `Paper number:` / `Title:` / `Status:` is the list commit 5's
+    address requirement exists to reject; indenting it with NBSP instead of
+    spaces must not smuggle it past that guard. This change alters which lines
+    are SHAPED like headers and nothing about what counts as evidence.
+    """
+    body = _body(
+        eol,
+        "Hello chairs,",
+        "",
+        f"{indent}Paper number: 1030",
+        f"{indent}Title: A Study of Things",
+        f"{indent}Status: under review",
+        "",
+        "Could you advise?",
+    )
+
+    assert find_quote_cues(body) == []
+    assert find_quote_boundary(body) is None
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_an_indented_content_line_still_breaks_the_run(eol):
+    """Indentation does not make a sentence header-shaped.
+
+    Two indented headers, an indented real sentence, one more header: three
+    header-shaped lines in total, but never three in one run.
+    """
+    body = _body(
+        eol,
+        "Reply.",
+        "",
+        f"{_NBSP}From: A <a@b.net>",
+        f"{_NBSP}Date: 2026/09/01",
+        f"{_NBSP}I am writing a real sentence here.",
+        f"{_NBSP}To: B <c@d.net>",
+        "original text",
+    )
+
+    assert find_quote_cues(body) == []

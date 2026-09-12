@@ -124,8 +124,27 @@ _DIVIDER_RE = re.compile(
 #
 # This shape ALONE is not evidence of anything: "Note: I will do that" matches
 # it. Everything that makes it trustworthy lives in _find_header_block below.
+#
+# ⚠️ THE LEADING CLASS ACCEPTS NBSP (`\u00a0`) AND THE IDEOGRAPHIC SPACE
+# (`\u3000`) BESIDE ASCII SPACE AND TAB. Both are `\s` to Python but neither is
+# in `[ \t]`, so before this a header line indented with either matched NOTHING
+# — the label part begins `[^\s:：]`, which those characters also fail, so no
+# amount of backtracking rescued it. An HTML client that indents quoted headers
+# with `&nbsp;` (a real NBSP now that entity decoding happens at ingestion)
+# produced a block that looked plainly quoted to a reader and was invisible to
+# this cue.
+#
+# ⚠️ NARROW ON PURPOSE — `\s` was NOT used, and the asymmetry with `_is_blank`
+# (which accepts any whitespace-only line) is principled rather than sloppy.
+# `_is_blank` decides "this line is a GAP", where being generous costs nothing
+# because the line carries no content. This regex decides "this line is
+# EVIDENCE of a quoted header", where being generous widens what can truncate
+# somebody's message. Generosity is cheap on one side of that and not the other,
+# so only the two characters this project has actually observed converters using
+# for indentation are accepted.
 _HEADER_LINE_RE = re.compile(
-    r"^[ \t]*(?P<label>[^\s:\uff1a][^:\uff1a\n]{0,23})[:\uff1a](?P<value>[^\n]*)$"
+    r"^[ \t\u00a0\u3000]*"
+    r"(?P<label>[^\s:\uff1a][^:\uff1a\n]{0,23})[:\uff1a](?P<value>[^\n]*)$"
 )
 
 # A quoted header block identifies PEOPLE, and that is what separates it from a
