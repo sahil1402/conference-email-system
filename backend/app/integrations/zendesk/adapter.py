@@ -21,6 +21,7 @@ Design notes:
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from datetime import datetime, timezone
 
@@ -107,6 +108,68 @@ def _parse_dt(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _decode_entities(text: str | None) -> str | None:
+    """Decode HTML entities in Zendesk plain text. ``None`` passes through.
+
+    Zendesk's ``plain_body`` is a MECHANICAL HTML-to-text conversion of the
+    original message, and it leaves entities behind as literal characters:
+    ``&nbsp;``, ``&amp;``, ``&quot;``, ``&#39;``, ``&lt;``/``&gt;``. Nothing
+    downstream decoded them, so they reached the chair's screen — and, once the
+    OpenReview relay existed, would have reached a public venue — as the six
+    visible characters ``&nbsp;`` rather than as a space.
+
+    ⚠️ DECODED AT INGESTION, DELIBERATELY, not in the extraction path.
+
+    * The extractor is only ONE consumer. The same raw string is also handed to
+      the DISTILLER as its LLM prompt (``f"Subject: {subject}\\nBody:\\n{body}"``)
+      and to ``ConversationThread`` for display. Decoding in ``quoted_reply`` or
+      ``extractor`` would leave the model reading ``don&#39;t`` and the chair
+      reading ``&nbsp;``, which is the same defect wearing a smaller coat.
+    * OFFSETS. ``html.unescape`` SHORTENS the string — a 23-character sample
+      measured here collapses to 13. ``find_quote_boundary`` returns an offset
+      that ``extract_reply_text`` slices the body with, so decoding anywhere
+      after the body is fixed would reintroduce precisely the drift hazard the
+      CRLF commit rejected normalisation to avoid. Decoding BEFORE the body is
+      stored means every later consumer sees one self-consistent string and the
+      hazard cannot arise at all.
+    * It composes with the blank-line bridge: a converter's ``&nbsp;``-only
+      separator line becomes ``\\u00a0``, which ``_is_blank`` already tolerates.
+      That interaction was pinned by a test written to flip when this landed.
+
+    ⚠️ NOT IDEMPOTENT for DOUBLE-encoded input — ``&amp;amp;`` decodes to
+    ``&amp;`` and a SECOND pass would reach ``&``. Single-encoded text and
+    already-plain text are both stable (``"R&D budget"`` is untouched, having no
+    valid entity). The cost of the double-encoded case is bounded and named
+    rather than guarded against, because a guard would have to guess the
+    author's intent.
+
+    ⚠️ WHICH MAKES "EXACTLY ONCE" A CORRECTNESS REQUIREMENT, NOT TIDINESS — and
+    the first version of this change got it wrong. Decoding was applied at all
+    five places Zendesk text is read, but three of them consume ALREADY-PROJECTED
+    message dicts rather than raw comments: ``_find_initial_inquiry`` reads the
+    output of ``_message_fields``, and the follow-up path reads stored rows. A
+    body therefore passed through ``unescape`` TWICE, and a single-encoded
+    ``&amp;amp;`` — which is simply how one writes a literal ``&amp;`` — came out
+    as ``&``. Caught by a mutation that removed one of the redundant calls and
+    changed nothing.
+
+    Decoding now happens at exactly two places, each the true entry point of a
+    DIFFERENT field: the comment projection (``plain_body``, covering the thread
+    rows and the initial inquiry derived from them) and the two reads of
+    ``ticket["description"]``, which never passes through the projection.
+    Pinned by ``test_a_double_encoded_entity_is_decoded_only_once``.
+
+    ⚠️ ``subject`` IS NOT DECODED HERE, on purpose. It comes from
+    ``ticket["subject"]`` — Zendesk's own plain-text metadata off the MIME
+    header, not the HTML-to-text conversion that produces ``plain_body``. It has
+    a different provenance and no observed artifact, so decoding it would be
+    speculative and would mangle a subject that legitimately writes ``&amp;``.
+    """
+    if text is None:
+        return None
+    return html.unescape(text)
+
+
 def _index_users(users: list[dict]) -> dict[int, dict]:
     """Map side-loaded user id -> {role, name, email} for author/requester joins."""
     return {
@@ -185,7 +248,9 @@ class ZendeskIngestAdapter:
             "public": bool(comment.get("public")),
             "author_id": author_id,
             "author_role": author.get("role"),
-            "plain_body": comment.get("plain_body") or comment.get("body"),
+            "plain_body": _decode_entities(
+                comment.get("plain_body") or comment.get("body")
+            ),
             "html_body": comment.get("html_body"),
             "created_at": _parse_dt(comment.get("created_at")),
             "via_channel": (comment.get("via") or {}).get("channel"),
@@ -391,6 +456,8 @@ class ZendeskIngestAdapter:
                 "sender_name": email.sender_name,
                 # Subject from the parent ticket; body is THIS follow-up's text.
                 "subject": email.subject,
+                # Already decoded at the projection (_message_fields); `m` is a
+                # stored message dict, not a raw Zendesk comment.
                 "body": m.get("plain_body") or "",
             }
             try:
@@ -530,7 +597,10 @@ class ZendeskIngestAdapter:
                     "sender": requester.get("email") or f"ticket-{ticket['id']}@zendesk.local",
                     "sender_name": requester.get("name"),
                     "subject": ticket.get("subject") or "",
-                    "body": (initial.get("plain_body") if initial else ticket.get("description")) or "",
+                    "body": (
+                        initial.get("plain_body") if initial
+                        else _decode_entities(ticket.get("description"))
+                    ) or "",
                     "status": EmailStatus.ARCHIVED.value,
                     "source": EmailSource.ZENDESK.value,
                     **({"received_at": received_at} if received_at else {}),
@@ -556,7 +626,7 @@ class ZendeskIngestAdapter:
                 "sender": requester.get("email") or f"ticket-{ticket['id']}@zendesk.local",
                 "sender_name": requester.get("name"),
                 "subject": ticket.get("subject") or "",
-                "body": ticket.get("description") or "",
+                "body": _decode_entities(ticket.get("description")) or "",
                 "status": EmailStatus.PENDING.value,
                 "source": EmailSource.ZENDESK.value,
                 **({"received_at": received_at} if received_at else {}),

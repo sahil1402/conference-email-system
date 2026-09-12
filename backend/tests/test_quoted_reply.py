@@ -899,16 +899,20 @@ def test_a_real_content_line_still_resets_the_run(eol):
 
 @pytest.mark.parametrize("eol", _EOLS)
 def test_a_literal_nbsp_entity_line_still_resets_the_run(eol):
-    """⚠️ PINS A DEPENDENCY, not a desired behaviour.
+    """⚠️ CORRECT, and it stays correct — read this before "fixing" it.
 
-    An undecoded `&nbsp;` is six ordinary characters, not whitespace — so it
-    still breaks the run. That is deliberate: tolerating it here would paper
-    over the missing HTML-entity decode (a separate, later commit) and make the
-    real fix harder to see. Once decoding lands, such a line arrives as
-    `\\u00a0` and the bridge above already accepts it.
+    An undecoded `&nbsp;` is six ordinary characters, not whitespace, so it
+    breaks the run. This test was written expecting to FLIP once entity decoding
+    landed. It did not, and that is the right outcome: decoding was placed at
+    INGESTION (`adapter._decode_entities`), not in this module. By the time any
+    body reaches `find_quote_cues` in production, `&nbsp;` has already become
+    `\\u00a0` — which the bridge above accepts — so the literal form pinned here
+    is simply unreachable rather than tolerated.
 
-    ⚠️ WHEN THAT COMMIT LANDS, this test should FLIP — the body below will then
-    be detected. Leave it here and invert it rather than deleting it.
+    Keeping it asserts the layering: this module handles whitespace, not HTML.
+    The composition it used to predict is now proven end-to-end in
+    `test_zendesk_entity_decoding.py::
+    test_an_nbsp_entity_separator_line_now_bridges_a_header_run`.
     """
     body = eol.join(
         [
