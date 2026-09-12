@@ -668,9 +668,15 @@ def test_the_reported_production_case_crlf_replied_message():
     killed by the "\\r", and the blank lines independently broke the
     header-block run (Root Cause B, a SEPARATE defect still open here).
 
-    This commit fixes the divider half \u2014 and because the divider is the EARLIEST
-    cue, that alone fully strips this body. The header-block defect is bypassed
-    rather than repaired; the test below pins the shape where it still bites.
+    The CRLF commit fixed the divider half, and because the divider is the
+    EARLIEST cue that alone was enough to strip this body \u2014 the header-block
+    defect was bypassed rather than repaired, and this test asserted exactly one
+    cue to record that.
+
+    The blank-bridge commit then repaired the other half, so BOTH cues now fire.
+    The assertion was widened accordingly rather than relaxed: the divider must
+    still be FIRST, because it is the earliest cue that sets the boundary, and a
+    header block appearing ahead of it would mean the boundary moved.
     """
     body = "\r\n".join(
         [
@@ -690,23 +696,27 @@ def test_the_reported_production_case_crlf_replied_message():
         ]
     )
 
-    assert [c.cue for c in find_quote_cues(body)] == ["divider"]
+    cues = [c.cue for c in find_quote_cues(body)]
+    assert cues[0] == "divider", "the divider must remain the earliest cue"
+    assert set(cues) == {"divider", "header_block"}
+    assert find_quote_boundary(body) == body.index("---- Replied Message ----")
     kept = extract_reply_text(body)
     assert kept == "Thanks, I will fix it."
     for leaked in ("openreview.net", "From:", "Subject:", "original comment"):
         assert leaked not in kept, leaked
 
 
-def test_root_cause_b_is_still_open_without_a_divider():
-    """NOT A PASSING FEATURE \u2014 a pin on a KNOWN, UNFIXED defect.
+def test_the_divider_less_case_is_now_caught_by_the_header_block():
+    """INVERTED from `test_root_cause_b_is_still_open_without_a_divider`.
 
-    The same body with the divider removed: blank lines between the header
-    fields break `_find_header_block`'s consecutive-run requirement, no cue
-    fires, and the entire quoted notification comes back as the person's reply.
+    That test pinned this exact body as a KNOWN, UNFIXED defect: with the
+    divider removed, the blank lines between the header fields broke
+    `_find_header_block`'s consecutive-run requirement, no cue fired, and the
+    entire quoted notification came back as the person's own reply.
 
-    This commit deliberately does not address that (Root Cause B is the next
-    commit). The test exists so the gap is visible in the suite rather than only
-    in a report, and INVERTING it is part of fixing B.
+    Blank lines now bridge the run, so the header block is found on its own \u2014 no
+    divider required. Kept rather than deleted, and renamed rather than left
+    with its "this is broken" framing, so the history of the gap stays legible.
     """
     body = "\r\n".join(
         [
@@ -724,8 +734,11 @@ def test_root_cause_b_is_still_open_without_a_divider():
         ]
     )
 
-    assert find_quote_cues(body) == []
-    assert "openreview.net" in extract_reply_text(body)
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    kept = extract_reply_text(body)
+    assert kept == "Thanks, I will fix it."
+    for leaked in ("openreview.net", "From:", "Subject:", "original comment"):
+        assert leaked not in kept, leaked
 
 
 @pytest.mark.parametrize("eol", _EOLS)
@@ -762,4 +775,298 @@ def test_quoted_lines_and_header_block_were_never_affected(eol):
     assert [c.cue for c in find_quote_cues(headers)] == ["header_block"]
     assert extract_reply_text(quoted) == "My reply."
     assert extract_reply_text(headers) == "My reply."
+
+
+# =============================================================================
+# BLANK LINES BRIDGE A HEADER RUN
+#
+# `_find_header_block` wants three header-shaped lines with an address among
+# them. It used to require them ADJACENT, and real quoted headers arrive with
+# blank lines between the fields often enough that whole blocks were lost.
+#
+# The tolerance is narrow on purpose, and these tests are mostly about its
+# EDGES rather than its happy path: a blank line bridges, a content line still
+# breaks, and a bridged line is SKIPPED rather than counted — so "three" still
+# means three real headers.
+# =============================================================================
+
+_NBSP = " "
+_IDEOGRAPHIC = "　"
+
+#: The quoted notification's fields, as a divider-less block.
+_NOTIFICATION_FIELDS = [
+    "From: AAAI 2027 <aaai2027-notifications@openreview.net>",
+    "Date: 2026/09/01 10:00",
+    "To: reviewer <r@x.edu>",
+    "Subject: SPC commented on a paper",
+]
+
+
+def _notification(eol: str, gap: str | None) -> str:
+    """A reply above a divider-less quoted header block, `gap` between fields."""
+    lines = ["Thanks, I will fix it.", ""]
+    for field in _NOTIFICATION_FIELDS:
+        lines.append(field)
+        if gap is not None:
+            lines.append(gap)
+    lines.append("Please see the original comment text here.")
+    return eol.join(lines)
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "gap",
+    [
+        pytest.param(None, id="adjacent"),
+        pytest.param("", id="empty-line"),
+        pytest.param("   ", id="spaces-only"),
+        pytest.param("\t", id="tab-only"),
+        pytest.param(_NBSP, id="nbsp-only"),
+        pytest.param(_IDEOGRAPHIC, id="ideographic-space-only"),
+        pytest.param(_NBSP + " " + _IDEOGRAPHIC, id="mixed-invisible"),
+    ],
+)
+def test_a_blank_gap_between_header_fields_still_finds_the_block(eol, gap):
+    """The reported production shape, across every blank a converter emits.
+
+    The NBSP and ideographic cases are the ones that made this worth doing:
+    those lines LOOK empty to everyone reading the email, so a rule that
+    tolerated only `""` would still have failed on exactly the bodies that
+    prompted the fix.
+    """
+    body = _notification(eol, gap)
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    kept = extract_reply_text(body)
+    assert kept == "Thanks, I will fix it."
+    assert "openreview.net" not in kept
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_several_blank_lines_between_fields_still_bridge(eol):
+    """Bridging is not limited to a single line.
+
+    The converter artifacts this exists for come in runs; a one-line allowance
+    would fix the tidy example and miss the real ones.
+    """
+    body = eol.join(
+        [
+            "Thanks.",
+            "",
+            "From: AAAI <a@openreview.net>",
+            "",
+            "",
+            "",
+            "Date: 2026/09/01",
+            "",
+            "",
+            "To: reviewer <r@x.edu>",
+            "",
+            "original comment text",
+        ]
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    assert extract_reply_text(body) == "Thanks."
+
+
+# --- what must STILL break a run ---------------------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_real_content_line_still_resets_the_run(eol):
+    """The tolerance is for INVISIBLE lines, not for any line.
+
+    Two header lines, a genuine sentence, then one more header line: three
+    header-shaped lines in total, but never three in one run, so no cue. If this
+    passed, `_find_header_block` would have become "any three colon lines
+    anywhere near each other", which is the thing commit 5's guards exist to
+    prevent.
+    """
+    body = eol.join(
+        [
+            "Reply.",
+            "",
+            "From: A <a@b.net>",
+            "Date: 2026/09/01",
+            "I am writing a real sentence here.",
+            "To: B <c@d.net>",
+            "original text",
+        ]
+    )
+
+    assert find_quote_cues(body) == []
+    assert find_quote_boundary(body) is None
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_literal_nbsp_entity_line_still_resets_the_run(eol):
+    """⚠️ PINS A DEPENDENCY, not a desired behaviour.
+
+    An undecoded `&nbsp;` is six ordinary characters, not whitespace — so it
+    still breaks the run. That is deliberate: tolerating it here would paper
+    over the missing HTML-entity decode (a separate, later commit) and make the
+    real fix harder to see. Once decoding lands, such a line arrives as
+    `\\u00a0` and the bridge above already accepts it.
+
+    ⚠️ WHEN THAT COMMIT LANDS, this test should FLIP — the body below will then
+    be detected. Leave it here and invert it rather than deleting it.
+    """
+    body = eol.join(
+        [
+            "Thanks.",
+            "",
+            "From: AAAI <a@openreview.net>",
+            "&nbsp;",
+            "Date: 2026/09/01",
+            "&nbsp;",
+            "To: reviewer <r@x.edu>",
+            "",
+            "original comment text",
+        ]
+    )
+
+    assert find_quote_cues(body) == []
+
+
+# --- skipped, not counted -----------------------------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_bridged_blank_does_not_count_toward_the_three(eol):
+    """⚠️ THE TEST THAT DISTINGUISHES THE TWO COUNTING RULES.
+
+    Exactly TWO real header lines with one blank between them. Under "skipped",
+    the run is 2 and no cue fires — correct, because two fields are not evidence
+    of a quoted message. Under "counted", From + blank + To reaches three and the
+    block qualifies on the strength of one address and two fields.
+
+    Constructed at precisely the threshold: any more header lines and both rules
+    agree, which is why the ordinary fixtures above cannot catch this.
+    """
+    body = eol.join(
+        [
+            "Thanks.",
+            "",
+            "From: A <a@b.net>",
+            "",
+            "To: B <c@d.net>",
+            "",
+            "some trailing text",
+        ]
+    )
+
+    assert find_quote_cues(body) == []
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_one_header_line_padded_with_blanks_is_not_a_block(eol):
+    """The degenerate end of the same rule: one field, two blanks.
+
+    Under a counting rule this reaches three on a SINGLE header line, which is
+    the clearest possible statement that blanks are not evidence.
+    """
+    body = eol.join(["Thanks.", "", "From: A <a@b.net>", "", "", "trailing text"])
+
+    assert find_quote_cues(body) == []
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_boundary_points_at_the_first_header_not_a_preceding_blank(eol):
+    """A blank line cannot START a run.
+
+    Otherwise `run_start` would drift up into the blank lines that belong to the
+    reply, and the boundary would cut earlier than the quote actually begins.
+    """
+    body = _notification(eol, "")
+
+    boundary = find_quote_boundary(body)
+
+    assert boundary == body.index("From: AAAI 2027")
+    assert body[boundary:].startswith("From: AAAI 2027")
+
+
+# --- commit 5's address guard is untouched -----------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_users_own_field_list_is_still_rejected_even_with_blank_lines(eol):
+    """⚠️ THE NAMED REGRESSION RISK for this commit.
+
+    `Paper number:` / `Title:` / `Status:` stacks three header-SHAPED lines and
+    is exactly what commit 5's address requirement was added to reject. Blank
+    lines between the entries must not smuggle it past that guard — the bridge
+    changes which lines are adjacent, and nothing about what counts as evidence.
+    """
+    body = eol.join(
+        [
+            "Hello chairs,",
+            "",
+            "Paper number: 1030",
+            "",
+            "Title: A Study of Things",
+            "",
+            "Status: under review",
+            "",
+            "Could you advise?",
+        ]
+    )
+
+    assert find_quote_cues(body) == []
+    assert extract_reply_text(body) == body.strip()
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_address_guard_is_what_rejects_it_not_the_adjacency(eol):
+    """Proves the guard above is load-bearing rather than incidental.
+
+    The same list with one address added DOES qualify — so the previous test
+    passes because of the address requirement, not because blank lines happened
+    to break the run. See the next test for what that costs.
+    """
+    body = eol.join(
+        [
+            "Hello chairs,",
+            "",
+            "Paper number: 1030",
+            "",
+            "Contact: someone@uni.edu",
+            "",
+            "Status: under review",
+            "",
+            "Could you advise?",
+        ]
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_users_own_contact_block_is_a_known_false_positive(eol):
+    """⚠️ PINS AN ACCEPTED COST, not a feature.
+
+    Someone writing their own `Name:` / `Email:` / `Affiliation:` block has three
+    header-shaped lines and a real address, so it qualifies and their message is
+    truncated to the line above it.
+
+    This class is NOT new — the adjacent form already matched before this commit
+    (verified against the pre-change code). What changed is that the
+    blank-separated form now matches too, so the class is wider.
+
+    Accepted deliberately: a missed header block posts a whole quoted
+    notification to a public venue, while this truncates a draft a chair reads
+    before anything is sent. The lever, if it bites, is bounding how many
+    consecutive blanks may bridge. Pinned so the behaviour is visible rather
+    than discovered.
+    """
+    body = eol.join(
+        [
+            "Hello chairs,",
+            "",
+            "Name: Wei Zhang",
+            "",
+            "Email: wei@uni.edu",
+            "",
+            "Affiliation: Example University",
+            "",
+            "Could you advise on my submission?",
+        ]
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    assert extract_reply_text(body) == "Hello chairs,"
 

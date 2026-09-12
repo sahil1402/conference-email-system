@@ -183,19 +183,73 @@ def _iter_lines(body: str):
         offset += len(line)
 
 
+def _is_blank(line: str) -> bool:
+    """A line carrying no visible characters — the one interruption a header
+    block is allowed to survive.
+
+    ``not line.strip()`` rather than an explicit character list, because
+    ``str.strip()`` with no argument already removes ALL Unicode whitespace.
+    That covers the two shapes an HTML-to-text converter actually produces —
+    NBSP (``\\u00a0``) and the ideographic space (``\\u3000``) — along with the
+    rest of the Unicode whitespace table, and it does so without a hand-kept
+    list that would silently miss the next one.
+
+    ⚠️ DELIBERATELY NOT BLANK, both out of scope here:
+
+    * ``\\u200b`` ZERO WIDTH SPACE and friends. Python does not classify them as
+      whitespace (``"\\u200b".isspace()`` is False), and they are invisible
+      rather than blank — a different problem, belonging with the other
+      zero-width handling.
+    * The LITERAL six characters ``&nbsp;``. An undecoded HTML entity is not
+      whitespace, it is text that should have been decoded upstream. Tolerating
+      it here would paper over the missing decode step and make the real fix
+      harder to see. Once entity decoding lands, such a line arrives as
+      ``\\u00a0`` and this function already accepts it — the two changes compose
+      rather than overlap. Pinned by test.
+    """
+    return not line.strip()
+
+
 def _find_header_block(body: str) -> int | None:
     """Offset of the first trustworthy quoted header block, or None.
 
     Two independent guards, and BOTH are load-bearing:
 
-    * a run of at least :data:`_MIN_HEADER_RUN` consecutive header-shaped lines,
-      which incidental prose does not produce; and
+    * a run of at least :data:`_MIN_HEADER_RUN` header-shaped lines, which
+      incidental prose does not produce; and
     * at least one address somewhere in that run, which is what tells a real
       header block apart from a user's own list (``Paper number:`` / ``Title:``
       / ``Status:`` stacks three colon lines and names nobody).
 
     Dropping either one alone lets a plain metadata list truncate a real
     message, so neither is decoration.
+
+    BLANK LINES BRIDGE A RUN; ANYTHING ELSE STILL BREAKS IT. Real quoted headers
+    arrive with blank lines between the fields often enough that requiring them
+    to be strictly adjacent lost whole blocks — a divider-less notification with
+    one blank line between ``From:`` and ``Date:`` went completely undetected,
+    and the entire quoted message was returned as the person's own reply. A
+    content line that is neither blank nor header-shaped still resets the run to
+    zero, exactly as before: this is a narrow tolerance for invisible
+    interruptions, not a general loosening.
+
+    ⚠️ A BRIDGED LINE IS SKIPPED, NOT COUNTED. It does not advance
+    ``run_length``, so the threshold still means three REAL header lines. The
+    alternative — counting them — would let ``From: a@b.net`` followed by two
+    blank lines reach three on the strength of one actual header, which is not
+    evidence of anything. Mutation-verified: with counting, two header lines
+    separated by one blank incorrectly qualify.
+
+    ⚠️ KNOWN CONSEQUENCE, accepted rather than overlooked: a person who types
+    their own field list with blank lines between the entries — ``Name:`` /
+    ``Email: me@uni.edu`` / ``Affiliation:`` — now matches, where the blank lines
+    used to protect them. The address guard does not help there, because such a
+    list contains a real address. The trade is deliberate: a missed header block
+    posts a whole quoted notification to a public venue, while a false positive
+    truncates a draft that a chair reads before anything is sent. If it proves a
+    problem in practice, the lever is bounding how many consecutive blank lines
+    may bridge (currently unbounded); the shape is pinned by test so the
+    behaviour is visible rather than discovered.
     """
     run_start: int | None = None
     run_length = 0
@@ -211,6 +265,12 @@ def _find_header_block(body: str) -> int | None:
             run_has_address = run_has_address or bool(_ADDRESS_RE.search(line))
             if run_length >= _MIN_HEADER_RUN and run_has_address:
                 return run_start
+        elif _is_blank(line) and run_start is not None:
+            # Bridge: the run survives, unchanged. Note the `run_start is not
+            # None` guard — a blank line cannot START a run, so `run_start`
+            # keeps pointing at the first real header line and the boundary
+            # never swallows blank lines that belong to the reply above.
+            continue
         else:
             run_start = None
             run_length = 0
