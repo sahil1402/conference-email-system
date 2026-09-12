@@ -7,6 +7,8 @@ import type {
   EmailQueueResponse,
   EmailThreadResponse,
   IngestRequest,
+  DismissOpenReviewCandidateRequest,
+  DismissOpenReviewCandidateResponse,
   PipelineResult,
   PostOpenReviewReplyRequest,
   PostOpenReviewReplyResponse,
@@ -311,6 +313,40 @@ export async function getEmailByTicketId(
  *  - 404 — no such email. ⚠️ This one's `detail` is a plain STRING, unlike the
  *    structured objects above.
  */
+/** Record that a detected OpenReview reply is a FALSE POSITIVE of the detection.
+ *
+ * ⚠️ NOT A REROUTE, and deliberately a different endpoint from
+ * `rerouteEmail`. That one changes the email's routing LANE and fires RL-bandit
+ * and active-learning feedback keyed on the lane decision having been wrong.
+ * Here the lane may have been perfectly correct — what was wrong is the
+ * text-based detection that flagged the email as answering an OpenReview
+ * notification. Routing is untouched; the email simply stops appearing in
+ * `/queue/openreview` and resumes appearing in the main `/queue` under whatever
+ * lane it already had.
+ *
+ * The flag is a dedicated column server-side, so the dismissal survives the
+ * pipeline reprocessing that rewrites the extraction record.
+ *
+ * Failures:
+ *  - 409 — never a candidate, so there is nothing to dismiss.
+ *    `detail` is `{message, reason}`.
+ *  - 422 — empty `reason` (the backend requires one).
+ *  - 404 — no such email; ⚠️ this one's `detail` is a plain STRING.
+ *
+ * A second dismissal is NOT an error: the endpoint is idempotent and returns
+ * 200 with `already_dismissed: true`.
+ */
+export async function dismissOpenReviewCandidate(
+  emailId: number | string,
+  payload: DismissOpenReviewCandidateRequest
+): Promise<DismissOpenReviewCandidateResponse> {
+  const { data } = await apiClient.post<DismissOpenReviewCandidateResponse>(
+    `/emails/${emailId}/dismiss-openreview-candidate`,
+    payload
+  );
+  return data;
+}
+
 export async function postOpenReviewReply(
   emailId: number | string,
   payload: PostOpenReviewReplyRequest

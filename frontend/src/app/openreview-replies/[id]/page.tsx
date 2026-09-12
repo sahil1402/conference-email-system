@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 
 import {
+  useDismissOpenReviewCandidate,
   useEmailById,
   usePostOpenReviewReply,
   useSetEmailStatus,
@@ -317,6 +319,12 @@ export default function OpenReviewReplyDetailPage({
               Posting publishes this comment on OpenReview. It can&apos;t be
               undone here.
             </p>
+
+            {/* ⚠️ HIDDEN ONCE THE REPLY IS ALREADY ON OPENREVIEW — see
+                NotAnOpenReviewReply. Rendered last: it is the escape hatch for
+                the minority of emails that do not belong here at all, and
+                should not compete with the action most of them need. */}
+            {!alreadyPosted && <NotAnOpenReviewReply email={email} />}
           </section>
           )}
         </>
@@ -653,6 +661,157 @@ function AudiencePreview({
       <Info className="h-3.5 w-3.5 shrink-0 translate-y-px" aria-hidden />
       {text}
     </p>
+  );
+}
+
+/**
+ * Record that this email is NOT a reply to an OpenReview notification.
+ *
+ * ⚠️ NOT A REROUTE, in wording or in mechanism, and the two must not be
+ * conflated. The Inbox's Reroute changes an email's routing LANE and feeds the
+ * RL bandit and active learning on the premise that the lane decision was
+ * wrong. Here the lane may have been perfectly correct — what was wrong is the
+ * text-based detection that read this email as answering an OpenReview
+ * notification. The endpoint touches no routing and fires neither signal. The
+ * word "reroute" appears nowhere in this control, and a test asserts that.
+ *
+ * WORDING: "Not an OpenReview reply" states what the CHAIR is asserting, in
+ * their own terms. They read the email; they know whether it answers a
+ * notification. "Dismiss as false positive" was rejected as system jargon — a
+ * false positive is a property of the detector, and a chair should not have to
+ * model the detector to use the control.
+ *
+ * Follows the Inbox's reroute-reason INTERACTION exactly (a toggle opening an
+ * inline form, never a modal, so the email stays readable while the reason is
+ * written; Confirm disabled until the reason is non-empty) — the shape is the
+ * project's existing "action that needs a reason", even though the concept is
+ * different.
+ */
+function NotAnOpenReviewReply({ email }: { email: Email }) {
+  const router = useRouter();
+  const dismiss = useDismissOpenReviewCandidate();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Already dismissed, reached by a direct link: the list excludes these, so
+  // this is a stale URL rather than a normal path. Offering the control again
+  // would invite an action that writes nothing.
+  if (email.openreview_candidate_dismissed) {
+    return (
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        This email was already marked as not an OpenReview reply. It appears in
+        the main inbox now.
+      </p>
+    );
+  }
+
+  function submit() {
+    const trimmed = reason.trim();
+    if (trimmed === "" || dismiss.isPending) return;
+    dismiss.mutate(
+      // `dismissed_by` sent explicitly rather than left to the backend default,
+      // matching the Inbox's `approved_by`/`rerouted_by` call sites. The audit
+      // entry IS the product of this action — the reason is the feedback signal
+      // for tuning the detection — so its actor is not left implicit.
+      { id: email.id, data: { reason: trimmed, dismissed_by: "chair" } },
+      {
+        // Leaves the page, unlike a successful post. The email is no longer a
+        // candidate, so this detail route no longer describes it and the list
+        // it came from will not contain it on the next fetch. Staying would
+        // leave a chair looking at a page about a queue the email has left.
+        onSuccess: () => router.push("/openreview-replies"),
+      }
+    );
+  }
+
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {dismiss.isError && (
+        <ErrorBanner message={dismissFailureMessage(dismiss.error)} />
+      )}
+
+      {open ? (
+        <div
+          className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center"
+          style={{
+            borderColor: "var(--border)",
+            backgroundColor: "var(--surface-raised)",
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            aria-label="Why this isn't an OpenReview reply"
+            placeholder="Why isn't this an OpenReview reply?…"
+            className="flex-1 rounded-md border px-3 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+            style={{
+              backgroundColor: "var(--surface)",
+              borderColor: "var(--border)",
+              color: "var(--text-primary)",
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={dismiss.isPending || reason.trim() === ""}
+            aria-busy={dismiss.isPending}
+            onClick={submit}
+          >
+            {dismiss.isPending && (
+              <LoadingSpinner size="sm" className="!text-[var(--text-primary)]" />
+            )}
+            {dismiss.isPending ? "Moving…" : "Confirm"}
+          </Button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true);
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+          className="w-fit text-xs underline-offset-4 transition-colors hover:underline"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Not an OpenReview reply
+        </button>
+      )}
+
+      {open && (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Moves it out of this queue and back to the main inbox. Its routing and
+          assigned chair are unchanged.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A specific sentence for each way a dismissal can be refused. */
+function dismissFailureMessage(error: ApiError): string {
+  const detail = errorDetail(error);
+  if (error.status === 409) {
+    return (
+      detail.message ??
+      "This email was never detected as an OpenReview reply, so there is " +
+        "nothing to dismiss."
+    );
+  }
+  if (error.status === 422) {
+    return "A reason is required before this can be recorded.";
+  }
+  if (error.status === 404) {
+    // ⚠️ The one error whose `detail` is a plain string, not an object.
+    return error.detail || "This email no longer exists.";
+  }
+  return (
+    detail.message ??
+    error.detail ??
+    "Couldn't record this. The email is unchanged and still in this queue."
   );
 }
 

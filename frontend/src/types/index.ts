@@ -361,6 +361,21 @@ export interface OpenReviewPostMeta {
   readers: string[];
 }
 
+export interface DismissOpenReviewCandidateRequest {
+  /** Why this isn't actually a reply to an OpenReview notification.
+   *  Required by the backend (`min_length=1`) — the detection is text-based and
+   *  its false positives are the feedback signal for improving it. */
+  reason: string;
+  dismissed_by: string;
+}
+
+/** The refreshed email, plus whether this call is what changed it. */
+export interface DismissOpenReviewCandidateResponse extends Email {
+  /** True when the email was ALREADY dismissed, so this call wrote nothing.
+   *  Not an error — the backend is idempotent and returns 200 either way. */
+  already_dismissed: boolean;
+}
+
 export interface PostOpenReviewReplyRequest {
   /** The chair's FINAL text — never the originally extracted string. */
   reply_text: string;
@@ -458,6 +473,17 @@ export interface Email {
    * that found nothing.
    */
   extraction: ExtractionData | null;
+  /**
+   * A chair has ruled the OpenReview detection a false positive, so this email
+   * is treated as an ordinary one again (its routing lane is untouched).
+   *
+   * ⚠️ Its own column server-side, NOT a key inside `extraction` — that dict is
+   * rewritten from the email text on every pipeline pass, so a dismissal stored
+   * there would be recomputed away by the next follow-up or re-draft. Optional
+   * here only because rows serialized before the column existed omit it; absent
+   * means not dismissed.
+   */
+  openreview_candidate_dismissed?: boolean;
   /**
    * Transient re-evaluation state: true while a KB-change sweep is re-drafting
    * this ticket. Drives the "re-drafting…" badge; cleared when the new draft

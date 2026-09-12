@@ -19,13 +19,23 @@ import type { ReactNode } from "react";
 
 import type { Email, EmailDetailResponse } from "@/types";
 
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+
 const getEmailById = vi.hoisted(() => vi.fn());
+const dismissOpenReviewCandidate = vi.hoisted(() => vi.fn());
 const postOpenReviewReply = vi.hoisted(() => vi.fn());
 /** The SAME client fn the main Inbox's mark-solved control uses. */
 const setEmailStatus = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
-  return { ...actual, getEmailById, postOpenReviewReply, setEmailStatus };
+  return {
+    ...actual,
+    getEmailById,
+    postOpenReviewReply,
+    setEmailStatus,
+    dismissOpenReviewCandidate,
+  };
 });
 
 import OpenReviewReplyDetailPage from "./page";
@@ -104,6 +114,8 @@ beforeEach(() => {
   getEmailById.mockReset();
   postOpenReviewReply.mockReset();
   setEmailStatus.mockReset();
+  dismissOpenReviewCandidate.mockReset();
+  push.mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -1334,6 +1346,362 @@ describe("post — already posted", () => {
 // ---------------------------------------------------------------------------
 // No actions are wired
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// "Not an OpenReview reply" — dismissing a detection false positive
+//
+// ⚠️ THIS IS NOT A REROUTE and the tests say so out loud. The Inbox's Reroute
+// changes an email's routing LANE and feeds the RL bandit + active learning on
+// the premise the lane was wrong; this records that the text-based DETECTION was
+// wrong and touches neither. The word must not leak into this page's copy, so
+// its absence is asserted over the whole rendered document rather than trusted.
+// ---------------------------------------------------------------------------
+const dismissTrigger = () =>
+  screen.getByRole("button", { name: /^not an openreview reply$/i });
+const reasonInput = () =>
+  screen.getByRole("textbox", { name: /why this isn't an openreview reply/i });
+const confirmButton = () => screen.getByRole("button", { name: /^confirm$/i });
+
+/** Render, wait for load, and open the inline reason form. */
+async function openDismissForm(overrides: Partial<Email> = {}) {
+  const user = userEvent.setup();
+  getEmailById.mockResolvedValue(detail(email(overrides)));
+
+  renderPage();
+  await waitFor(() => expect(editor()).toHaveValue(REPLY));
+  await user.click(dismissTrigger());
+  return user;
+}
+
+describe("dismiss — the control", () => {
+  it("is labelled as what the chair is asserting", async () => {
+    getEmailById.mockResolvedValue(detail(email()));
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    expect(dismissTrigger()).toBeInTheDocument();
+  });
+
+  it("⚠️ never says 'reroute' anywhere on the page", async () => {
+    /* The concepts are genuinely different and the copy must not blur them: a
+       chair who reads "reroute" will expect the lane to change, and it does
+       not. Asserted over the whole document, so the word cannot reappear in a
+       helper text, aria-label or placeholder either. */
+    const user = await openDismissForm();
+
+    expect(document.body.textContent).not.toMatch(/reroute/i);
+    for (const el of screen.getAllByRole("textbox")) {
+      expect(el.getAttribute("placeholder") ?? "").not.toMatch(/reroute/i);
+      expect(el.getAttribute("aria-label") ?? "").not.toMatch(/reroute/i);
+    }
+    await user.type(reasonInput(), "x");
+    expect(document.body.textContent).not.toMatch(/reroute/i);
+  });
+
+  it("asks for a reason before it will submit", async () => {
+    await openDismissForm();
+
+    expect(reasonInput()).toBeInTheDocument();
+    expect(confirmButton()).toBeDisabled();
+    expect(dismissOpenReviewCandidate).not.toHaveBeenCalled();
+  });
+
+  it("enables Confirm once a reason is written", async () => {
+    const user = await openDismissForm();
+
+    await user.type(reasonInput(), "Quotes an old notification.");
+
+    expect(confirmButton()).toBeEnabled();
+  });
+
+  it("refuses a whitespace-only reason", async () => {
+    const user = await openDismissForm();
+
+    await user.type(reasonInput(), "   ");
+
+    expect(confirmButton()).toBeDisabled();
+  });
+
+  it("explains what dismissing will do, before it is confirmed", async () => {
+    await openDismissForm();
+
+    expect(
+      screen.getByText(/moves it out of this queue and back to the main inbox/i)
+    ).toBeInTheDocument();
+    // The property a chair would otherwise have to guess at — and the one that
+    // separates this from a reroute.
+    expect(
+      screen.getByText(/routing and assigned chair are unchanged/i)
+    ).toBeInTheDocument();
+  });
+});
+
+describe("dismiss — submitting", () => {
+  it("calls the dismissal endpoint with the reason and actor", async () => {
+    const user = await openDismissForm();
+    dismissOpenReviewCandidate.mockResolvedValue({
+      ...email(),
+      already_dismissed: false,
+    });
+
+    await user.type(reasonInput(), "Quotes an old notification; not a reply.");
+    await user.click(confirmButton());
+
+    await waitFor(() =>
+      expect(dismissOpenReviewCandidate).toHaveBeenCalledWith(7, {
+        reason: "Quotes an old notification; not a reply.",
+        dismissed_by: "chair",
+      })
+    );
+  });
+
+  it("trims the reason", async () => {
+    const user = await openDismissForm();
+    dismissOpenReviewCandidate.mockResolvedValue({
+      ...email(),
+      already_dismissed: false,
+    });
+
+    await user.type(reasonInput(), "   padded   ");
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(dismissOpenReviewCandidate).toHaveBeenCalled());
+    expect(dismissOpenReviewCandidate.mock.calls[0][1].reason).toBe("padded");
+  });
+
+  it("⚠️ never posts to OpenReview", async () => {
+    /* The two actions sit in the same section and mean opposite things. Wiring
+       the wrong mutation here would publish a public comment on an email a
+       chair just said does not belong on the forum at all. */
+    const user = await openDismissForm();
+    dismissOpenReviewCandidate.mockResolvedValue({
+      ...email(),
+      already_dismissed: false,
+    });
+
+    await user.type(reasonInput(), "Not a reply.");
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(dismissOpenReviewCandidate).toHaveBeenCalled());
+    expect(postOpenReviewReply).not.toHaveBeenCalled();
+  });
+
+  it("leaves the page for the list on success", async () => {
+    /* Unlike a successful POST, which stays put: the email is no longer a
+       candidate, so this detail route no longer describes it and the queue it
+       came from will not contain it on the next fetch. */
+    const user = await openDismissForm();
+    dismissOpenReviewCandidate.mockResolvedValue({
+      ...email(),
+      already_dismissed: false,
+    });
+
+    await user.type(reasonInput(), "Not a reply.");
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/openreview-replies"));
+  });
+
+  it("a double-click dismisses only ONCE", async () => {
+    const user = await openDismissForm();
+    let release: (v: unknown) => void = () => {};
+    dismissOpenReviewCandidate.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    await user.type(reasonInput(), "Not a reply.");
+    const button = confirmButton();
+    await user.click(button);
+    await user.click(button);
+    await user.click(button);
+
+    expect(dismissOpenReviewCandidate).toHaveBeenCalledTimes(1);
+    release({ ...email(), already_dismissed: false });
+  });
+
+  it("shows an in-flight state on the confirm control", async () => {
+    const user = await openDismissForm();
+    let release: (v: unknown) => void = () => {};
+    dismissOpenReviewCandidate.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    await user.type(reasonInput(), "Not a reply.");
+    await user.click(confirmButton());
+
+    const inFlight = screen.getByRole("button", { name: /moving/i });
+    expect(inFlight).toBeDisabled();
+    expect(inFlight).toHaveAttribute("aria-busy", "true");
+    release({ ...email(), already_dismissed: false });
+  });
+});
+
+describe("dismiss — failure", () => {
+  it("explains a 409 and stays on the page", async () => {
+    const user = await openDismissForm();
+    dismissOpenReviewCandidate.mockRejectedValue(
+      apiError(409, {
+        message:
+          "This email was never detected as an OpenReview reply candidate, " +
+          "so there is nothing to dismiss.",
+        reason: "openreview_reply_candidate is not true",
+      })
+    );
+
+    await user.type(reasonInput(), "Not a reply.");
+    await user.click(confirmButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /never detected as an openreview reply/i
+    );
+    expect(push).not.toHaveBeenCalled();
+    // The reply editor is untouched — nothing about this failure invalidates it.
+    expect(editor()).toHaveValue(REPLY);
+  });
+
+  it("handles a plain-string 404 detail without printing JSON", async () => {
+    const user = await openDismissForm();
+    dismissOpenReviewCandidate.mockRejectedValue({
+      status: 404,
+      detail: "Email 7 not found",
+      data: "Email 7 not found",
+    });
+
+    await user.type(reasonInput(), "Not a reply.");
+    await user.click(confirmButton());
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("Email 7 not found");
+    expect(banner.textContent).not.toMatch(/[{}]/);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("stays retryable after a failure", async () => {
+    const user = await openDismissForm();
+    dismissOpenReviewCandidate.mockRejectedValueOnce({
+      status: 500,
+      detail: "boom",
+    });
+
+    await user.type(reasonInput(), "Not a reply.");
+    await user.click(confirmButton());
+    await screen.findByRole("alert");
+
+    dismissOpenReviewCandidate.mockResolvedValue({
+      ...email(),
+      already_dismissed: false,
+    });
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/openreview-replies"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⚠️ Availability: hidden once the reply is already on OpenReview
+//
+// Dismissing an email whose reply IS published would be self-contradictory —
+// the detection was demonstrably right, the forum accepted the comment — and it
+// would file a false-positive record against a detection that worked, poisoning
+// the very signal the reason field exists to collect. HIDDEN, not disabled: a
+// disabled control implies a blocked-but-meaningful action and invites "why
+// can't I?", when in fact there is nothing here to want.
+// ---------------------------------------------------------------------------
+describe("dismiss — not offered once the reply is posted", () => {
+  it.each(["solved", "solve_failed", "skipped_no_ticket"] as const)(
+    "is gone after a successful post (%s)",
+    async (outcome) => {
+      const user = userEvent.setup();
+      getEmailById.mockResolvedValue(detail(email()));
+      postOpenReviewReply.mockResolvedValue(posted(outcome));
+
+      renderPage();
+      await waitFor(() => expect(editor()).toHaveValue(REPLY));
+      await user.click(postButton());
+      await screen.findByText(/reply posted to openreview/i);
+
+      expect(
+        screen.queryByRole("button", { name: /^not an openreview reply$/i })
+      ).toBeNull();
+    }
+  );
+
+  it("is gone when the post was refused as already-posted", async () => {
+    /* Same fact, arrived at differently: the comment is on the forum, this
+       attempt simply was not the one that put it there. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    dismissOpenReviewCandidate.mockResolvedValue({
+      ...email(),
+      already_dismissed: false,
+    });
+    postOpenReviewReply.mockRejectedValue(
+      apiError(409, {
+        message: "Refused by the OpenReview post gate.",
+        reason:
+          "This reply has already been posted to OpenReview (note abc123). " +
+          "Refusing to post a duplicate.",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    expect(dismissTrigger()).toBeInTheDocument();
+
+    await user.click(postButton());
+    await screen.findByText(/already on openreview/i);
+
+    expect(
+      screen.queryByRole("button", { name: /^not an openreview reply$/i })
+    ).toBeNull();
+  });
+
+  it("IS still offered after an ordinary post failure", async () => {
+    /* The counter-case, so the guard above cannot be "hide it whenever anything
+       went wrong". Nothing was posted here, so the email may still genuinely be
+       a false positive — and dismissing it is a reasonable next step. */
+    const user = userEvent.setup();
+    getEmailById.mockResolvedValue(detail(email()));
+    postOpenReviewReply.mockRejectedValue(
+      apiError(502, {
+        message: "failed",
+        error_type: "OpenReviewAPIError",
+        error: "upstream 500",
+      })
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+    await user.click(postButton());
+    await screen.findByRole("alert");
+
+    expect(dismissTrigger()).toBeInTheDocument();
+  });
+
+  it("says so instead of re-offering when already dismissed", async () => {
+    /* Reachable only by a stale direct link — the list excludes these rows. */
+    getEmailById.mockResolvedValue(
+      detail(
+        email({ openreview_candidate_dismissed: true } as unknown as Partial<Email>)
+      )
+    );
+
+    renderPage();
+    await waitFor(() => expect(editor()).toHaveValue(REPLY));
+
+    expect(
+      screen.queryByRole("button", { name: /^not an openreview reply$/i })
+    ).toBeNull();
+    expect(
+      screen.getByText(/already marked as not an openreview reply/i)
+    ).toBeInTheDocument();
+  });
+});
+
 // INVERTED from "detail — actions are not wired yet". Commit 16 landed the post
 // action, so the old assertions (no action button; a note saying edits are not
 // saved) are now the bug rather than the guard. What carries over is the
