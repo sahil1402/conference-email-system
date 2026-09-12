@@ -50,17 +50,26 @@ Cues are ordered by how much they depend on knowing a language:
                       language-specific; the SHAPE is not, so the shape is what
                       is matched.
 3. ``quoted_lines`` — ``>``-prefixed lines. Language-free.
-4. ``attribution``  — ``On ... wrote:``. Genuinely English, and the only cue
-                      here that is. It exists because this format ships no
-                      divider and no header block, so nothing structural is left
-                      to find. Listed last because it is the one cue that fails
-                      silently on a non-English client (see LIMITATIONS).
+4. ``attribution``  — ``On ... wrote:`` and its siblings in French, German and
+                      Chinese. The only LANGUAGE-SPECIFIC tier, and it exists
+                      because these formats ship no divider and no header block,
+                      so nothing structural is left to find. Listed last for
+                      exactly that reason: it is reached only when every
+                      language-free signal has already failed.
 
 A mined list of notification phrases was deliberately NOT used. Such a list
 lived in ``extractor.py`` once and was removed; that removal was about its
 purpose expiring rather than its accuracy, but a corpus-mined phrase list is
 brittle in exactly the way a reply from an arbitrary mail client demands it not
 be, so it is not resurrected here in a new costume.
+
+The four attribution patterns are NOT that list, and the difference is the
+source rather than the size. A mined list captures what a VENUE wrote — wording
+that goes stale the moment a template is edited. These capture what a MAIL
+CLIENT generates: the fixed sentence it builds around a quote, which is part of
+the client's output format. Four is also the whole set, matching the gap the
+LIMITATIONS section named; a fifth added on spec would be the mined list
+returning in a new costume.
 
 LIMITATIONS — none of these are silent
 --------------------------------------
@@ -73,10 +82,23 @@ LIMITATIONS — none of these are silent
   would be sent. ``0`` is therefore a meaningful return value, distinct from
   ``None``, and a caller that wants to treat bottom-posting specially can test
   for it. See :func:`find_quote_boundary`.
-* ``attribution`` is English-only. A French ``a écrit :`` or German ``schrieb:``
-  reply with no divider and no header block is NOT detected — the boundary
-  comes back ``None`` and the caller keeps the whole body. That is the same
-  failure the offline scripts have; it is not fixed here, only named.
+* ``attribution`` covers FOUR languages — English, French, German and Chinese —
+  and no others. A Spanish ``escribió:`` or Japanese ``さんが書きました:`` reply
+  carrying no divider and no header block is still NOT detected: the boundary
+  comes back ``None`` and the caller keeps the whole body. Naming the four is
+  what keeps this a bounded, reviewable set rather than the start of a
+  phrase list; adding a fifth is a decision, not a tidy-up.
+* SHORT dashed rules (``--- Original Message ---``, three per side) are not
+  dividers on their own. They are structurally identical to a person's own
+  ``--- update ---`` heading, and lowering ``_DIVIDER_RE``'s minimum to three
+  makes BOTH match — measured, not assumed. Such a rule is absorbed only when a
+  header block sits directly beneath it, where that block supplies the evidence
+  the rule cannot supply for itself. A short rule with nothing under it is
+  ignored, so a reply whose quote is introduced by one and carries no headers at
+  all is still missed.
+* ``Begin forwarded message:`` needs no special handling and has none. It is a
+  ``Label:`` line with an empty value, so it already joins the header run it
+  introduces — the same shape as the real Chinese sample's bare ``抄送:``.
 * Signature blocks are out of scope entirely. ``-- `` is not treated as a cue
   (it marks a signature, not a quote), and no sign-off phrases are matched. A
   reply's own signature stays in the reply.
@@ -164,10 +186,67 @@ _QUOTED_LINE_RE = re.compile(r"^[ \t]*>")
 # applied to the RAW body rather than going through _iter_lines, which is what
 # separates them from the header_block and quoted_lines cues: those strip the
 # line ending themselves (`rstrip("\r\n")`) and were never affected.
-_ATTRIBUTION_RE = re.compile(
-    r"^[ \t]*On\b.{0,200}?\bwrote:[ \t]*\r?$",
-    re.MULTILINE | re.DOTALL,
+#
+# FOUR LANGUAGES, ONE SHAPE. Each pattern pins an OPENING word and a CLOSING
+# verb phrase on the same line, with a bounded middle holding the date and the
+# person. That double anchor is the whole guard: it is what rejects "On the
+# other hand I wrote: some notes", because ordinary prose keeps going after the
+# colon and the `$` refuses it.
+#
+# ⚠️ THESE ARE NOT A MINED PHRASE LIST, and the distinction is not cosmetic.
+# The list this module's docstring refuses is one of NOTIFICATION phrases —
+# venue wording, scraped from a corpus, stale the moment a venue rewrites its
+# templates. These are MAIL-CLIENT grammar: the fixed sentence a client
+# generates around a quote. There are four of them because the docstring's
+# LIMITATIONS section named exactly these as the gap, and deliberately no more —
+# a fifth added speculatively would be the mined list arriving in a new costume.
+#
+# ⚠️ SHARED WEAKNESS, inherited knowingly: "On Monday I wrote:" matches the
+# English pattern, and "Am Montag schrieb ich folgendes:" matches the German
+# one. The existing English cue has always had that hole; these siblings are
+# held to the same bar rather than a higher one, because attribution is the LAST
+# cue tried and only reached when nothing structural was found at all.
+_ATTRIBUTION_RES = (
+    # English — "On Wed, 27 Aug 2026 at 15:28, X <a@b.net> wrote:"
+    re.compile(r"^[ \t]*On\b.{0,200}?\bwrote:[ \t]*\r?$", re.MULTILINE | re.DOTALL),
+    # French — "Le mar. 1 sept. 2026 à 10:00, X <a@b.net> a écrit :"
+    # The space before the colon is French typography, not a typo, and is
+    # optional here because not every client reproduces it.
+    re.compile(
+        r"^[ \t]*Le\b.{0,200}?\ba écrit[ \t]*:[ \t]*\r?$",
+        re.MULTILINE | re.DOTALL,
+    ),
+    # German — "Am 01.09.2026 um 10:00 schrieb X <a@b.net>:"
+    # `schrieb` sits in the MIDDLE here rather than at the end, so the closing
+    # anchor is the colon after the sender's name.
+    re.compile(
+        r"^[ \t]*Am\b.{0,200}?\bschrieb\b.{0,200}?:[ \t]*\r?$",
+        re.MULTILINE | re.DOTALL,
+    ),
+    # Chinese — "在 2026年9月1日, X <a@b.net> 写道:"
+    # No `\b` anywhere: CJK has no word boundaries, so `\b` next to a Han
+    # character behaves unpredictably. The full-width colon is accepted beside
+    # the ASCII one, the same way `_HEADER_LINE_RE` accepts it.
+    re.compile(
+        r"^[ \t]*在.{0,200}?写道[ \t]*[:：][ \t]*\r?$",
+        re.MULTILINE | re.DOTALL,
+    ),
 )
+
+# A SHORT dashed rule — three or more per side, where `_DIVIDER_RE` demands four.
+#
+# ⚠️ NOT A DIVIDER CUE ON ITS OWN, and that is the point. `--- Original Message
+# ---` and `--- update ---` are structurally IDENTICAL: same characters, same
+# counts, a free-text label between. Measured, not assumed — lowering
+# `_DIVIDER_RE` to three makes BOTH match, which would cut a person's message at
+# their own section heading. No language-free rule separates them.
+#
+# So this is used only to EXTEND a header block upward: a short rule sitting
+# immediately above one is part of the same quoted structure, because the header
+# block is what supplies the evidence and the rule merely introduces it.
+# `--- update ---` is followed by the person's own prose, no header block forms,
+# and nothing changes for it. See `_find_header_block`.
+_SHORT_RULE_RE = re.compile(r"^[ \t]*[-_=]{3,}[^\n]{0,60}[-_=]{3,}[ \t]*$")
 
 # A header block needs this many consecutive `Label: value` lines to count.
 # Three is chosen against the real shapes: every quoted header seen here carries
@@ -354,6 +433,10 @@ def _find_header_block(body: str) -> int | None:
     run_start: int | None = None
     run_length = 0
     run_has_address = False
+    #: The line above the current one, so a short rule introducing the block can
+    #: be absorbed into it. Reset whenever the run is.
+    rule_above: int | None = None
+    prev: tuple[int, str] | None = None
 
     for offset, line in _iter_lines(body):
         if _HEADER_LINE_RE.match(line):
@@ -361,20 +444,36 @@ def _find_header_block(body: str) -> int | None:
                 run_start = offset
                 run_length = 0
                 run_has_address = False
+                # A short dashed rule directly above the first header line is
+                # the marker that introduces the quote — `--- Original Message
+                # ---`, which `_DIVIDER_RE` refuses because three dashes per
+                # side is also what a person's own `--- update ---` looks like.
+                # Absorbed HERE instead, where the header block supplies the
+                # evidence the rule cannot supply for itself, so the marker stops
+                # being left dangling on the end of the reply. A rule with no
+                # header block under it still means nothing.
+                rule_above = (
+                    prev[0]
+                    if prev is not None and _SHORT_RULE_RE.match(prev[1])
+                    else None
+                )
             run_length += 1
             run_has_address = run_has_address or bool(_ADDRESS_RE.search(line))
             if run_length >= _MIN_HEADER_RUN and run_has_address:
-                return run_start
+                return rule_above if rule_above is not None else run_start
         elif _is_blank(line) and run_start is not None:
             # Bridge: the run survives, unchanged. Note the `run_start is not
             # None` guard — a blank line cannot START a run, so `run_start`
             # keeps pointing at the first real header line and the boundary
             # never swallows blank lines that belong to the reply above.
+            prev = (offset, line)
             continue
         else:
             run_start = None
             run_length = 0
             run_has_address = False
+            rule_above = None
+        prev = (offset, line)
     return None
 
 
@@ -420,9 +519,12 @@ def find_quote_cues(body: str) -> list[QuoteCue]:
     if quoted is not None:
         cues.append(QuoteCue(quoted, "quoted_lines"))
 
-    attribution = _ATTRIBUTION_RE.search(body)
-    if attribution is not None:
-        cues.append(QuoteCue(attribution.start(), "attribution"))
+    # EARLIEST across all four languages. A thread can carry more than one —
+    # an English reply above a French one — and the earliest is where the newest
+    # author stopped writing, exactly as with the other cues.
+    starts = [m.start() for m in (p.search(body) for p in _ATTRIBUTION_RES) if m]
+    if starts:
+        cues.append(QuoteCue(min(starts), "attribution"))
 
     return sorted(cues, key=lambda c: c.offset)
 

@@ -1464,3 +1464,229 @@ def test_an_indented_content_line_still_breaks_the_run(eol):
     )
 
     assert find_quote_cues(body) == []
+
+
+# =============================================================================
+# ROOT CAUSE C — the phrase/format gaps
+#
+# Three gaps were reported together and got THREE DIFFERENT treatments, because
+# measuring them showed they are not the same problem:
+#
+#   Apple Mail "Begin forwarded message:"  -> NO CODE CHANGE. Already works.
+#   "--- Original Message ---" (3 dashes)  -> absorbed into the header block,
+#                                             NOT by widening the divider.
+#   French / German / Chinese attribution  -> new siblings in the attribution
+#                                             tier, completing a documented gap.
+#
+# Each section below records which, and why.
+# =============================================================================
+
+
+# --- Apple Mail: no change was needed ----------------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_apple_mail_forward_is_already_covered_by_the_header_block(eol):
+    """⚠️ PINS A NON-CHANGE, and the reason a cue was NOT added.
+
+    "Begin forwarded message:" was reported as uncovered. It is not: the line is
+    `Label:` with an EMPTY value — the same shape as the real Chinese sample's
+    bare `抄送:` — so it already matches `_HEADER_LINE_RE` and becomes the FIRST
+    line of the run it introduces. The boundary lands on it exactly.
+
+    Adding a divider-tier cue for the phrase would have been redundant
+    machinery, and a phrase list nobody needed. Asserted on the OFFSET, because
+    "the quote was stripped" would pass even if the marker were left behind.
+    """
+    body = _body(
+        eol,
+        "Thanks — forwarding for your view.",
+        "",
+        "Begin forwarded message:",
+        "",
+        "From: AAAI 2027 <aaai2027-notifications@openreview.net>",
+        "Subject: SPC commented on a paper",
+        "To: reviewer <r@x.edu>",
+        "",
+        "original text",
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    assert find_quote_boundary(body) == body.index("Begin forwarded message:")
+    assert extract_reply_text(body) == "Thanks — forwarding for your view."
+
+
+def test_begin_forwarded_message_is_header_shaped():
+    """The single fact the test above rests on."""
+    assert _HEADER_LINE_RE.match("Begin forwarded message:")
+
+
+# --- short dashed rules: absorbed, never promoted to a divider ----------------
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "rule",
+    [
+        pytest.param("--- Original Message ---", id="three-dash-en"),
+        pytest.param("--- 原始邮件 ---", id="three-dash-zh"),
+        pytest.param("=== Original Message ===", id="three-equals"),
+        pytest.param("___ Original Message ___", id="three-underscore"),
+    ],
+)
+def test_a_short_rule_above_a_header_block_is_absorbed(eol, rule):
+    """The marker stops dangling on the end of the reply.
+
+    Before this, the header block still cut the quote away correctly — but the
+    boundary landed BELOW the rule, so `--- Original Message ---` was left as
+    the last line of the text bound for a public venue.
+    """
+    body = _body(
+        eol,
+        "Thanks, I will fix it.",
+        "",
+        rule,
+        "From: AAAI <a@openreview.net>",
+        "Date: 2026/09/01",
+        "To: reviewer <r@x.edu>",
+        "",
+        "original text",
+    )
+
+    assert find_quote_boundary(body) == body.index(rule)
+    assert extract_reply_text(body) == "Thanks, I will fix it."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_short_rule_with_no_header_block_under_it_means_nothing(eol):
+    """⚠️ THE WHOLE REASON THE DIVIDER THRESHOLD WAS NOT LOWERED.
+
+    `--- Original Message ---` and `--- update ---` are structurally IDENTICAL:
+    same characters, same counts, free text between. Lowering `_DIVIDER_RE` to
+    three per side makes BOTH match — measured, not assumed — which would cut a
+    person's message at their own section heading.
+
+    So a short rule is absorbed only where a header block vouches for it. With
+    nothing underneath, it is still not a cue, and this body is still returned
+    whole. That is a real remaining gap, named in LIMITATIONS, not a fix.
+    """
+    body = _body(
+        eol, "Thanks.", "", "--- Original Message ---", "", "quoted prose, no headers"
+    )
+
+    assert find_quote_cues(body) == []
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_users_own_short_rule_heading_is_untouched(eol):
+    """Commit 5's `--- update ---` guard, still holding after the change."""
+    body = _body(
+        eol, "Dear Chairs,", "", "--- update ---", "", "I resubmitted the paper."
+    )
+
+    assert find_quote_boundary(body) is None
+    assert "I resubmitted the paper." in extract_reply_text(body)
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_absorbing_a_rule_does_not_reach_past_one_line(eol):
+    """Only the line DIRECTLY above is absorbed.
+
+    A rule with the person's own text between it and the header block is their
+    text, and the boundary must not swallow it.
+    """
+    body = _body(
+        eol,
+        "Thanks.",
+        "",
+        "--- my own heading ---",
+        "Some sentence I wrote myself.",
+        "From: AAAI <a@openreview.net>",
+        "Date: 2026/09/01",
+        "To: reviewer <r@x.edu>",
+    )
+
+    assert find_quote_boundary(body) == body.index("From: AAAI")
+    assert "Some sentence I wrote myself." in extract_reply_text(body)
+
+
+# --- attribution in four languages -------------------------------------------
+_ATTRIBUTIONS = [
+    pytest.param(
+        "On Wed, 27 Aug 2026 at 15:28, AAAI <a@b.net> wrote:", id="english"
+    ),
+    pytest.param(
+        "Le mar. 1 sept. 2026 à 10:00, AAAI <a@b.net> a écrit :", id="french"
+    ),
+    pytest.param("Am 01.09.2026 um 10:00 schrieb AAAI <a@b.net>:", id="german"),
+    pytest.param("在 2026年9月1日, AAAI <a@b.net> 写道:", id="chinese"),
+    pytest.param("在 2026年9月1日, AAAI <a@b.net> 写道：", id="chinese-fullwidth"),
+]
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize("line", _ATTRIBUTIONS)
+def test_attribution_is_detected_in_every_supported_language(eol, line):
+    """The tier was always language-specific; it was just short three languages.
+
+    These carry no divider and no header block by construction — that is why
+    attribution exists as a tier at all — so nothing structural can cover them.
+    """
+    body = _body(eol, "Thanks, I will fix it.", "", line, "the quoted original")
+
+    assert [c.cue for c in find_quote_cues(body)] == ["attribution"]
+    assert find_quote_boundary(body) == body.index(line[:2])
+    assert extract_reply_text(body) == "Thanks, I will fix it."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "prose",
+    [
+        pytest.param(
+            "On the other hand I wrote: some notes about the appendix.",
+            id="english-prose",
+        ),
+        pytest.param(
+            "Le rapport que il a écrit : il est trop long selon moi.",
+            id="french-prose",
+        ),
+        pytest.param("Am Ende schrieb ich meine Notizen auf.", id="german-prose"),
+        pytest.param("在报告中我写道: 这个问题很重要。", id="chinese-prose"),
+    ],
+)
+def test_attribution_does_not_fire_on_ordinary_prose(eol, prose):
+    """⚠️ ONE REJECTION PER LANGUAGE, mirroring commit 5's English guard.
+
+    Each pattern pins an opening word AND a closing verb phrase on the same
+    line. The `$` anchor is what does the work: ordinary prose keeps going after
+    the colon, so the line never ends where an attribution would.
+    """
+    body = _body(eol, "Hello,", "", prose, "", "Thanks.")
+
+    assert find_quote_cues(body) == []
+    assert find_quote_boundary(body) is None
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_earliest_attribution_wins_across_languages(eol):
+    """A thread can carry more than one language; the first is the boundary."""
+    body = _body(
+        eol,
+        "Merci.",
+        "",
+        "Le mar. 1 sept. 2026, AAAI <a@b.net> a écrit :",
+        "quoted french",
+        "On Wed, 27 Aug 2026, AAAI <a@b.net> wrote:",
+        "quoted english",
+    )
+
+    assert find_quote_boundary(body) == body.index("Le mar.")
+    assert extract_reply_text(body) == "Merci."
+
+
+def test_no_language_was_added_beyond_the_four():
+    """⚠️ PINS THE SET, so a fifth is a decision rather than a tidy-up.
+
+    Spanish is the obvious next one and is deliberately absent — the LIMITATIONS
+    section names it. This asserts the gap so it stays visible in the suite.
+    """
+    body = "Gracias.\n\nEl 1 sept 2026, AAAI <a@b.net> escribió:\ntexto original"
+
+    assert find_quote_cues(body) == []
