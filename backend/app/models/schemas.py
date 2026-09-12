@@ -8,7 +8,7 @@ They are intentionally logic-free — validation only. The ORM models in
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field
 
 from app.models.enums import (
     EmailStatus,
@@ -128,14 +128,35 @@ class ExtractionResult(BaseModel):
     pipeline types: these are the wire contract, the pipeline's are the internal
     one, and the two are free to move independently.
 
-    Every identifier field is a LIST — an email may legitimately name several
-    submissions, and reporting one silently discarded the rest.
+    The submission/forum identifier fields are LISTS — an email may legitimately
+    name several submissions, and reporting one silently discarded the rest. The
+    two OpenReview reply signals are SCALARS: each names one specific thing (a
+    single comment; a single sender address), so a list of them would carry no
+    usable meaning.
 
     ``method`` is part of the contract, not decoration: it says WHICH path
     produced these values, so a consumer can tell the model's answer from a
-    weaker regex guess. Note the distinction a null ``extraction`` carries —
-    absent means the row was never examined, whereas a present result with
-    EMPTY lists means it was examined and nothing was found.
+    weaker regex guess. It does NOT describe ``openreview_note_id``,
+    ``openreview_notification_sender`` or ``extracted_reply_text``, all of which
+    the pipeline reads from the raw text whichever path ran. Note the
+    distinction a null ``extraction`` carries — absent means the row was never
+    examined, whereas a present result with EMPTY lists means it was examined
+    and nothing was found.
+
+    ``openreview_reply_candidate`` is DERIVED here exactly as it is on the
+    pipeline model — see its own note for why mirroring it as a stored field
+    would have reintroduced, at the wire layer, the very drift it exists to
+    prevent.
+
+    ``extracted_reply_text`` is STORED on both sides, and that is not an
+    inconsistency with the flag above. The flag is a function of two fields this
+    model carries, so it can be recomputed here; the reply text is a function of
+    the raw email body, which this model does not carry and should not, so there
+    is nothing to recompute it from. Mirroring it as a plain field is the only
+    option, not a weaker choice.
+
+    Field ORDER matches the pipeline model deliberately, so the two can be read
+    side by side; nothing asserts key order, so this is for humans.
     """
 
     submission_numbers: list[str] = Field(
@@ -148,13 +169,71 @@ class ExtractionResult(BaseModel):
         description="OpenReview forum ids as identified, deduplicated, in "
         "first-seen order. Empty when the email named none.",
     )
+    openreview_note_id: str | None = Field(
+        default=None,
+        description="OpenReview note (Official Comment) id, when a forum link "
+        "carried one as its `noteId` parameter. Always names a comment inside a "
+        "forum this result also reports — it is read from the SAME link as its "
+        "forum id and never paired across links. None when no link carried one, "
+        "which means 'looked, found none'.",
+    )
+    openreview_notification_sender: str | None = Field(
+        default=None,
+        description="The OpenReview per-venue notification address "
+        "(<venue>-notifications@openreview.net) found in the text, verbatim; "
+        "None when none appears. Sent as the matched ADDRESS rather than a bare "
+        "boolean so a consumer can see WHICH venue and year the quoted "
+        "notification came from. Case is preserved as found, so COMPARE "
+        "CASE-INSENSITIVELY.",
+    )
+    extracted_reply_text: str = Field(
+        default="",
+        description="What the person actually wrote, with quoted reply history "
+        "removed and the ends trimmed. Empty string when the body was entirely "
+        "quoted material, or absent — TEST EMPTINESS ON THIS STRING rather than "
+        "re-deriving it, since a body whose quote is preceded by a blank line "
+        "still contains no reply. Always a string, never null, so a consumer "
+        "never has to handle two kinds of empty.",
+    )
     authors: list[AuthorMention] = Field(
         default_factory=list,
         description="People the email identifies, deduplicated, in first-seen order.",
     )
     method: Literal["llm_distiller", "regex_fallback", "none"] = Field(
-        default="none", description="Which path produced this result."
+        default="none",
+        description="Which path produced the IDENTIFIER and AUTHOR fields. It "
+        "does not describe `openreview_note_id` or "
+        "`openreview_notification_sender`, which are read from the raw text on "
+        "either path.",
     )
+
+    @computed_field
+    @property
+    def openreview_reply_candidate(self) -> bool:
+        """Both OpenReview signals present: a reply to a notification.
+
+        DERIVED, exactly as on the pipeline model — and that choice is the whole
+        point rather than a stylistic echo. Mirrored as a stored
+        ``bool = False`` field, this wire model could be handed a value
+        contradicting the two fields beside it, and would then be able to
+        represent a state the pipeline can NEVER produce. A mirror that can say
+        something its source cannot has drifted, which is the exact failure this
+        class's docstring warns about. Deriving keeps the two identical by
+        construction instead of by anyone remembering.
+
+        Practical consequence: a stale or corrupt persisted value is ignored and
+        recomputed on validation, so BOTH models independently reach the same
+        answer from the same operands and cannot disagree.
+
+        The expression is duplicated rather than imported, following this
+        module's mirror convention. That duplication is itself a drift surface,
+        so it is covered by a test that compares the derived value across both
+        models over the full truth table — not merely by inspection.
+        """
+        return (
+            self.openreview_note_id is not None
+            and self.openreview_notification_sender is not None
+        )
 
 
 # ---------------------------------------------------------------------------

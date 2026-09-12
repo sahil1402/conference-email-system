@@ -147,6 +147,33 @@ export interface ExtractionData {
   submission_numbers: string[];
   /** Deduplicated (case-SENSITIVE — case distinguishes different papers). */
   openreview_forum_ids: string[];
+  /**
+   * The OpenReview note (Official Comment) being replied to, when a forum link
+   * carried one as its `noteId`. Read from the SAME link as its forum id, so it
+   * always names a comment inside a forum this result also reports.
+   */
+  openreview_note_id: string | null;
+  /**
+   * The per-venue OpenReview notification address found in the text
+   * (`<venue>-notifications@openreview.net`), verbatim. Sent as the ADDRESS
+   * rather than a boolean so the venue prefix is visible. Compare
+   * case-insensitively.
+   */
+  openreview_notification_sender: string | null;
+  /**
+   * True iff BOTH signals above are present — this email is a reply to an
+   * OpenReview notification. Derived server-side from the other two, never
+   * stored, so it cannot drift from them.
+   */
+  openreview_reply_candidate: boolean;
+  /**
+   * What the person actually wrote, with quoted reply history removed and the
+   * ends trimmed. Empty string when the body was entirely quoted material —
+   * TEST EMPTINESS ON THIS STRING rather than re-deriving it. This, NOT
+   * `Email.body`, is what should be shown or relayed: the raw body still
+   * carries the whole quoted notification underneath the reply.
+   */
+  extracted_reply_text: string;
   /** Deduplicated, in first-seen order (the sender leads on the regex path). */
   authors: AuthorMention[];
   method: "llm_distiller" | "regex_fallback" | "none";
@@ -290,6 +317,111 @@ export interface ReassignmentEvent {
 // Persisted record — emails.py::_email_to_dict
 // ---------------------------------------------------------------------------
 
+/** Who may read a relayed reply. Mirrors the backend's `visibility` field. */
+export type OpenReviewVisibility = "public" | "internal";
+
+/**
+ * What happened to the Zendesk ticket after a successful OpenReview post.
+ *
+ * ⚠️ FOUR VALUES, NOT A BOOLEAN, and the UI must branch on `outcome` rather
+ * than on the response's top-level `warning`. The backend sets `warning` for
+ * every non-`solved` outcome, INCLUDING the two benign skips — so treating a
+ * non-null warning as a problem would flag "this email has no Zendesk ticket"
+ * as something needing attention. Only `solve_failed` is a failure.
+ */
+export type OpenReviewSolveOutcome =
+  | "solved"
+  | "solve_failed"
+  | "skipped_no_ticket"
+  | "skipped_closed";
+
+export interface OpenReviewTicketResolution {
+  outcome: OpenReviewSolveOutcome;
+  /** Whether a Zendesk write was actually attempted (false for both skips). */
+  attempted: boolean;
+  ticket_id: number | null;
+  zendesk_status: string | null;
+  error: string | null;
+  error_type: string | null;
+  /** Plain-language next step; present for every non-`solved` outcome. */
+  recovery: string | null;
+}
+
+/** The comment that was posted, as recorded on `draft.openreview_post`. */
+export interface OpenReviewPostMeta {
+  state: string;
+  note_id: string | null;
+  edit_id: string | null;
+  parent_note_id: string;
+  forum_id: string;
+  venue_id: string;
+  submission_number: number;
+  visibility: OpenReviewVisibility;
+  /** The audience the comment was actually posted to. */
+  readers: string[];
+}
+
+export interface DismissOpenReviewCandidateRequest {
+  /** Why this isn't actually a reply to an OpenReview notification.
+   *  Required by the backend (`min_length=1`) — the detection is text-based and
+   *  its false positives are the feedback signal for improving it. */
+  reason: string;
+  dismissed_by: string;
+}
+
+/** The refreshed email, plus whether this call is what changed it. */
+export interface DismissOpenReviewCandidateResponse extends Email {
+  /** True when the email was ALREADY dismissed, so this call wrote nothing.
+   *  Not an error — the backend is idempotent and returns 200 either way. */
+  already_dismissed: boolean;
+}
+
+export interface PostOpenReviewReplyRequest {
+  /** The chair's FINAL text — never the originally extracted string. */
+  reply_text: string;
+  submission_number: number;
+  visibility: OpenReviewVisibility;
+  posted_by?: string;
+}
+
+/** The refreshed email, plus what this action did. */
+export interface PostOpenReviewReplyResponse extends Email {
+  openreview_post: OpenReviewPostMeta;
+  ticket_resolution: OpenReviewTicketResolution;
+  warning: string | null;
+}
+
+/**
+ * The audience of the OpenReview note a reply candidate is answering.
+ *
+ * ⚠️ THREE STATES, NOT A LIST-OR-NOTHING, and they must not be collapsed. The
+ * backend builds this from one shape with every key always present
+ * (`_openreview_readers_result` in emails.py), precisely so a consumer never has
+ * to tell an absent key from a null value:
+ *
+ * - `not_applicable` — this email is not an OpenReview reply candidate, so there
+ *   is no parent comment and no audience to speak of.
+ * - `failed`         — there IS an audience, but OpenReview could not be reached
+ *   or refused. `error` / `error_type` say why.
+ * - `fetched`        — `readers` is the live list.
+ *
+ * `readers` is `null` in the first two and an array only in `fetched`. An EMPTY
+ * array is a fourth, genuine fact ("fetched; the note names no readers") and
+ * stays distinguishable from `null` — rendering "nobody can see this" where the
+ * truth is "we could not find out" would be a real error shown as a fact.
+ */
+export interface OpenReviewReaders {
+  state: "fetched" | "failed" | "not_applicable";
+  /** The live audience — an array ONLY when `state === "fetched"`. */
+  readers: string[] | null;
+  /** The note that was looked up; null when not applicable. */
+  note_id: string | null;
+  /** Human-readable failure text; null unless `state === "failed"`. */
+  error: string | null;
+  /** Exception class name, e.g. `OpenReviewNoteNotFoundError`. */
+  error_type: string | null;
+}
+
 export interface Email {
   id: number;
   sender: string;
@@ -342,6 +474,17 @@ export interface Email {
    */
   extraction: ExtractionData | null;
   /**
+   * A chair has ruled the OpenReview detection a false positive, so this email
+   * is treated as an ordinary one again (its routing lane is untouched).
+   *
+   * ⚠️ Its own column server-side, NOT a key inside `extraction` — that dict is
+   * rewritten from the email text on every pipeline pass, so a dismissal stored
+   * there would be recomputed away by the next follow-up or re-draft. Optional
+   * here only because rows serialized before the column existed omit it; absent
+   * means not dismissed.
+   */
+  openreview_candidate_dismissed?: boolean;
+  /**
    * Transient re-evaluation state: true while a KB-change sweep is re-drafting
    * this ticket. Drives the "re-drafting…" badge; cleared when the new draft
    * lands (pushed live over the /emails/stream SSE).
@@ -366,13 +509,24 @@ export interface Email {
    * `draft.citations`.
    */
   retrieved_chunks?: RetrievedChunk[] | null;
+  /**
+   * Who can currently see the OpenReview comment this email replies to, read
+   * live from OpenReview on each detail fetch. Like `retrieved_chunks`, served
+   * only by the email-detail endpoints (`GET /emails/{id}`,
+   * `/emails/by-ticket/{id}`) and absent on queue rows — there the lookup would
+   * be a live API round-trip per row.
+   */
+  openreview_readers?: OpenReviewReaders;
   /** Retriever inputs + grounding set captured at draft time. */
   retrieval_context?: RetrievalContext | null;
   created_at: string | null;
   updated_at: string | null;
 }
 
-/** GET /emails/queue response envelope (emails.py::get_queue). */
+/** Queue response envelope, shared by BOTH queue endpoints:
+ *  `/emails/queue` (emails.py::get_queue) and `/emails/queue/openreview`
+ *  (emails.py::get_openreview_queue). They take the same parameters and
+ *  return the same shape from the same serializer, so one type covers both. */
 export interface EmailQueueResponse {
   emails: Email[];
   total: number;
@@ -631,6 +785,17 @@ export interface ReassignChairRequest {
 export interface ApiError {
   detail: string;
   status: number;
+  /**
+   * The raw `detail` body, BEFORE the interceptor flattens it to a string.
+   *
+   * Purely additive — `detail` is unchanged for every existing consumer. It
+   * exists because some endpoints return a structured detail
+   * (`{message, error_type, error}`, `{message, reason}`) that carries the
+   * distinction the caller needs to act on, and stringifying it forces the UI
+   * to re-derive that distinction by pattern-matching prose. `undefined` when
+   * the response carried no `detail` at all.
+   */
+  data?: unknown;
 }
 
 // ---------------------------------------------------------------------------

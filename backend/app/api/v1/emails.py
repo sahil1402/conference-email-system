@@ -15,7 +15,7 @@ import re
 
 import bleach
 from datetime import datetime, time, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -32,9 +32,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.events import get_event_broker
+from app.core.openreview_gate import authorize_openreview_post
 from app.core.send_gate import authorize_send
 from app.core.tracing import read_traces
 from app.db.database import async_session_factory, get_db
+from app.integrations.openreview import (
+    OpenReviewNote,
+    OpenReviewNoteError,
+    OpenReviewThreadMismatchError,
+    get_note as openreview_get_note,
+    get_openreview_client,
+    post_comment_reply as openreview_post_comment_reply,
+)
+from app.integrations.openreview.client import (
+    OpenReviewAuthError,
+    OpenReviewCredentialError,
+    OpenReviewDependencyError,
+)
 from app.integrations.zendesk.adapter import ZendeskIngestAdapter
 from app.integrations.zendesk.sender import (
     ZendeskSender,
@@ -113,6 +127,57 @@ class RedraftRequest(BaseModel):
         "is appended, so the drafter simply never sees them — there is no prompt "
         "representation of an exclusion. Capped at 10: the ranked set is bounded "
         "by MAX_RETRIEVED_CHUNKS, so a longer list can only be malformed input.",
+    )
+
+
+class PostOpenReviewReplyRequest(BaseModel):
+    """The chair's decision to relay a detected reply onward to OpenReview."""
+
+    # Mirrors ApproveRequest.final_text: the chair may have edited the extracted
+    # text in the review UI, and it is the EDITED text that must be posted.
+    # Required rather than optional — the endpoint must never fall back to
+    # `extraction["extracted_reply_text"]` silently, because that would post
+    # something the chair did not read in the box they were looking at.
+    reply_text: str = Field(
+        ...,
+        min_length=1,
+        description="The final reply text to post, exactly as the chair "
+        "approved it. Sent verbatim; never substituted with the originally "
+        "extracted text.",
+    )
+    submission_number: int = Field(
+        ...,
+        gt=0,
+        description="The submission this comment belongs to, used to build the "
+        "Official_Comment invitation. Supplied by the caller because the "
+        "extractor reports submission_numbers as a LIST (an email may name "
+        "several) and choosing one is not this endpoint's decision to make.",
+    )
+    visibility: Literal["public", "internal"] = Field(
+        default="public",
+        description="Who may read the relayed comment. 'public' (the default) "
+        "gives it the SAME readers as the parent note, so it reaches exactly "
+        "the audience of the comment it answers. 'internal' restricts it to the "
+        "Program Chairs and the paper's own Authors group.",
+    )
+    posted_by: str = Field(
+        default="chair", description="Actor recorded in the audit log."
+    )
+
+
+class DismissOpenReviewCandidateRequest(BaseModel):
+    """A chair's judgment that a detected OpenReview reply is a false positive."""
+
+    reason: str = Field(
+        ...,
+        min_length=1,
+        description="Why this email is not actually a reply to an OpenReview "
+        "notification. Required — the detection is text-based and its false "
+        "positives are the feedback signal for improving it, so a dismissal "
+        "with no stated reason records that it happened and nothing about why.",
+    )
+    dismissed_by: str = Field(
+        default="chair", description="Actor recorded in the audit log."
     )
 
 
@@ -345,6 +410,10 @@ def _email_to_dict(email: Email) -> dict:
         # ("examined, found nothing"). Coercing null to {} here would erase that
         # difference at the API boundary.
         "extraction": email.extraction,
+        # Whether a chair has ruled the OpenReview detection a false positive.
+        # Serialized beside `extraction` but sourced from its own column, which
+        # is the distinction that matters: this one survives a reprocess.
+        "openreview_candidate_dismissed": bool(email.openreview_candidate_dismissed),
         "redrafting": bool(email.redrafting),
         "retrieval_context": email.retrieval_context,
         # Derived from retrieval_context (no column, no duplicated state). Sits
@@ -372,10 +441,151 @@ async def _email_detail_dict(db: AsyncSession, email: Email) -> dict:
     Deliberately NOT folded into ``_email_to_dict``: that serializer also runs
     per-row over the queue page, where a lookup would be an N+1 across up to
     ``limit`` emails. Hydration is one extra query, on single-email reads only.
+
+    ``openreview_readers`` is here for the SAME reason and one more: it is an
+    outbound network call, and ``/queue/openreview`` is a page of nothing but
+    reply candidates, so on the row serializer every list render would become up
+    to ``limit`` live OpenReview round-trips. See :func:`_openreview_readers` —
+    it is skipped entirely for anything that is not a reply candidate, so this
+    helper still performs no I/O beyond the DB for an ordinary email.
     """
     data = _email_to_dict(email)
     data["retrieved_chunks"] = await _hydrate_retrieved_chunks(db, email)
+    data["openreview_readers"] = await _openreview_readers(email)
     return data
+
+
+# How long a detail read waits on OpenReview before reporting the readers as
+# unavailable.
+#
+# This endpoint had NO external dependency before this field existed, so the
+# bound matters more than the number: an unbounded SDK call would leave the
+# chair's detail page hanging indefinitely on a third party, which is strictly
+# worse than showing the audience as unavailable and letting the rest of the
+# email render. Note that ``asyncio.wait_for`` bounds the RESPONSE, not the
+# work — the worker thread is not cancelled and runs to completion. That is an
+# acceptable leak here because the call is a read whose result is advisory.
+_OPENREVIEW_READERS_TIMEOUT_SECONDS = 10.0
+
+
+def _openreview_readers_result(
+    state: str,
+    *,
+    readers: list[str] | None = None,
+    note_id: str | None = None,
+    error: str | None = None,
+    error_type: str | None = None,
+) -> dict:
+    """One shape for all three states, so no key is ever merely absent."""
+    return {
+        "state": state,
+        "readers": readers,
+        "note_id": note_id,
+        "error": error,
+        "error_type": error_type,
+    }
+
+
+async def _openreview_readers(email: Email) -> dict:
+    """Who would see this reply if it were relayed — read LIVE from OpenReview.
+
+    WHY LIVE, NOT STORED AT DETECTION TIME
+    --------------------------------------
+    Caching was the cheaper option and was rejected on correctness, not effort:
+
+    * ``post_comment_reply`` posts to the readers of the parent note as fetched
+      AT POST TIME, and never to a list ConfMail computed. A stored copy could
+      therefore show a chair one audience while the post reaches another — and
+      the whole reason this field exists is that a chair approving a public
+      relay should see who will see it. A display that can disagree with the
+      action it is authorising is worse than no display.
+    * Filling it at detection time would put an OpenReview API call on the
+      INGEST path — inside the Zendesk poller, across every synced ticket,
+      requiring OpenReview credentials to be configured before ordinary email
+      processing works. Extraction is deliberately text-only (it has no
+      OpenReview API integration at all, by design), and this commit is not the
+      place to reverse that.
+
+    WHAT LIVE COSTS, AND WHAT PAYS IT
+    ---------------------------------
+    The call is made ONLY for a genuine reply candidate carrying a note id, so
+    every other email — the overwhelming majority, and every row of the main
+    queue — pays exactly nothing and this endpoint behaves as it always did.
+    For a candidate it is one bounded call on a page a chair opened deliberately,
+    one at a time.
+
+    Failure NEVER propagates. Any exception becomes the ``failed`` state and the
+    rest of the email still renders; a broken OpenReview must not be able to
+    take the detail page down with it.
+
+    THE THREE STATES ARE THE POINT. ``not_applicable`` (not a candidate, so
+    there is no parent comment and no audience to show) and ``failed`` (there IS
+    an audience, but we could not read it) are completely different facts, and
+    collapsing them would hide a real error behind a UI that simply shows
+    nothing. ``readers`` is ``None`` in both, never ``[]`` — an empty LIST is a
+    fourth, genuine fact ("fetched; the note names no readers") and must stay
+    distinguishable, exactly as a null ``extraction`` stays distinct from an
+    examined-but-empty one.
+    """
+    extraction = dict(getattr(email, "extraction", None) or {})
+    note_id = (extraction.get("openreview_note_id") or "").strip()
+
+    # Mirrors the first two conditions of ``authorize_openreview_post``, and
+    # deliberately does not call it: that gate needs the chair's final reply
+    # text and enforces idempotency, neither of which a read has or wants. An
+    # already-posted reply still has an audience worth showing.
+    if not extraction.get("openreview_reply_candidate") or not note_id:
+        return _openreview_readers_result("not_applicable")
+
+    def _fetch() -> OpenReviewNote:
+        # Client construction performs a real LOGIN over the network, so it runs
+        # in the worker thread alongside the fetch rather than blocking the
+        # event loop ahead of it.
+        client = get_openreview_client(settings)
+        return openreview_get_note(client, note_id)
+
+    try:
+        note = await asyncio.wait_for(
+            asyncio.to_thread(_fetch),
+            timeout=_OPENREVIEW_READERS_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "OpenReview readers lookup timed out for email %s (note %s)",
+            email.id,
+            note_id,
+        )
+        return _openreview_readers_result(
+            "failed",
+            note_id=note_id,
+            error=(
+                "OpenReview did not respond within "
+                f"{_OPENREVIEW_READERS_TIMEOUT_SECONDS:g}s."
+            ),
+            error_type="TimeoutError",
+        )
+    except Exception as exc:  # noqa: BLE001 - reported in-band, never swallowed
+        # Deliberately broad. The specific credential/auth/note errors are all
+        # caught here, and so is anything the SDK raises that this code has not
+        # anticipated — because on a READ the correct response to an unknown
+        # failure is the same as to a known one: say the readers are unavailable
+        # and render everything else.
+        logger.warning(
+            "OpenReview readers lookup failed for email %s (note %s): %s",
+            email.id,
+            note_id,
+            exc,
+        )
+        return _openreview_readers_result(
+            "failed",
+            note_id=note_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+    return _openreview_readers_result(
+        "fetched", readers=list(note.readers), note_id=note.id
+    )
 
 
 async def _hydrate_retrieved_chunks(db: AsyncSession, email: Email) -> list[dict] | None:
@@ -582,6 +792,17 @@ async def get_queue(
     (see :data:`_RECEIVED_PARAM_CONTRACT`); an inverted range is a 422, not an
     empty page. The RESOLVED datetimes are echoed in ``page_info``, so a client
     can see exactly which window was applied after any end-of-day expansion.
+
+    EMAILS DETECTED AS OPENREVIEW REPLIES ARE EXCLUDED — but only while they are
+    still unresolved. They need a different action (relay the reply onward) and
+    live in their own queue at ``/queue/openreview``, so mixing them in here
+    would put two unrelated decisions in one list. A candidate that is already
+    solved/closed is NOT pulled out: its visibility is exactly what it was before
+    this split existed, so nothing a chair already resolved moves anywhere.
+
+    The two queues are exact complements of ONE predicate
+    (``_unresolved_openreview_candidate``), so no email can be hidden from both
+    or appear in both.
     """
     after, before = _received_range(received_after, received_before)
     kwargs = dict(
@@ -595,8 +816,12 @@ async def get_queue(
         received_after=after,
         received_before=before,
     )
-    emails = await email_repo.get_email_queue(db, limit=limit, offset=offset, **kwargs)
-    total = await email_repo.count_email_queue(db, **kwargs)
+    emails = await email_repo.get_email_queue(
+        db, limit=limit, offset=offset, openreview_candidates="exclude", **kwargs
+    )
+    total = await email_repo.count_email_queue(
+        db, openreview_candidates="exclude", **kwargs
+    )
     return {
         "emails": [_email_to_dict(e) for e in emails],
         "total": total,
@@ -647,7 +872,74 @@ async def get_queue_facets(
         unassigned=unassigned,
         received_after=after,
         received_before=before,
+        # The SAME exclusion ``/queue`` applies. These counts sit directly beside
+        # that list, so leaving it off would make the status bar describe a
+        # larger set than the rows underneath it — the "page and total disagree"
+        # bug class this aggregate exists to avoid in the first place.
+        openreview_candidates="exclude",
     )
+
+
+@router.get("/queue/openreview")
+async def get_openreview_queue(
+    lane: str | None = None,
+    chair_id: int | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    unassigned: bool = False,
+    source: str | None = None,
+    zendesk_status: str | None = None,
+    received_after: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
+    received_before: str | None = Query(None, description=_RECEIVED_PARAM_CONTRACT),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return the OpenReview-replies queue — the exact inverse of ``/queue``.
+
+    Emails detected as a reviewer or author replying to an OpenReview
+    notification, still awaiting chair action. They are excluded from the main
+    queue and shown here instead, because the action is different: relay the
+    reply onward to OpenReview rather than answer it by email.
+
+    Identical in every other respect to ``/queue`` — same filters, same
+    pagination bounds, same ``{emails, total, page_info}`` envelope, same
+    newest-first ordering — so a client can reuse the queue's existing patterns
+    unchanged and only swap the URL.
+
+    "Unresolved" is not redefined here. Both queues are built from the SINGLE
+    predicate ``_unresolved_openreview_candidate`` in the repository, one
+    asserting it and one negating it, which is what guarantees they stay exact
+    complements rather than two definitions that can drift apart.
+
+    Named ``/queue/openreview`` to sit alongside the existing ``/queue`` and
+    ``/queue/facets`` rather than as a detached ``/openreview-queue`` sibling; it
+    is a two-segment static path declared BEFORE the ``/{email_id}`` catch-all,
+    exactly like ``/queue/facets``, so it cannot be shadowed by it.
+    """
+    after, before = _received_range(received_after, received_before)
+    kwargs = dict(
+        lane=lane,
+        chair_id=chair_id,
+        status=status,
+        search=search,
+        unassigned=unassigned,
+        source=source,
+        zendesk_status=zendesk_status,
+        received_after=after,
+        received_before=before,
+    )
+    emails = await email_repo.get_email_queue(
+        db, limit=limit, offset=offset, openreview_candidates="only", **kwargs
+    )
+    total = await email_repo.count_email_queue(
+        db, openreview_candidates="only", **kwargs
+    )
+    return {
+        "emails": [_email_to_dict(e) for e in emails],
+        "total": total,
+        "page_info": {"limit": limit, "offset": offset, **kwargs},
+    }
 
 
 # Seconds between SSE heartbeat comments when no events are flowing — keeps the
@@ -1203,6 +1495,533 @@ async def set_ticket_status_no_reply(
             f"Ticket set to {set_status}, but the state-tag write hit a 409 "
             "(ticket changed concurrently); the tag was NOT overwritten. Re-sync."
         )
+    return result
+
+
+# Outcomes of the auto-solve half of /post-openreview-reply. Four values rather
+# than a boolean because a chair acts differently on each: a transport failure
+# wants a retry, a closed ticket wants nothing, and a non-Zendesk email has no
+# ticket at all. Collapsing them would force the frontend to re-derive the
+# difference from an error string.
+OPENREVIEW_SOLVE_SOLVED = "solved"
+OPENREVIEW_SOLVE_FAILED = "solve_failed"
+OPENREVIEW_SOLVE_SKIPPED_NO_TICKET = "skipped_no_ticket"
+OPENREVIEW_SOLVE_SKIPPED_CLOSED = "skipped_closed"
+
+
+async def _auto_solve_after_openreview_post(
+    db: AsyncSession, email: Email, post_meta: dict, actor: str
+) -> dict:
+    """Resolve the Zendesk ticket after a successful OpenReview post.
+
+    NEVER RAISES. It is called only once the comment is already public, so any
+    exception escaping here would turn a completed action into a failed request.
+    Every path returns a ``ticket_resolution`` dict instead, and the caller
+    surfaces it as-is.
+
+    Reuses ``ZendeskSender.set_status_only`` — the same transport ``/set-status``
+    drives, called directly rather than through an HTTP hop, which is how the
+    other endpoints already share the sender.
+
+    Deliberately does NOT mark the email ``SEND_FAILED`` when the solve fails,
+    which is where it parts company with ``/set-status``. There, a failed status
+    write is the whole action failing. Here the action succeeded; flagging the
+    row ``SEND_FAILED`` would put an email whose reply is live into the queue's
+    failed-send bucket and invite someone to retry the send. The failure is
+    recorded on ``draft["ticket_resolution"]`` and in the audit trail instead.
+    """
+    base = {
+        "attempted": False,
+        "ticket_id": email.zendesk_ticket_id,
+        "zendesk_status": None,
+        "error": None,
+        "error_type": None,
+        "recovery": None,
+    }
+    audit_context = {
+        "note_id": post_meta.get("note_id"),
+        "parent_note_id": post_meta.get("parent_note_id"),
+        "forum_id": post_meta.get("forum_id"),
+        "zendesk_ticket_id": email.zendesk_ticket_id,
+    }
+
+    # No ticket to solve — the post still happened, so this is not a failure.
+    if (email.source or "") != EmailSource.ZENDESK.value or not email.zendesk_ticket_id:
+        resolution = {
+            **base,
+            "outcome": OPENREVIEW_SOLVE_SKIPPED_NO_TICKET,
+            "recovery": "No Zendesk ticket is associated with this email, so "
+            "there was nothing to resolve.",
+        }
+        await audit_repo.log_action(
+            db, str(email.id), "zendesk_auto_solve_skipped", actor,
+            {**audit_context, "reason": "not a Zendesk-sourced email"},
+        )
+        return resolution
+
+    # Closed tickets are immutable (§2) — the same guard /set-status applies,
+    # except here it cannot fail the request.
+    if (email.zendesk_status or "").lower() == "closed":
+        resolution = {
+            **base,
+            "outcome": OPENREVIEW_SOLVE_SKIPPED_CLOSED,
+            "zendesk_status": email.zendesk_status,
+            "recovery": "The Zendesk ticket is already closed and immutable; it "
+            "needs no action.",
+        }
+        await audit_repo.log_action(
+            db, str(email.id), "zendesk_auto_solve_skipped", actor,
+            {**audit_context, "reason": "ticket is closed"},
+        )
+        return resolution
+
+    try:
+        outcome = await zendesk_sender.set_status_only(
+            ticket_id=int(email.zendesk_ticket_id),
+            status="solved",
+            tags=["ai_status_solved"],
+            updated_stamp=_iso_z(email.zendesk_updated_at),
+        )
+    except ZendeskSendError as exc:
+        # THE partial-success path. The comment is live; the ticket is not.
+        resolution = {
+            **base,
+            "attempted": True,
+            "outcome": OPENREVIEW_SOLVE_FAILED,
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+            "recovery": "The reply WAS posted to OpenReview, but the Zendesk "
+            "ticket could not be auto-solved and is still open. Resolve it with "
+            "the mark-solved action (POST /emails/{id}/set-status); do not "
+            "re-post the reply.",
+        }
+        failed_draft = {
+            **(email.draft or {}),
+            "ticket_resolution": {
+                "state": "solve_failed",
+                "error": str(exc),
+                "status_code": getattr(exc, "status_code", None),
+            },
+        }
+        # Workflow status passed back UNCHANGED — see the docstring on why this
+        # is not SEND_FAILED.
+        await email_repo.update_email_status(
+            db, str(email.id), email.status, {"draft": failed_draft}
+        )
+        await audit_repo.log_action(
+            db, str(email.id), "zendesk_auto_solve_failed", actor,
+            {
+                **audit_context,
+                "requested_status": "solved",
+                "error": str(exc),
+                "status_code": getattr(exc, "status_code", None),
+                # Spelled out so the audit trail alone answers "what state is
+                # this in?" without cross-referencing another entry.
+                "openreview_post_state": "posted",
+                "ticket_state": "not solved",
+            },
+        )
+        return resolution
+
+    # Solved. The email is terminal now, exactly as a no-reply solve leaves it.
+    solved_draft = {
+        **(email.draft or {}),
+        "ticket_resolution": {"state": "solved", "status_set": outcome.status_set},
+    }
+    await email_repo.update_email_status(
+        db, str(email.id), EmailStatus.SOLVED.value, {"draft": solved_draft}
+    )
+    await audit_repo.log_action(
+        db, str(email.id), "zendesk_auto_solved", actor,
+        {
+            **audit_context,
+            "status_set": outcome.status_set,
+            "tags_added": outcome.tags_added,
+            "tag_conflict": outcome.tag_conflict,
+        },
+    )
+
+    # Mirror the status locally so the queue bucket moves at once, then re-sync
+    # best-effort. A reconcile failure must not downgrade a real solve.
+    try:
+        await email_repo.apply_zendesk_fields(
+            db, str(email.id), {"zendesk_status": "solved"}
+        )
+        await zendesk_adapter.refresh_ticket(db, int(email.zendesk_ticket_id))
+    except Exception as exc:  # noqa: BLE001 - reconcile is best-effort
+        logger.warning(
+            "post-OpenReview solve reconcile of ticket %s failed (it WAS solved): %s",
+            email.zendesk_ticket_id, exc,
+        )
+        await db.rollback()
+
+    return {
+        **base,
+        "attempted": True,
+        "outcome": OPENREVIEW_SOLVE_SOLVED,
+        "zendesk_status": "solved",
+    }
+
+
+def _internal_reply_readers(venue_id: str, submission_number: int) -> list[str]:
+    """The audience for a relay the chair marked ``internal``.
+
+    A FIXED list, built from the venue and the submission — deliberately NOT
+    derived from, filtered from, or merged with the parent note's readers. The
+    point of the internal option is to be narrower than the thread, and a
+    computation that started from the parent's list could only ever be narrower
+    BY ACCIDENT: any group the parent happens to carry would carry over.
+    Constructing the audience from scratch means the result cannot depend on
+    what was in the thread.
+
+    Both entries are load-bearing and neither is decoration:
+
+    * ``Program_Chairs`` is the group this account posts AS (``_role_signature``
+      in notes.py builds the same string), so omitting it would post a comment
+      the poster cannot read.
+    * ``Submission{n}/Authors`` is here because the reply concerns the authors'
+      OWN paper. Narrower than the thread is the intent; invisible to the people
+      it is about is not.
+
+    Lives in the endpoint rather than in ``notes.py`` because that module states
+    its own boundary outright — "No readers computation. ``post_comment_reply``
+    posts to the readers it is GIVEN. Deriving them belongs to the caller."
+    Putting it there would contradict the contract the transport documents.
+
+    ⚠️ The group names share ``_role_signature``'s PENDING CONFIRMATION from
+    AAAI/OpenReview. A wrong group name is rejected by OpenReview at post time
+    rather than silently widening the audience, so the failure is loud — but
+    confirm both before the first live internal post.
+    """
+    return [
+        f"{venue_id}/Program_Chairs",
+        f"{venue_id}/Submission{submission_number}/Authors",
+    ]
+
+
+@router.post("/{email_id}/post-openreview-reply")
+async def post_openreview_reply(
+    email_id: str,
+    payload: PostOpenReviewReplyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Relay a detected reply onward to OpenReview as a threaded Official Comment.
+
+    For the case where a reviewer or author replied to an OpenReview
+    notification and their answer landed in the chair inbox instead of on the
+    forum. The chair reviews it and, if it should go where it was meant to go,
+    calls this — and the reply is posted under the ORIGINAL comment.
+
+    Ordering is deliberate and every step is a precondition of the next:
+
+    1. The gate (``authorize_openreview_post``) decides on the email row alone —
+       no I/O — and both outcomes are audited, mirroring ``/send``.
+    2. The parent note is FETCHED. This proves it exists and is not deleted, it
+       pins the thread the reply must land in, and — for a ``public`` relay — it
+       is where the readers come from.
+    3. The reply is posted, threaded under that note.
+
+    VISIBILITY IS A SEPARATE AXIS FROM THE TARGET THREAD, and step 2 runs in
+    full either way. ``public`` (the default, and the only behaviour before this
+    option existed) reuses the parent's readers, so the reply reaches exactly
+    the audience of the comment it answers. ``internal`` replaces them with the
+    Program Chairs and the paper's own Authors group. Neither value changes
+    WHERE the comment is posted, and neither relaxes the forum-id verification:
+    the wrong submission's discussion is the wrong place for a narrow comment
+    just as much as for a wide one.
+
+    4. The Zendesk ticket is auto-solved. Relaying the reply IS the resolution,
+       so the chair does not click twice.
+
+    THREE OUTCOMES, not two, and the response says which. The OpenReview comment
+    is public the instant step 3 returns and cannot be un-posted from here, so a
+    Zendesk failure afterwards must never be reported as though the whole action
+    failed — a chair who read "failed" and retried would either be blocked by the
+    idempotency gate or, worse, post twice. Nor may it be swallowed: the ticket
+    is genuinely still open and somebody has to close it. See
+    ``ticket_resolution`` in the response.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+
+    # --- 1. gate ----------------------------------------------------------
+    decision = authorize_openreview_post(email, payload.reply_text)
+    await audit_repo.log_action(
+        db,
+        email_id,
+        "openreview_post_authorized" if decision.authorized else "openreview_post_blocked",
+        "openreview_gate",
+        {"reason": decision.reason},
+    )
+    if not decision.authorized:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Refused by the OpenReview post gate.",
+                "reason": decision.reason,
+            },
+        )
+
+    venue_id = (settings.OPENREVIEW_VENUE_ID or "").strip()
+    if not venue_id:
+        # Config, not caller error — 501 matches how /send reports "authorized,
+        # but this deployment has no transport for it".
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={
+                "message": "OPENREVIEW_VENUE_ID is not configured, so the "
+                "Official_Comment invitation cannot be built. Set it to the "
+                "venue's OpenReview group id (e.g. AAAI.org/2027/Conference).",
+            },
+        )
+
+    # --- 2. fetch the parent note ----------------------------------------
+    # Its readers are the audience of the comment being answered, and reusing
+    # them is what keeps the reply visible to exactly that audience. They are
+    # never recomputed here.
+    #
+    # BOTH the connect and the fetch run in ONE worker thread. Building the
+    # client is not a cheap local construction: openreview-py's
+    # ``OpenReviewClient.__init__`` performs a real LOGIN over the network when
+    # given a username and password (see client.py), so calling it on the event
+    # loop stalls every other request in this worker for the duration of that
+    # round-trip. Threading only the fetch that follows left the two halves of
+    # one remote conversation inconsistently isolated.
+    #
+    # They share a thread rather than taking one each so that the SAME client is
+    # reused for the post in step 3 — one login per relay, exactly as before.
+    def _connect_and_fetch() -> tuple[Any, OpenReviewNote]:
+        openreview_client = get_openreview_client(settings)
+        return openreview_client, openreview_get_note(
+            openreview_client, decision.note_id
+        )
+
+    try:
+        client, parent = await asyncio.to_thread(_connect_and_fetch)
+    except (OpenReviewCredentialError, OpenReviewDependencyError) as exc:
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "client", "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={"message": "OpenReview access is not configured.",
+                    "error": str(exc)},
+        ) from exc
+    except OpenReviewAuthError as exc:
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "auth", "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "OpenReview login failed.", "error": str(exc)},
+        ) from exc
+    except OpenReviewNoteError as exc:
+        # Not found / deleted / permission / API — surfaced with its own type
+        # name so the caller keeps the distinction commit 10 drew.
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "get_note", "note_id": decision.note_id,
+             "error_type": type(exc).__name__, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Could not fetch the OpenReview comment being "
+                "replied to; nothing was posted.",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        ) from exc
+
+    # --- 3. post ----------------------------------------------------------
+    # WHO reads the reply and WHICH THREAD it lands in are independent, and the
+    # ordering here keeps them that way. ``parent`` was fetched above and is
+    # passed through to ``post_comment_reply`` in BOTH branches, so the
+    # forum-id mismatch verification runs unconditionally — an internal comment
+    # posted into another submission's discussion is a leak, not a lesser one,
+    # so narrowing the audience is never a reason to relax the target check.
+    readers = (
+        _internal_reply_readers(venue_id, payload.submission_number)
+        if payload.visibility == "internal"
+        else list(parent.readers)
+    )
+    try:
+        posted = await asyncio.to_thread(
+            lambda: openreview_post_comment_reply(
+                client,
+                venue_id=venue_id,
+                submission_number=payload.submission_number,
+                parent_note_id=decision.note_id,
+                forum_id=decision.forum_id,
+                comment_text=payload.reply_text,
+                readers=readers,
+                parent_note=parent,
+            )
+        )
+    except (OpenReviewThreadMismatchError, OpenReviewNoteError) as exc:
+        # The email row is left EXACTLY as it was. A failed post must not leave
+        # anything looking posted, or a retry becomes impossible to reason about.
+        await audit_repo.log_action(
+            db, email_id, "openreview_post_failed", payload.posted_by,
+            {"stage": "post", "note_id": decision.note_id,
+             "forum_id": decision.forum_id,
+             "visibility": payload.visibility,
+             "error_type": type(exc).__name__, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Posting the reply to OpenReview failed; nothing "
+                "was posted and the email is unchanged.",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        ) from exc
+
+    # --- success ----------------------------------------------------------
+    # Recorded on the email as well as in the audit log. The audit trail is the
+    # history; this is the STATE the gate reads to refuse a duplicate post, and
+    # what the follow-up ticket-resolution piece will key on.
+    post_meta = {
+        "state": "posted",
+        "note_id": posted.note_id,
+        "edit_id": posted.edit_id,
+        "parent_note_id": decision.note_id,
+        "forum_id": decision.forum_id,
+        "venue_id": venue_id,
+        "submission_number": payload.submission_number,
+        # Both, not one or the other. `readers` is the audience that was
+        # actually used and is the fact that matters; `visibility` records the
+        # chair's INTENT, which a reader list alone cannot be reverse-engineered
+        # into — an internal list and a parent thread that happened to hold the
+        # same two groups are indistinguishable after the fact.
+        "visibility": payload.visibility,
+        "readers": list(readers),
+    }
+    updated_draft = {**(email.draft or {}), "openreview_post": post_meta}
+    # The email's own status is passed back UNCHANGED, the same way /set-status
+    # leaves it for a non-terminal transition. This is not an email send, and the
+    # ticket's fate is the next commit's decision, not this one's.
+    #
+    # `update_email_status` rather than `update_email_outputs` specifically
+    # because the latter unconditionally sets `redrafting = False`, which would
+    # silently clear an in-flight redraft flag this endpoint has no business
+    # touching.
+    await email_repo.update_email_status(
+        db, email_id, email.status, {"draft": updated_draft}
+    )
+    await audit_repo.log_action(
+        db, email_id, "openreview_comment_posted", payload.posted_by, post_meta
+    )
+
+    # --- 4. auto-solve the ticket -----------------------------------------
+    # Everything past this point is ABOUT the ticket, never about the post. The
+    # post has already succeeded and been audited, and no branch below is allowed
+    # to raise: an exception here would surface as a failed request for an action
+    # that demonstrably worked.
+    resolution = await _auto_solve_after_openreview_post(
+        db, email, post_meta, payload.posted_by
+    )
+
+    refreshed = await email_repo.get_email_by_id(db, email_id)
+    result = _email_to_dict(refreshed)
+    result["openreview_post"] = post_meta
+    result["ticket_resolution"] = resolution
+    # Mirrors the partial-success convention /send already uses for a tag 409:
+    # a 200 carrying a human-readable warning beside the machine-readable field.
+    result["warning"] = resolution.get("recovery") if resolution["outcome"] != "solved" else None
+    return result
+
+
+@router.post("/{email_id}/dismiss-openreview-candidate")
+async def dismiss_openreview_candidate(
+    email_id: str,
+    payload: DismissOpenReviewCandidateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Mark a detected OpenReview reply as a false positive.
+
+    The detection in the extraction pipeline is text-based: an email carrying
+    both a note id and a venue notification address is treated as a reply to
+    that notification. That is a heuristic, and a chair reading the email is the
+    authority on whether it is actually one. This records that judgment, after
+    which the email falls through the normal ``/queue`` predicate instead of
+    ``/queue/openreview``.
+
+    DELIBERATELY NOT AN EXTENSION OF ``/reroute``, despite both being "this went
+    to the wrong place". That endpoint calls ``_record_rl_feedback(existing,
+    original_lane, "rerouted")``, which penalises the ``(intent, lane)`` arm of
+    the RL bandit on the premise that the LANE was wrong, and
+    ``_record_flag_events``, which feeds active learning on classifier
+    confidence. A false-positive OpenReview detection says nothing about either:
+    the lane router and the classifier may both have been perfectly correct on
+    this email. Firing those here would train two models against decisions they
+    got right. Neither is called below, and ``routing`` is not touched at all.
+
+    WHAT IT WRITES is a dedicated column, not a key inside ``extraction`` — see
+    ``Email.openreview_candidate_dismissed``. Every pipeline pass rewrites
+    ``extraction`` from the email text, so a dismissal stored there would be
+    recomputed away by the next follow-up reply or re-draft.
+
+    409 if the email was never a candidate: there is nothing to dismiss, and
+    silently succeeding would tell a caller it had changed something it had not.
+    """
+    email = await email_repo.get_email_by_id(db, email_id)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email {email_id} not found",
+        )
+
+    extraction = dict(email.extraction or {})
+    if not extraction.get("openreview_reply_candidate"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "This email was never detected as an OpenReview "
+                "reply candidate, so there is nothing to dismiss.",
+                "reason": "openreview_reply_candidate is not true"
+                if email.extraction is not None
+                else "this email has no extraction record",
+            },
+        )
+
+    # Idempotent, and quiet about it. A second dismissal changes nothing, so it
+    # writes no second audit entry: the audit log records state CHANGES, and two
+    # entries would read as two separate chair decisions when the row was
+    # already in that state. The response says which happened, so a caller can
+    # tell "I did this" from "this was already done" without guessing.
+    if email.openreview_candidate_dismissed:
+        result = _email_to_dict(email)
+        result["already_dismissed"] = True
+        return result
+
+    updated = await email_repo.dismiss_openreview_candidate(db, email_id)
+    await audit_repo.log_action(
+        db,
+        email_id,
+        "openreview_candidate_dismissed",
+        payload.dismissed_by,
+        {
+            "reason": payload.reason,
+            "openreview_note_id": extraction.get("openreview_note_id"),
+            "openreview_notification_sender": extraction.get(
+                "openreview_notification_sender"
+            ),
+            # The lane is recorded but NOT changed — so a later reader can see
+            # it was left alone rather than wonder whether it was.
+            "lane": (email.routing or {}).get("lane"),
+        },
+    )
+
+    result = _email_to_dict(updated)
+    result["already_dismissed"] = False
     return result
 
 

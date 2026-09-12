@@ -24,14 +24,21 @@ apiClient.interceptors.response.use(
     const status = error.response?.status ?? 0;
 
     let detail = error.message || "An unexpected error occurred";
+    // Kept alongside the flattened string: an endpoint that returns a
+    // structured detail (`{message, error_type, ...}`) encodes a distinction
+    // the caller is meant to branch on, and JSON.stringify leaves it only
+    // recoverable by pattern-matching prose. `detail` is untouched, so no
+    // existing consumer changes.
+    let raw: unknown;
     const data = error.response?.data as unknown;
     if (data && typeof data === "object" && "detail" in data) {
       const rawDetail = (data as { detail: unknown }).detail;
+      raw = rawDetail;
       detail =
         typeof rawDetail === "string" ? rawDetail : JSON.stringify(rawDetail);
     }
 
-    const normalized: ApiError = { detail, status };
+    const normalized: ApiError = { detail, status, data: raw };
     return Promise.reject(normalized);
   }
 );

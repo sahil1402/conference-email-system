@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Inbox,
+  MessageSquareReply,
   BarChart2,
   Zap,
   ClipboardList,
@@ -30,6 +31,21 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Email Queue", href: "/queue", icon: Inbox },
+  // Directly after the Email Queue, because it holds what that queue no longer
+  // does: the backend routes OpenReview reply candidates out of /queue and into
+  // this one, so the two are complements and belong side by side.
+  //
+  // MessageSquareReply, not a bare Reply/Forward arrow. These are replies to a
+  // FORUM COMMENT, and the bubble-plus-arrow glyph says both halves; a lone
+  // arrow at 16px reads as browser-back and carries no sense of a discussion.
+  // Its rounded-bubble silhouette is also plainly distinct from Inbox's tray at
+  // rail size, so the pair reads as related-but-different rather than as two
+  // near-identical trays.
+  {
+    label: "OpenReview Replies",
+    href: "/openreview-replies",
+    icon: MessageSquareReply,
+  },
   { label: "Knowledge Base", href: "/knowledge-base", icon: Library },
   { label: "Analytics", href: "/analytics", icon: BarChart2 },
   { label: "Auto-Replies", href: "/auto-replies", icon: Zap },

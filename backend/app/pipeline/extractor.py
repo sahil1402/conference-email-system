@@ -20,6 +20,28 @@ tops up a present LLM result — that would need per-field provenance to stay
 honest, and ``method`` is a clean three-value record of which path produced the
 whole result.
 
+TWO fields sit deliberately OUTSIDE that split — ``openreview_note_id`` and
+``openreview_notification_sender`` — and both are read from the raw text on BOTH
+paths. The test for membership is exactly one question: DOES THE DISTILLER'S
+PROMPT CONTRACT ASK FOR THIS EXACT VALUE?
+
+* ``openreview_forum_ids`` — YES. The prompt asks for ``OPENREVIEW_ID`` lines,
+  so the model genuinely looked, and an empty answer is a real answer. Regex
+  must never top it up; doing so would override the model with a weaker tool and
+  leave ``method`` unable to say which field came from where. UNTOUCHED.
+* ``openreview_note_id`` — NO. The prompt has no note-id line at all, and its
+  ``OPENREVIEW_ID`` line carries a BARE forum id with the link, and therefore
+  the ``noteId`` parameter, already discarded. Nothing was asked, so nothing was
+  answered.
+* ``openreview_notification_sender`` — NO, for the same reason.
+
+For the latter two an unset value on the LLM path would not record "the model
+looked and found none"; it would record that nobody looked, on the path
+production actually runs. Both are structural facts about the raw text with one
+exact, machine-checkable answer and no judgment to make, so both are read by
+regex either way. This is bounded to signals of that KIND and is NOT licence to
+regex-fill a value the prompt does ask for.
+
 The fallback is tuned for PRECISION over recall. Roughly half of real threads
 carry no submission reference at all, so returning nothing is the ordinary
 outcome, not a failure; attaching the WRONG paper to a ticket is far more
@@ -30,9 +52,10 @@ import logging
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.pipeline.distiller import DistillResult
+from app.pipeline.quoted_reply import extract_reply_text
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +93,82 @@ _HASH_NUMBER_RE = re.compile(r"(?<![\w/])#(?P<number>\d{4,5})(?!\d)")
 _OPENREVIEW_FORUM_ID_RE = re.compile(
     r"openreview\.net/(?:forum|pdf)\?id=(?P<forum_id>[A-Za-z0-9]{10})"
     r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# --- OpenReview note id (one comment inside a forum) ------------------------
+# A forum link may name the specific note under discussion in a `noteId` query
+# parameter, as in openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm.
+#
+# A note id is meaningful ONLY alongside the forum id it travelled with, so it
+# must never be matched on its own: a forum id taken from one link and a noteId
+# taken from another would together name a comment that does not exist in that
+# forum, and would look exactly like a real pair. The link is therefore matched
+# WHOLE and its query string read as a single unit; the two parameter patterns
+# below are only ever applied to one such query at a time.
+#
+# The forum-id pattern above is deliberately NOT reused or modified here — this
+# is a strictly additive scan, and `openreview_forum_ids` keeps precisely the
+# behaviour it had.
+_OPENREVIEW_LINK_RE = re.compile(
+    r"openreview\.net/(?:forum|pdf)\?(?P<query>[^\s\"'<>]*)",
+    re.IGNORECASE,
+)
+# Anchoring each parameter to a separator (start-of-query, `&`, or an
+# HTML-escaped `&amp;`) is load-bearing twice over. It stops `id=` matching the
+# tail of `noteId=` — under IGNORECASE those three characters are identical —
+# and it lets EITHER parameter come first, so both query orderings parse.
+_OPENREVIEW_PARAM_FORUM_ID_RE = re.compile(
+    r"(?:^|&amp;|&)id=(?P<forum_id>[A-Za-z0-9]{10})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+# The value shape is looser than the forum id's fixed 10 on purpose: OpenReview
+# API v1 note ids are numeric while v2 ids are 10-character tokens. A named
+# `noteId` parameter inside an already-validated forum link is specific enough
+# that a permissive value carries no false-positive risk — the precision comes
+# from the surrounding link, not from the token. The trailing lookahead still
+# rejects an over-long token outright rather than truncating it into a match.
+_OPENREVIEW_PARAM_NOTE_ID_RE = re.compile(
+    r"(?:^|&amp;|&)noteId=(?P<note_id>[A-Za-z0-9]{1,32})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+# --- OpenReview notification sender ----------------------------------------
+# OpenReview mails each venue from its own notification address, shaped
+# <venue>-notifications@openreview.net (aaai2027-notifications@openreview.net
+# today). The venue prefix changes every conference and every year, so it is
+# matched as a SHAPE and never hardcoded.
+#
+# Anchored on the ADDRESS ALONE, deliberately. The address turns up inside a
+# quoted header whose field labels are written by the replier's mail client and
+# may be in any language — "From:", "De:", "Von:", "发件人:" — so any pattern
+# reaching for the label would work for one locale and silently fail for the
+# rest. The address is the part that is identical everywhere.
+#
+# Precision comes from three guards:
+#  * The venue prefix is REQUIRED. A bare notifications@openreview.net has no
+#    venue and is not this signal; the leading lookbehind is what makes that
+#    rejection airtight rather than incidental, since without it the engine
+#    would happily retry one character in and match a suffix of a longer local
+#    part (foo.bar-notifications@... must not read as bar-notifications@...).
+#  * The domain is literal and exact.
+#  * The trailing lookahead rejects a lookalike that merely STARTS with the real
+#    domain — openreview.net.evil.com, openreview.network — instead of matching
+#    its prefix and reporting a bogus address.
+#
+# SCOPE: this reports that the address APPEARS in the text, not that it appeared
+# as a header. Prose ("I got mail from aaai2027-notifications@openreview.net")
+# matches too. That is intended here — the stronger "this is a reply to a
+# notification" inference is a separate, later decision that combines this
+# signal with the forum/note pairing, and it should be the thing that weighs
+# them, not this detector second-guessing itself.
+_OPENREVIEW_NOTIFICATION_SENDER_RE = re.compile(
+    r"(?<![A-Za-z0-9._%+\-])"
+    r"(?P<address>"
+    r"[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?"
+    r"-notifications@openreview\.net"
+    r")"
+    r"(?![A-Za-z0-9.\-])",
     re.IGNORECASE,
 )
 
@@ -144,6 +243,78 @@ def _find_openreview_forum_ids(subject: str, body: str) -> list[str]:
     return _dedupe_identifiers(found)
 
 
+def _find_openreview_note_pairs(subject: str, body: str) -> list[tuple[str, str]]:
+    """Every ``(forum_id, note_id)`` read from a SINGLE link's query string.
+
+    Pairing is the whole point. Each link is matched whole and its query read
+    once, so the two values in a pair always came from the same URL; a forum id
+    in one link and a ``noteId`` in another are never combined. A link carrying
+    only one of the two contributes nothing — a note id with no forum beside it
+    names a comment we cannot place, and a forum id with no note is already the
+    job of :func:`_find_openreview_forum_ids`.
+
+    Either parameter ordering parses (``?id=...&noteId=...`` and
+    ``?noteId=...&id=...``); see the pattern comments for why that is anchored
+    rather than assumed. Order of results is the existing traversal, subject
+    before body. Not deduplicated: the caller takes the first usable pair.
+    """
+    pairs: list[tuple[str, str]] = []
+    for text in (subject or "", body or ""):
+        for link in _OPENREVIEW_LINK_RE.finditer(text):
+            query = link.group("query")
+            forum = _OPENREVIEW_PARAM_FORUM_ID_RE.search(query)
+            note = _OPENREVIEW_PARAM_NOTE_ID_RE.search(query)
+            if forum is not None and note is not None:
+                pairs.append((forum.group("forum_id"), note.group("note_id")))
+    return pairs
+
+
+def _first_note_id_for(
+    pairs: list[tuple[str, str]], forum_ids: list[str]
+) -> str | None:
+    """The first note id whose forum id this result actually reports.
+
+    A coherence gate, not a second filter on validity. It keeps the scalar
+    consistent with the list beside it: a note id whose forum is missing from
+    ``openreview_forum_ids`` would point into a discussion the result never
+    mentions, which reads as a bug to anything downstream.
+
+    Concretely it suppresses the ``?noteId=...&id=...`` ordering today. The pair
+    scan above reads that shape, but the untouched forum-id pattern is anchored
+    to a literal ``?id=`` and does not, so the forum id is absent from the list
+    and the note id is withheld rather than orphaned. That asymmetry is a
+    consequence of leaving the existing pattern exactly as it was, and it is
+    self-correcting: widen that pattern and this gate opens with it, no second
+    edit needed.
+    """
+    reported = set(forum_ids)
+    for forum_id, note_id in pairs:
+        if forum_id in reported:
+            return note_id
+    return None
+
+
+def _find_openreview_notification_sender(subject: str, body: str) -> str | None:
+    """The first OpenReview notification address in the text, or None.
+
+    Returned VERBATIM rather than lowercased. The value's job is to show what
+    the email actually said, and normalizing it would quietly discard that; it
+    also matches :func:`_dedupe_identifiers`, which does not casefold either.
+    An email address is case-insensitive in practice, so anything COMPARING
+    this value must casefold it — the field description says so.
+
+    First-seen wins, subject before body, the same traversal every other finder
+    here uses. A quoted chain can carry the same address several times and, in
+    principle, two different venues; one value is what the field holds, and the
+    first is the least arbitrary choice available without inventing a ranking.
+    """
+    for text in (subject or "", body or ""):
+        match = _OPENREVIEW_NOTIFICATION_SENDER_RE.search(text)
+        if match is not None:
+            return match.group("address")
+    return None
+
+
 class AuthorMention(BaseModel):
     """One person an email identifies. Every field is independently optional.
 
@@ -163,9 +334,27 @@ class AuthorMention(BaseModel):
 class ExtractionResult(BaseModel):
     """Which submissions an email refers to, and who it names.
 
-    Every field is a LIST: an email may legitimately name several submissions
-    (an appeal covering two desk rejections, a reviewer asking to be unassigned
-    from four papers), and reporting only one silently discarded the rest.
+    The identifier and author fields are LISTS: an email may legitimately name
+    several submissions (an appeal covering two desk rejections, a reviewer
+    asking to be unassigned from four papers), and reporting only one silently
+    discarded the rest.
+
+    ``openreview_note_id`` is the deliberate exception and is a SCALAR. It names
+    one comment inside one forum, so unlike a submission reference it is only
+    meaningful attached to a single forum id — a set of note ids with no record
+    of which forum each belongs to would not be usable.
+
+    ``openreview_notification_sender`` is a scalar too, and is the one field
+    ``method`` does NOT describe — see its own note and the module docstring.
+
+    ``openreview_reply_candidate`` is DERIVED from two of the fields above and
+    stored nowhere. It is a plain boolean AND, so it introduces no new detection
+    and no new judgment — see its own note.
+
+    ``extracted_reply_text`` is the one field that is not about identity at all.
+    It is STORED rather than derived, unlike the flag above: it is a function of
+    the raw ``body``, which this model does not carry, so there is nothing on
+    the object to recompute it from.
 
     ``method`` records HOW the values were obtained, not how well: an
     ``llm_distiller`` result with everything empty means the model looked and
@@ -185,6 +374,43 @@ class ExtractionResult(BaseModel):
         description="OpenReview forum ids as identified, deduplicated, in "
         "first-seen order. Empty when the email named none.",
     )
+    openreview_note_id: str | None = Field(
+        default=None,
+        description="OpenReview note (Official Comment) id, when a forum link "
+        "carried one as its `noteId` parameter. Read from the SAME link as its "
+        "forum id and never paired across links, so it always names a comment "
+        "inside a forum this result also reports. None when no link carried "
+        "one — which, like an empty list, means 'looked, found none'. Read from "
+        "the raw text on BOTH paths and therefore NOT described by `method`: "
+        "the distiller is never asked for a note id (its OPENREVIEW_ID line "
+        "reports a bare forum id with the link discarded), so there is no model "
+        "answer here to preserve or override.",
+    )
+    openreview_notification_sender: str | None = Field(
+        default=None,
+        description="The OpenReview per-venue notification address "
+        "(<venue>-notifications@openreview.net) found in the text, verbatim; "
+        "None when none appears. Reported as the matched ADDRESS rather than a "
+        "bare boolean: it answers 'why was this flagged' without re-running the "
+        "scan, and its venue prefix names the conference and year the quoted "
+        "notification came from, which a True could not. The boolean is always "
+        "recoverable as `is not None`; the address is not recoverable from a "
+        "boolean. Case is preserved as found, so COMPARE CASE-INSENSITIVELY. "
+        "Unlike every other field here, this one is read from the raw body on "
+        "BOTH paths and is therefore NOT described by `method`.",
+    )
+    extracted_reply_text: str = Field(
+        default="",
+        description="What the person actually wrote, with quoted history "
+        "removed and the ends trimmed (app.pipeline.quoted_reply). Read from "
+        "the raw body on BOTH paths and therefore NOT described by `method`: "
+        "this is a string operation on the text, not an answer the distiller "
+        "was ever asked for. Empty string when the body was entirely quoted "
+        "material, or absent. TEST EMPTINESS ON THIS STRING — it is a more "
+        "reliable 'wrote nothing new' signal than any boundary check, because a "
+        "body whose quote is preceded by a blank line has a non-zero boundary "
+        "yet still contains no reply.",
+    )
     authors: list[AuthorMention] = Field(
         default_factory=list,
         description="People the email identifies, deduplicated, in first-seen "
@@ -192,8 +418,53 @@ class ExtractionResult(BaseModel):
     )
     method: ExtractionMethod = Field(
         default="none",
-        description="Which path produced this result.",
+        description="Which path produced the IDENTIFIER and AUTHOR fields. It "
+        "does not describe `openreview_note_id`, "
+        "`openreview_notification_sender`, or `extracted_reply_text`, all of "
+        "which are read from the raw text on either path.",
     )
+
+    @computed_field
+    @property
+    def openreview_reply_candidate(self) -> bool:
+        """Both OpenReview signals present: a reply to a notification.
+
+        True IFF this result carries BOTH a ``openreview_note_id`` and a
+        ``openreview_notification_sender``. Neither alone is trusted — a forum
+        link can be pasted into any question, and the notification address can
+        be quoted in an email that is not a reply to it — so the combination is
+        the signal, not either half.
+
+        The note id, not the forum-id list, is the left operand ON PURPOSE. A
+        bare forum id says only "some OpenReview paper is mentioned"; a note id
+        says "a specific comment", and by the coherence gate in
+        :func:`_first_note_id_for` it can only exist alongside a forum id this
+        result also reports. So ``openreview_note_id is not None`` already means
+        "a real forum+note PAIR", and adding a forum-id check beside it would be
+        redundant rather than stricter.
+
+        DERIVED, never stored or passed in — the same rule the API's
+        ``_forced_policy_applied`` follows for the same reason. Both operands
+        already live on this object, so recomputing costs nothing and the flag
+        cannot drift from the two fields it summarizes. That also settles the
+        "same email" question structurally rather than by discipline: there is
+        no construction site to keep in step, no argument to thread through, and
+        no way for a caller to hand in a value contradicting the fields beside
+        it. A stale or corrupt persisted value is ignored and recomputed on
+        load, so it self-heals rather than lying.
+
+        Reachable on BOTH paths, production included. It briefly was not: when
+        this flag was introduced, ``openreview_note_id`` was hardcoded None on
+        the LLM path, so the left operand was unreachable exactly where
+        ``QUERY_STRATEGY=distill`` runs. That was a misclassification of the
+        note id, not a flaw in this AND, and it has since been corrected — both
+        operands are now read from the raw text on either path. The logic here
+        is unchanged from the day it was written.
+        """
+        return (
+            self.openreview_note_id is not None
+            and self.openreview_notification_sender is not None
+        )
 
 
 def _dedupe_identifiers(values: list[str]) -> list[str]:
@@ -299,9 +570,18 @@ class EmailExtractor:
     ) -> ExtractionResult:
         """Best-effort extraction. Never raises.
 
-        ``subject`` / ``body`` / ``sender`` / ``sender_name`` feed the regex
-        fallback only. On the LLM path they are unused on purpose — the model
-        already read the subject and body itself.
+        ``sender`` / ``sender_name`` feed the regex fallback only, and on the
+        LLM path ``subject`` / ``body`` are unused for identifier extraction on
+        purpose — the model already read them itself.
+
+        The exceptions are ``openreview_note_id``,
+        ``openreview_notification_sender`` and ``extracted_reply_text``, all
+        read from the raw text on either path. None is a supplement to a present
+        LLM result, because the distiller's prompt asks for none of them — see
+        the module docstring for the one question that decides which fields may
+        be read this way. ``extracted_reply_text`` is the least arguable of the
+        three: it is a pure string operation on the body, and there is no shape
+        in which a model could be asked to return it as a structured field.
 
         When ``distilled`` is present it is trusted outright, INCLUDING when
         ALL THREE of its lists are empty: the prompt directs the model to read
@@ -311,21 +591,76 @@ class EmailExtractor:
         with empty lists rather than falling through to regex.
         """
         try:
+            # Computed BEFORE the branch, so the two paths cannot drift on a
+            # field that has exactly one correct answer either way.
+            notification_sender = _find_openreview_notification_sender(
+                subject, body
+            )
+
             if distilled is None:
-                return self._extract_by_regex(subject, body, sender, sender_name)
+                return self._extract_by_regex(
+                    subject, body, sender, sender_name, notification_sender
+                )
 
             authors = [
                 mention
                 for raw in distilled.authors_raw
                 if (mention := _parse_author(raw)) is not None
             ]
+            # The MODEL's forum-id answer, untouched — the prompt asks for
+            # these, so they are its to report. Hoisted to a local only because
+            # the note-id gate below needs to compare against the very list this
+            # result will carry.
+            forum_ids = _dedupe_identifiers(distilled.openreview_ids_raw)
+
             return ExtractionResult(
                 submission_numbers=_dedupe_identifiers(
                     distilled.submission_numbers_raw
                 ),
-                openreview_forum_ids=_dedupe_identifiers(
-                    distilled.openreview_ids_raw
+                openreview_forum_ids=forum_ids,
+                # Read by regex here exactly as on the regex path, because
+                # the distiller is never asked for a note id: its prompt has no
+                # note-id line, and its OPENREVIEW_ID line reports a BARE forum
+                # id with the link — and so the `noteId` parameter — already
+                # discarded. There is therefore no model answer being overridden
+                # here; leaving it None would record that nobody looked, on the
+                # path production actually runs (QUERY_STRATEGY=distill).
+                #
+                # Note the asymmetry with `openreview_forum_ids` directly above,
+                # which the prompt DOES ask for and which stays the model's
+                # answer untouched. "Is this exact value in the prompt contract"
+                # is the whole test; see the module docstring.
+                #
+                # Gated against `forum_ids` — the MODEL's list, i.e. the very
+                # one this result carries — so the scalar can still never name a
+                # forum the result omits. That is the same coherence rule the
+                # regex path applies, stated once and applied to whichever list
+                # the path reports. Consequence, accepted deliberately: if the
+                # model misses a forum id the regex found, its note id is
+                # withheld. That fails toward reporting less, matching this
+                # module's precision-over-recall stance, and is far better than
+                # emitting a note id pointing into a forum the result never
+                # mentions.
+                openreview_note_id=_first_note_id_for(
+                    _find_openreview_note_pairs(subject, body), forum_ids
                 ),
+                # Same rule, same reason — the prompt asks for no sender either.
+                openreview_notification_sender=notification_sender,
+                # Identical call on both paths, deliberately UNCONDITIONAL: it
+                # is not gated on `openreview_reply_candidate` or on anything
+                # else, because quote-stripped body text is general-purpose and
+                # every email has some. Gating it on the OpenReview signals
+                # would make a general utility silently unavailable to whatever
+                # asks next.
+                #
+                # Called here rather than hoisted above the branch like
+                # `notification_sender`: that hoist exists so ONE value feeds a
+                # coherence gate, and threading this through would add a second
+                # defaulted parameter to `_extract_by_regex` that silently
+                # yields "" if a direct caller omits it. Two identical calls of
+                # a pure single-argument function cannot disagree, and a
+                # both-paths-agree test pins that they do not.
+                extracted_reply_text=extract_reply_text(body),
                 authors=_dedupe_authors(authors),
                 method="llm_distiller",
             )
@@ -343,6 +678,7 @@ class EmailExtractor:
         body: str,
         sender: str,
         sender_name: str | None,
+        notification_sender: str | None = None,
     ) -> ExtractionResult:
         """Fallback used only when the distiller did not run.
 
@@ -364,6 +700,13 @@ class EmailExtractor:
         """
         submission_numbers = _find_submission_numbers(subject, body)
         forum_ids = _find_openreview_forum_ids(subject, body)
+        # Gated on `forum_ids` so the scalar can never name a forum the list
+        # omits. Deliberately NOT part of `found_anything` below: a note id only
+        # ever accompanies a forum id that already counted, so including it
+        # could not change the outcome, and adding it would imply it can.
+        note_id = _first_note_id_for(
+            _find_openreview_note_pairs(subject, body), forum_ids
+        )
 
         authors: list[AuthorMention] = []
         name = _field_or_none(sender_name or "")
@@ -371,10 +714,27 @@ class EmailExtractor:
         if name is not None or email is not None:
             authors.append(AuthorMention(name=name, email=email))
 
+        # `notification_sender` is deliberately absent from `found_anything`:
+        # `method` describes the identifier extraction, and this field is
+        # explicitly outside it, so letting it flip `none` to `regex_fallback`
+        # would make `method` claim something it does not mean. The corner that
+        # exposes is a text carrying a notification address and NOTHING else,
+        # not even a sender — which reports `method="none"` beside a populated
+        # address. Pinned by test rather than smoothed over, and unreachable in
+        # production, where every real email has a sender.
+        # `extracted_reply_text` is likewise absent from `found_anything`, and
+        # the case for excluding it is STRONGER than for the two scalars above:
+        # it is non-empty for essentially every real body, so counting it would
+        # make `method="none"` nearly unreachable rather than merely exposing a
+        # corner. `method` describes identifier extraction; a body having text
+        # in it is not an identifier finding.
         found_anything = bool(submission_numbers or forum_ids or authors)
         return ExtractionResult(
             submission_numbers=submission_numbers,
             openreview_forum_ids=forum_ids,
+            openreview_note_id=note_id,
+            openreview_notification_sender=notification_sender,
+            extracted_reply_text=extract_reply_text(body),
             authors=authors,
             method="regex_fallback" if found_anything else "none",
         )

@@ -216,6 +216,37 @@ class Settings(BaseSettings):
     # so list both (or neither) to keep that bucket whole.
     ZENDESK_SYNC_STATUSES: str = "new,open,pending,hold,solved,closed"
 
+    # --- OpenReview (app.integrations.openreview) -------------------------
+    # Username (the account email) and password for the OpenReview account
+    # ConfMail posts as. Both are required to build a client; a missing or blank
+    # value raises OpenReviewCredentialError at construction naming exactly
+    # which one, rather than surfacing later as an opaque login failure.
+    # Read here (Settings/.env) and never from a checked-in file.
+    OPENREVIEW_USERNAME: str | None = None
+    OPENREVIEW_PASSWORD: str | None = None
+    # API base. Defaults to the v2 production API, which is the version that
+    # supports Official_Comment note posting.
+    #
+    # This default is LOAD-BEARING, not cosmetic: openreview-py's
+    # OpenReviewClient falls back to `http://localhost:3001` when no baseurl is
+    # given, so an unset value would silently point a live action at a local dev
+    # server instead of failing. The client is therefore always constructed with
+    # an explicit baseurl. Point this at https://api2.dev.openreview.net to
+    # exercise the API against OpenReview's sandbox.
+    OPENREVIEW_BASE_URL: str = "https://api2.openreview.net"
+    # The OpenReview venue this deployment posts into, in OpenReview's own group
+    # form, e.g. "AAAI.org/2027/Conference". It builds both the Official_Comment
+    # invitation and the role signature.
+    #
+    # ⚠️ DECISION POINT, flagged rather than guessed. Nothing in the email data
+    # yields this: the extractor's notification sender carries a venue PREFIX
+    # ("aaai2027-notifications@...") which is not the group id and cannot be
+    # mapped to one without a lookup table. It is config because ConfMail is
+    # deployed per conference — one deployment, one venue — the same reasoning as
+    # ZENDESK_SUBDOMAIN. Required at post time; None fails loudly there rather
+    # than defaulting to a guess.
+    OPENREVIEW_VENUE_ID: str | None = None
+
     # --- Secrets / connections --------------------------------------------
     ANTHROPIC_API_KEY: str | None = None
     # Primary async connection string used by BOTH the app's async engine and

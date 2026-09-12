@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({
 const NAV_LABELS = [
   "Dashboard",
   "Email Queue",
+  "OpenReview Replies",
   "Knowledge Base",
   "Analytics",
   "Auto-Replies",
@@ -84,6 +85,55 @@ describe("Sidebar (icon-only rail)", () => {
     expect(
       within(nav).getByRole("link", { name: "Email Queue" })
     ).toHaveAttribute("href", "/queue");
+    expect(
+      within(nav).getByRole("link", { name: "OpenReview Replies" })
+    ).toHaveAttribute("href", "/openreview-replies");
+  });
+
+  it("renders the nav items in NAV_LABELS order", () => {
+    /* Order was previously only implied — every label was asserted present and
+       the count checked, but nothing pinned the SEQUENCE, so an item could move
+       anywhere in the rail without failing a test. Asserted against the DOM
+       order so placement is a real constraint. */
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    const rendered = within(nav)
+      .getAllByRole("link")
+      .map((a) => a.getAttribute("aria-label"));
+
+    expect(rendered).toEqual(NAV_LABELS);
+  });
+
+  it("places OpenReview Replies immediately after Email Queue", () => {
+    /* The requested placement, stated as a RELATIONSHIP rather than an index:
+       inserting an unrelated item earlier in the rail shifts every index but
+       must not fail this, while moving the two apart must. */
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    const labels = within(nav)
+      .getAllByRole("link")
+      .map((a) => a.getAttribute("aria-label"));
+
+    expect(labels[labels.indexOf("Email Queue") + 1]).toBe("OpenReview Replies");
+  });
+
+  it("gives OpenReview Replies its own icon, not the Email Queue inbox", () => {
+    /* They are complementary queues, so at 16px they must not read as the same
+       glyph. lucide stamps a per-icon class, which is what makes this checkable
+       without asserting on path data. */
+    const { container } = render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    const openreview = within(nav).getByRole("link", {
+      name: "OpenReview Replies",
+    });
+    const queue = within(nav).getByRole("link", { name: "Email Queue" });
+
+    expect(openreview.querySelector("svg.lucide-inbox")).toBeNull();
+    expect(queue.querySelector("svg.lucide-inbox")).not.toBeNull();
+    expect(container.querySelectorAll("svg.lucide-inbox")).toHaveLength(1);
   });
 
   it("marks the current route active and leaves the others inactive", () => {
@@ -98,6 +148,22 @@ describe("Sidebar (icon-only rail)", () => {
     // muted glyph. No left-border indicator (removed in N2f — see Sidebar.tsx).
     expect(active.style.color).toBe("var(--accent)");
     expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
+    expect(inactive.style.color).toBe("var(--text-secondary)");
+    expect(inactive.style.backgroundColor).toBe("");
+  });
+
+  it("marks OpenReview Replies active on its own route", () => {
+    mockPathname = "/openreview-replies";
+    render(<Sidebar />);
+    const nav = screen.getByRole("navigation");
+
+    const active = within(nav).getByRole("link", { name: "OpenReview Replies" });
+    const inactive = within(nav).getByRole("link", { name: "Email Queue" });
+
+    expect(active.style.color).toBe("var(--accent)");
+    expect(active.style.backgroundColor).toBe("var(--accent-subtle)");
+    // The neighbouring queue must NOT also light up — the two routes share no
+    // prefix, so nothing should make them active together.
     expect(inactive.style.color).toBe("var(--text-secondary)");
     expect(inactive.style.backgroundColor).toBe("");
   });

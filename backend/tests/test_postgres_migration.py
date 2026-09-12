@@ -189,6 +189,59 @@ async def test_lane_filter_uses_dialect_agnostic_json(pg_session):
     assert rows[0].routing["lane"] == "human_review"
 
 
+# --- 4b. OpenReview queue split: JSON boolean across dialects --------------
+async def test_openreview_candidate_filter_uses_dialect_agnostic_json(pg_session):
+    """Guards email_repository._unresolved_openreview_candidate on POSTGRES.
+
+    The SQLite half of this lives in ``test_openreview_queue_split.py``; this is
+    the other dialect, because the two render genuinely different SQL for the
+    same expression:
+
+        SQLite    JSON_EXTRACT(extraction, '$.openreview_reply_candidate') IS 1
+        Postgres  CAST((extraction ->> 'openreview_reply_candidate') AS BOOLEAN) IS true
+
+    SQLite's JSON_EXTRACT yields an integer 1/0 while Postgres' ``->>`` yields
+    the TEXT 'true'/'false' and needs the cast, so "it works on SQLite" says
+    nothing about Postgres — this test is the only thing that does.
+
+    The NULL row is the load-bearing case in both dialects: ``.is_(True)``
+    negates to a TOTAL comparison, whereas ``== True`` would negate to
+    ``!= true`` and evaluate to NULL for it, silently dropping every legacy
+    email from the main queue.
+    """
+    repo = EmailRepository()
+
+    unresolved = {**_email_data("human_review", "cand@univ.edu"),
+                  "extraction": {"openreview_reply_candidate": True},
+                  "zendesk_status": "open"}
+    resolved = {**_email_data("human_review", "done@univ.edu"),
+                "extraction": {"openreview_reply_candidate": True},
+                "zendesk_status": "solved"}
+    plain = {**_email_data("human_review", "plain@univ.edu"),
+             "extraction": {"openreview_reply_candidate": False},
+             "zendesk_status": "open"}
+    legacy = {**_email_data("human_review", "legacy@univ.edu"),
+              "extraction": None, "zendesk_status": "open"}
+    for data in (unresolved, resolved, plain, legacy):
+        await repo.create_email(pg_session, data)
+
+    or_rows = await repo.get_email_queue(pg_session, openreview_candidates="only")
+    main_rows = await repo.get_email_queue(pg_session, openreview_candidates="exclude")
+
+    assert {r.sender for r in or_rows} == {"cand@univ.edu"}
+    assert {r.sender for r in main_rows} == {
+        "done@univ.edu",   # resolved candidate keeps its previous visibility
+        "plain@univ.edu",
+        "legacy@univ.edu",  # NULL extraction must NOT be dropped
+    }
+
+    # Counts use the same predicate and must agree with the pages.
+    assert await repo.count_email_queue(pg_session, openreview_candidates="only") == 1
+    assert await repo.count_email_queue(pg_session, openreview_candidates="exclude") == 3
+    # Exact complements, on this dialect too.
+    assert await repo.count_email_queue(pg_session) == 4
+
+
 # --- 5. json_extract fix regression: audit reassignment aggregate ----------
 async def test_reassignment_aggregate_uses_dialect_agnostic_json(pg_session):
     """Guards audit_repository.count_reassignments_by_original_chair.

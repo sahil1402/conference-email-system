@@ -4,8 +4,10 @@ Covers the subtask-4 DB layer: the migration round-trips, a processed email's
 ``extraction`` column survives a write + read, per-follow-up rows carry their
 own, and NULL (every row predating the column) breaks nothing on read.
 
-SCOPE LIMIT: persistence only. No endpoint serves ``extraction`` yet, so nothing
-here asserts on an API response.
+SCOPE LIMIT: persistence only — the DB layer, up to and including the JSON
+column. An endpoint DOES serve ``extraction`` (it did even when this note first
+claimed otherwise), so nothing here should be read as covering the wire:
+pipeline-to-HTTP coverage lives in ``test_email_extraction_api.py``.
 """
 
 import os
@@ -75,6 +77,15 @@ _EMAIL = {
 # Migration round-trip (subprocess, temp SQLite file)
 # ---------------------------------------------------------------------------
 _PREV_REVISION = "f8b2c4d6e0a1"  # suggestion_audit_logs — this migration's down_revision.
+# The revision under test. ⚠️ PINNED, NOT "head": this exercises the round-trip
+# of the EXTRACTION migration specifically, and it used to say "head" only
+# because that migration happened to be head when it was written. Any later
+# revision that adds an index to `emails` then breaks it for the wrong reason —
+# `before` is snapshotted at head and includes the newer index, while the
+# downgrade to _PREV_REVISION necessarily unwinds that revision too, so the
+# index sets cannot match. Caught exactly that way when
+# c9f3a1b7d204 (openreview_candidate_dismissed) landed.
+_REVISION = "57b59f3ef990"
 
 
 def _run_alembic(args, db_url: str):
@@ -121,7 +132,7 @@ def test_extraction_migration_round_trips(tmp_path):
     db_file = tmp_path / "extraction_roundtrip.db"
     db_url = f"sqlite:///{db_file.as_posix()}"
 
-    up = _run_alembic(["upgrade", "head"], db_url)
+    up = _run_alembic(["upgrade", _REVISION], db_url)
     assert up.returncode == 0, f"upgrade failed:\n{up.stderr}"
     for table in ("emails", "email_processing_results"):
         assert "extraction" in _columns(db_file, table), table
@@ -145,7 +156,7 @@ def test_extraction_migration_round_trips(tmp_path):
     assert con.execute("SELECT count(*) FROM emails").fetchone()[0] == 1
     con.close()
 
-    up2 = _run_alembic(["upgrade", "head"], db_url)
+    up2 = _run_alembic(["upgrade", _REVISION], db_url)
     assert up2.returncode == 0, f"re-upgrade failed:\n{up2.stderr}"
     for table in ("emails", "email_processing_results"):
         assert "extraction" in _columns(db_file, table), table
@@ -171,7 +182,15 @@ async def test_processed_email_persists_extraction(session):
 async def test_extraction_round_trips_every_field_from_the_llm_path(
     session, monkeypatch
 ):
-    """All four fields survive the JSON write + read, populated."""
+    """Every field survives the JSON write + read, populated.
+
+    ``openreview_note_id`` and ``openreview_notification_sender`` are both None
+    here only because this fixture's body carries neither a forum link nor an
+    OpenReview address — NOT because the LLM path withholds them, which it does
+    not: both are read from the raw text on either path. Pinned as explicit keys
+    rather than omitted so this stays an EXACT-shape check. The test below feeds
+    a body that does carry the address.
+    """
     monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
     pipeline = _pipeline()
     pipeline.distiller = _StubDistiller(
@@ -193,6 +212,14 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
     assert stored == {
         "submission_numbers": ["99999"],
         "openreview_forum_ids": ["Ab3xY9kLm2"],
+        "openreview_note_id": None,
+        "openreview_notification_sender": None,
+        # Derived (note_id AND sender). False here because the LLM path never
+        # reports a note id, so the left operand is unreachable on this path.
+        "openreview_reply_candidate": False,
+        # The fixture body carries no quote, so the whole trimmed body is the
+        # reply — this field is NOT empty here, unlike the two scalars above.
+        "extracted_reply_text": "Dear chairs, we would like to appeal.",
         "authors": [
             {
                 "name": "Jane Roe",
@@ -203,6 +230,93 @@ async def test_extraction_round_trips_every_field_from_the_llm_path(
         ],
         "method": "llm_distiller",
     }
+
+
+async def test_notification_sender_survives_the_distill_path_end_to_end(
+    session, monkeypatch
+):
+    """The production path actually stores it — the point of the carve-out.
+
+    Every other extraction field is withheld on the distill path unless the
+    distiller itself reported it, and `QUERY_STRATEGY=distill` is what runs in
+    production. So a unit test proving `EmailExtractor` populates this field is
+    not enough on its own: if the orchestrator did not hand the raw body through
+    on this path, the field would be permanently None in production and every
+    extractor-level test would still pass. This drives the real orchestrator
+    with a stub distiller and reads the value back out of the JSON column.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    pipeline = _pipeline()
+    pipeline.distiller = _StubDistiller(
+        DistillResult(queries=["q"], intent="desk_reject_appeal", confidence=0.9)
+    )
+    address = "aaai2027-notifications@openreview.net"
+    email_data = {
+        **_EMAIL,
+        "body": f'Please advise.\n\n发件人:"AAAI 2027" <{address}>\n主题: commented',
+    }
+
+    result = await pipeline.process_email(email_data, session)
+
+    stored = (
+        await EmailRepository().get_email_by_id(session, result.email_id)
+    ).extraction
+    assert stored["method"] == "llm_distiller"
+    assert stored["openreview_notification_sender"] == address
+
+
+async def test_reply_candidate_is_true_end_to_end_on_the_distill_path(
+    session, monkeypatch
+):
+    """The whole feature, proven where it has to work: production.
+
+    `QUERY_STRATEGY=distill` is what runs in production, and until the note-id
+    correction this flag could not be True there at all — its left operand was
+    hardcoded unreachable on that path. A unit test on `EmailExtractor` alone
+    would not catch a regression in the orchestrator's hand-off of the raw body,
+    so this drives the real pipeline with a stub distiller and reads the flag
+    back out of the JSON column.
+
+    The body is the real reported shape: a Chinese-labelled quoted header from
+    the venue's notification address, plus the forum link carrying the noteId.
+    """
+    monkeypatch.setattr(settings, "QUERY_STRATEGY", "distill")
+    pipeline = _pipeline()
+    # The model reports the forum id, as its prompt asks it to; the note id and
+    # the sender address are read from the raw text on this path.
+    pipeline.distiller = _StubDistiller(
+        DistillResult(
+            queries=["q"],
+            intent="cms_support",
+            confidence=0.9,
+            openreview_ids_raw=["ll0avn6ylq"],
+        )
+    )
+    address = "aaai2027-notifications@openreview.net"
+    link = "https://openreview.net/forum?id=ll0avn6ylq&noteId=jnHgRMHgrm"
+    email_data = {
+        **_EMAIL,
+        "body": (
+            "老师您好，请见下方邮件。\n\n"
+            f'发件人:"AAAI 2027" <{address}>\n'
+            "主题: [AAAI 2027] Senior Program Committee 6UDQ commented on a "
+            "paper you are reviewing. Paper Number: 1030\n"
+            f"{link}"
+        ),
+    }
+
+    result = await pipeline.process_email(email_data, session)
+
+    stored = (
+        await EmailRepository().get_email_by_id(session, result.email_id)
+    ).extraction
+    assert stored["method"] == "llm_distiller"
+    assert stored["openreview_reply_candidate"] is True
+    # Both operands really are present, so the flag is not True by accident.
+    assert stored["openreview_note_id"] == "jnHgRMHgrm"
+    assert stored["openreview_notification_sender"] == address
+    # ...and the model's own forum-id answer is still the model's.
+    assert stored["openreview_forum_ids"] == ["ll0avn6ylq"]
 
 
 async def test_multi_value_identifier_lists_round_trip(session, monkeypatch):
@@ -263,6 +377,10 @@ async def test_extraction_is_serialized_with_model_dump(session):
     assert set(email.extraction) == {
         "submission_numbers",
         "openreview_forum_ids",
+        "openreview_note_id",
+        "openreview_notification_sender",
+        "openreview_reply_candidate",
+        "extracted_reply_text",
         "authors",
         "method",
     }

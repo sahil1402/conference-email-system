@@ -7,7 +7,11 @@ import type {
   EmailQueueResponse,
   EmailThreadResponse,
   IngestRequest,
+  DismissOpenReviewCandidateRequest,
+  DismissOpenReviewCandidateResponse,
   PipelineResult,
+  PostOpenReviewReplyRequest,
+  PostOpenReviewReplyResponse,
   QueueFacets,
   ReassignChairRequest,
   RerouteRequest,
@@ -86,6 +90,34 @@ export async function getEmailQueue(
   const { data } = await apiClient.get<EmailQueueResponse>("/emails/queue", {
     params,
   });
+  return data;
+}
+
+/** GET /emails/queue/openreview — the OpenReview-replies queue.
+ *
+ * The exact INVERSE of `getEmailQueue`: emails detected as a reviewer or author
+ * replying to an OpenReview notification, still awaiting chair action. The
+ * backend excludes them from `/emails/queue` and serves them here instead,
+ * because the action is different (relay the reply onward rather than answer it
+ * by email). The two are complements of one server-side predicate, so an email
+ * is in exactly one of them.
+ *
+ * Deliberately reuses `EmailQueueParams` / `EmailQueueResponse` rather than
+ * declaring parallel types: the backend routes take the same parameters in the
+ * same order and return the same `{emails, total, page_info}` envelope from the
+ * same serializer (verified against the routes, not assumed). A duplicate type
+ * would be a second definition free to drift from the one the queue already
+ * uses. If the two shapes ever genuinely diverge, split them THEN.
+ *
+ * `total` is the count for this queue's own filter set, so it is accurate
+ * regardless of page size — same contract as `getEmailQueue`. */
+export async function getOpenReviewQueue(
+  params?: EmailQueueParams
+): Promise<EmailQueueResponse> {
+  const { data } = await apiClient.get<EmailQueueResponse>(
+    "/emails/queue/openreview",
+    { params }
+  );
   return data;
 }
 
@@ -228,11 +260,100 @@ export async function getEmailThread(
  * its Zendesk ticket id. Same envelope as GET /emails/{email_id}. A 404 (no
  * email maps to the ticket id) rejects with the normalized ApiError via the
  * shared client interceptor, exactly like the other functions here. */
+/** GET /emails/{id} — one email plus its audit trail, by PRIMARY KEY.
+ *
+ * The by-id sibling of `getEmailByTicketId`, returning the identical
+ * `EmailDetailResponse`. It exists because a detail route keyed on `Email.id`
+ * cannot use the by-ticket fetch: `zendesk_ticket_id` is nullable, so a
+ * non-Zendesk row has no ticket to look up. Reaching for the queue list and
+ * filtering client-side is the other alternative and is worse — it only finds
+ * rows on the current page.
+ *
+ * 404 when no such row exists. A non-numeric id also 404s (the backend coerces
+ * the path segment and treats an uncoercible one as not-found), so callers have
+ * a single not-found case rather than the 404/422 split `/tickets/[ticketId]`
+ * has to fold together. */
+export async function getEmailById(
+  emailId: number | string
+): Promise<EmailDetailResponse> {
+  const { data } = await apiClient.get<EmailDetailResponse>(
+    `/emails/${emailId}`
+  );
+  return data;
+}
+
 export async function getEmailByTicketId(
   ticketId: number | string
 ): Promise<EmailDetailResponse> {
   const { data } = await apiClient.get<EmailDetailResponse>(
     `/emails/by-ticket/${ticketId}`
+  );
+  return data;
+}
+
+/** Relay a detected reply onward to OpenReview as a threaded Official Comment.
+ *
+ * `reply_text` is the chair's FINAL text and is posted verbatim — the backend
+ * never falls back to the originally extracted string, so whatever sits in the
+ * editor is what becomes visible on the forum.
+ *
+ * ⚠️ A 200 IS NOT UNCONDITIONALLY A FULL SUCCESS. The OpenReview comment is live
+ * the moment this resolves, but the Zendesk auto-solve that follows can fail
+ * independently — `ticket_resolution.outcome` says which of four things
+ * happened. A caller that reads 200 as "all done" silently drops the
+ * partial-success case, which is precisely the one that leaves a ticket open.
+ *
+ * Failure statuses, ALL of which mean nothing was posted:
+ *  - 409 — refused by the post gate (not a candidate, no note id, or already
+ *    posted). `detail.reason` says which.
+ *  - 501 — OpenReview access or the venue id is not configured here.
+ *  - 502 — OpenReview was reached and the call failed; `detail.error_type` names
+ *    which (`OpenReviewNoteNotFoundError`, `OpenReviewPermissionError`,
+ *    `OpenReviewThreadMismatchError`, `OpenReviewAPIError`).
+ *  - 404 — no such email. ⚠️ This one's `detail` is a plain STRING, unlike the
+ *    structured objects above.
+ */
+/** Record that a detected OpenReview reply is a FALSE POSITIVE of the detection.
+ *
+ * ⚠️ NOT A REROUTE, and deliberately a different endpoint from
+ * `rerouteEmail`. That one changes the email's routing LANE and fires RL-bandit
+ * and active-learning feedback keyed on the lane decision having been wrong.
+ * Here the lane may have been perfectly correct — what was wrong is the
+ * text-based detection that flagged the email as answering an OpenReview
+ * notification. Routing is untouched; the email simply stops appearing in
+ * `/queue/openreview` and resumes appearing in the main `/queue` under whatever
+ * lane it already had.
+ *
+ * The flag is a dedicated column server-side, so the dismissal survives the
+ * pipeline reprocessing that rewrites the extraction record.
+ *
+ * Failures:
+ *  - 409 — never a candidate, so there is nothing to dismiss.
+ *    `detail` is `{message, reason}`.
+ *  - 422 — empty `reason` (the backend requires one).
+ *  - 404 — no such email; ⚠️ this one's `detail` is a plain STRING.
+ *
+ * A second dismissal is NOT an error: the endpoint is idempotent and returns
+ * 200 with `already_dismissed: true`.
+ */
+export async function dismissOpenReviewCandidate(
+  emailId: number | string,
+  payload: DismissOpenReviewCandidateRequest
+): Promise<DismissOpenReviewCandidateResponse> {
+  const { data } = await apiClient.post<DismissOpenReviewCandidateResponse>(
+    `/emails/${emailId}/dismiss-openreview-candidate`,
+    payload
+  );
+  return data;
+}
+
+export async function postOpenReviewReply(
+  emailId: number | string,
+  payload: PostOpenReviewReplyRequest
+): Promise<PostOpenReviewReplyResponse> {
+  const { data } = await apiClient.post<PostOpenReviewReplyResponse>(
+    `/emails/${emailId}/post-openreview-reply`,
+    payload
   );
   return data;
 }

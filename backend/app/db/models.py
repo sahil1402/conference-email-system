@@ -66,6 +66,32 @@ class Email(Base):
     # ``extraction`` whose lists are EMPTY ("looked, found none").
     extraction: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # A chair's judgment that this email is NOT an OpenReview reply after all —
+    # a false positive from the text-based detection above. Set by
+    # POST /emails/{id}/dismiss-openreview-candidate; makes the row fall through
+    # the normal /queue predicate instead of /queue/openreview. Its routing lane
+    # is untouched, so it simply resumes being an ordinary email.
+    #
+    # ⚠️ ITS OWN COLUMN, DELIBERATELY NOT A KEY INSIDE `extraction`, and this is
+    # the whole reason the column exists. `extraction` records what the pipeline
+    # OBSERVED in the text; every pipeline pass overwrites it wholesale with
+    # `ExtractionResult.model_dump()` (orchestrator `_compute`), which recomputes
+    # `openreview_reply_candidate` from the note id and notification sender. The
+    # body does not change, so it recomputes to True. A dismissal written inside
+    # that dict would therefore be silently undone by the next follow-up reply,
+    # manual re-draft, or KB-change sweep — reappearing days later with nothing
+    # in the audit trail to explain it.
+    #
+    # The two are different KINDS of fact with different lifetimes: an
+    # observation should be recomputed whenever the text is reprocessed, and a
+    # human decision must survive exactly that. Keeping the decision on its own
+    # column means `_compute` can never reach it, with no carry-forward logic to
+    # remember. Same separation-of-concerns rule as `_RESOLVED_ZENDESK_STATUSES`
+    # vs `_SOLVED_BUCKET_STATUSES` in the email repository.
+    openreview_candidate_dismissed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false(), index=True
+    )
+
     # Re-evaluation (Phase G). ``retrieval_context`` captures the exact retriever
     # inputs at ingest — {"query": str, "intent": str, "retrieved_ids": [...]} —
     # so a KB-change sweep can re-run retrieval with no model call and compare the
