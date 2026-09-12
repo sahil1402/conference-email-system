@@ -99,6 +99,19 @@ LIMITATIONS — none of these are silent
 * ``Begin forwarded message:`` needs no special handling and has none. It is a
   ``Label:`` line with an empty value, so it already joins the header run it
   introduces — the same shape as the real Chinese sample's bare ``抄送:``.
+* ZERO-WIDTH NON-JOINER (``\\u200c``) and ZERO-WIDTH JOINER (``\\u200d``) are
+  left in place wherever they appear. They are typography, not debris —
+  removing them respells Persian and Arabic words and splits emoji sequences —
+  so a STRAY one in Latin text survives too. Only ZWSP (``\\u200b``) and the
+  BOM (``\\ufeff``), which carry no in-text meaning, are deleted.
+* A person's own field list with an address in it — ``Name:`` / ``Email:`` /
+  ``Affiliation:`` — matches the header-block cue and truncates their message
+  at the line above. The address guard cannot help, because such a list really
+  does contain an address.
+* NORMALISATION IS COSMETIC-ONLY AND ONE-SIDED. Blank-line runs are capped at
+  two and trailing whitespace is dropped, but LEADING whitespace is never
+  touched: a leading ASCII space is indistinguishable from deliberate
+  indentation, so the tie goes to the author.
 * Signature blocks are out of scope entirely. ``-- `` is not treated as a cue
   (it marks a signature, not a quote), and no sign-off phrases are matched. A
   reply's own signature stays in the reply.
@@ -298,6 +311,45 @@ _MAX_BLANK_LINES = 2
 # 4+ collapses to 3.
 _EXCESSIVE_BLANKS_RE = re.compile(r"\n{4,}")
 
+# Invisible characters deleted from ANYWHERE in the reply, not just its ends.
+#
+# ⚠️ TWO OF THE FOUR ZERO-WIDTH CHARACTERS, and the omission is the decision.
+#
+# REMOVED — neither carries meaning inside running text:
+#   U+200B ZERO WIDTH SPACE          a line-break hint; deleting it changes no
+#                                    word, and Word/Outlook HTML round-tripping
+#                                    sprinkles it through text.
+#   U+FEFF ZERO WIDTH NO-BREAK SPACE meaningful ONLY as a byte-order mark at the
+#                                    start of a stream. Mid-text it is the
+#                                    deprecated ZWNBSP — pure debris.
+#
+# KEPT — both are TYPOGRAPHY, not debris, and deleting them corrupts words:
+#   U+200C ZERO WIDTH NON-JOINER     separates morphemes in Persian/Arabic and
+#                                    Indic scripts. Measured: Persian "می‌رود"
+#                                    (mi-ravad) becomes "میرود" without it — a
+#                                    different, misspelled word.
+#   U+200D ZERO WIDTH JOINER         forms ligatures, and joins emoji sequences.
+#                                    Measured: the family emoji 👩‍👧 splits into
+#                                    two separate glyphs without it.
+#
+# All four look identical to a reader — invisible — which is exactly why they
+# cannot be treated identically. A conditional rule (delete ZWNJ/ZWJ only
+# between ASCII neighbours, say) was considered and rejected: it buys the
+# removal of a rare stray character in Latin text at the cost of a script-
+# detection heuristic that can corrupt a real word when it guesses wrong, on the
+# smallest of the seven defects this series addressed. Under the harm asymmetry
+# used throughout, a stray invisible character that survives is a far better
+# outcome than a mangled Persian word posted to a public venue.
+#
+# ⚠️ RESIDUAL, NAMED: a stray ZWNJ/ZWJ in the INTERIOR of Latin text is not
+# removed. At the two ENDS they are, because ``_EDGE_TRIM_RE`` below already
+# lists all four — which turns out to be the more coherent rule than the one
+# aimed at: ZWNJ/ZWJ survive exactly where they can join something (between two
+# characters) and are trimmed where they cannot (a boundary with nothing on one
+# side). That falls out of the two patterns composing rather than being designed,
+# so it is pinned by test lest one half be "tidied" without the other.
+_INTERIOR_INVISIBLE_RE = re.compile("[​﻿]")
+
 # Trim at the two ends: Unicode whitespace (`\s` covers NBSP and the ideographic
 # space) PLUS the zero-width characters, which `str.strip()` does NOT remove
 # because Python does not classify them as whitespace.
@@ -357,7 +409,17 @@ def _normalize_reply(text: str) -> str:
     visible change to this function's output and is pinned by test rather than
     left to be discovered.
     """
-    lines = [line.rstrip() for line in text.split("\n")]
+    # ⚠️ STEP ZERO, AND THE ORDER IS LOAD-BEARING. A line holding nothing but a
+    # zero-width space is blank to every reader and NOT blank to any of the
+    # steps below — it survives `rstrip()`, and `_is_blank` rejects it, because
+    # Python does not classify these as whitespace. Deleting them first is what
+    # lets such a line count toward the blank-line cap.
+    #
+    # Measured on four invisible-only lines between two paragraphs:
+    #   remove first, then cap -> "A\n\n\nB"          (capped, correct)
+    #   cap, then remove last  -> "A\n\n\n\n\nB"      (never capped)
+    visible = _INTERIOR_INVISIBLE_RE.sub("", text)
+    lines = [line.rstrip() for line in visible.split("\n")]
     capped = _EXCESSIVE_BLANKS_RE.sub("\n" * (_MAX_BLANK_LINES + 1), "\n".join(lines))
     return _EDGE_TRIM_RE.sub("", capped)
 

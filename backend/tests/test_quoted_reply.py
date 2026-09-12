@@ -1271,16 +1271,21 @@ def test_zero_width_characters_are_trimmed_from_the_ends():
         assert extract_reply_text(body) == "Thanks, I will fix it."
 
 
-def test_interior_zero_width_characters_are_left_alone():
-    """⚠️ PINS THE SCOPE BOUNDARY, not a desired behaviour.
+def test_interior_zero_width_spaces_are_now_removed():
+    """INVERTED from `test_interior_zero_width_characters_are_left_alone`.
 
-    Removing these mid-string is Root Cause G's job. Flipping this test is part
-    of that commit; it is here so the remaining gap is visible in the suite
-    rather than only in a report.
+    That test pinned this as a KNOWN, UNFIXED gap: a zero-width space inside
+    the text survived, because Fix 4 only trimmed the two ENDS. It is now
+    deleted from anywhere in the reply.
+
+    Renamed rather than left with its "this is broken" framing, and kept in
+    place so the history of the gap stays legible. Note that only ZWSP and the
+    BOM are removed — ZWNJ and ZWJ are TYPOGRAPHY and are pinned as preserved
+    in the Root Cause G section below.
     """
     body = "Thanks​, I will fix it."
 
-    assert extract_reply_text(body) == "Thanks​, I will fix it."
+    assert extract_reply_text(body) == "Thanks, I will fix it."
 
 
 def test_a_reply_of_only_invisible_characters_is_empty(eol="\n"):
@@ -1690,3 +1695,207 @@ def test_no_language_was_added_beyond_the_four():
     body = "Gracias.\n\nEl 1 sept 2026, AAAI <a@b.net> escribió:\ntexto original"
 
     assert find_quote_cues(body) == []
+
+
+# =============================================================================
+# ROOT CAUSE G — interior zero-width characters
+#
+# Four characters, all invisible, all Unicode category Cf, none classified as
+# whitespace by Python. They are NOT interchangeable, and that is the whole
+# content of this section:
+#
+#   REMOVED   U+200B ZWSP   a line-break hint; deleting it changes no word
+#             U+FEFF BOM    meaningful only at the start of a STREAM
+#
+#   KEPT      U+200C ZWNJ   respells Persian/Arabic/Indic words if deleted
+#             U+200D ZWJ    forms ligatures and joins emoji sequences
+#
+# Treating all four alike would have been one line shorter and would corrupt
+# somebody's writing on its way to a public venue.
+# =============================================================================
+
+_ZWSP = "​"
+_ZWNJ = "‌"
+_ZWJ = "‍"
+_BOM = "﻿"
+
+
+@pytest.mark.parametrize(
+    "char", [pytest.param(_ZWSP, id="zwsp"), pytest.param(_BOM, id="bom")]
+)
+@pytest.mark.parametrize(
+    "template, expected",
+    [
+        pytest.param("Than{c}ks, I will fix it.", "Thanks, I will fix it.", id="mid-word"),
+        pytest.param("Thanks,{c} I will fix it.", "Thanks, I will fix it.", id="mid-sentence"),
+        pytest.param("Thanks.{c}{c}{c}", "Thanks.", id="run-at-end"),
+        pytest.param("{c}Thanks.", "Thanks.", id="at-start"),
+        pytest.param("A{c}B{c}C{c}D", "ABCD", id="scattered"),
+    ],
+)
+def test_zwsp_and_bom_are_removed_from_anywhere(char, template, expected):
+    """Fix 4 trimmed only the two ENDS; these live in the middle."""
+    assert extract_reply_text(template.format(c=char)) == expected
+
+
+@pytest.mark.parametrize(
+    "char", [pytest.param(_ZWNJ, id="zwnj"), pytest.param(_ZWJ, id="zwj")]
+)
+def test_zwnj_and_zwj_are_preserved_in_running_text(char):
+    """⚠️ THE DECISION THIS SECTION EXISTS FOR.
+
+    Both are invisible, like ZWSP — and both are typography rather than debris,
+    so they are kept. See the two tests below for what deleting them would
+    actually do.
+    """
+    body = f"Thanks{char}, I will fix it."
+
+    assert extract_reply_text(body) == body
+
+
+def test_deleting_zwnj_would_respell_a_persian_word():
+    """⚠️ THE MEASURED HARM, not an argument from principle.
+
+    Persian "می‌رود" (mi-ravad) carries a ZWNJ between its two parts. Without it
+    the string is "میرود" — five characters instead of six, and a different,
+    misspelled word. This is somebody's text on its way to a public forum.
+    """
+    correct = f"می{_ZWNJ}رود"
+    body = f"متن: {correct}"
+
+    assert extract_reply_text(body) == body
+    assert _ZWNJ in extract_reply_text(body)
+    # And the harm the preservation avoids, stated outright.
+    assert correct.replace(_ZWNJ, "") != correct
+
+
+def test_deleting_zwj_would_split_an_emoji_sequence():
+    """A ZWJ binds an emoji sequence into one glyph; removing it yields two."""
+    family = f"👩{_ZWJ}👧"
+    body = f"Thanks! {family}"
+
+    assert extract_reply_text(body) == body
+    assert len(family.replace(_ZWJ, "")) == len(family) - 1
+
+
+def test_the_two_kinds_are_distinguished_within_one_body():
+    """The discriminator, in a single string.
+
+    A body carrying all four: the two debris characters go, the two typographic
+    ones stay. A uniform rule — in either direction — fails this.
+    """
+    body = f"Th{_ZWSP}anks{_BOM} for می{_ZWNJ}رود and 👩{_ZWJ}👧."
+
+    result = extract_reply_text(body)
+
+    assert _ZWSP not in result
+    assert _BOM not in result
+    assert _ZWNJ in result
+    assert _ZWJ in result
+    assert result == f"Thanks for می{_ZWNJ}رود and 👩{_ZWJ}👧."
+
+
+# --- interaction with the blank-line cap -------------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_invisible_only_lines_count_toward_the_blank_line_cap(eol):
+    """⚠️ WHY REMOVAL IS STEP ZERO AND NOT STEP THREE.
+
+    A line holding nothing but a ZWSP is blank to every reader and NOT blank to
+    any of the normalisation steps — it survives `rstrip()`, and `_is_blank`
+    rejects it, because Python does not call these whitespace.
+
+    Measured on four such lines between two paragraphs:
+        remove first, then cap -> "A\\n\\n\\nB"        (capped, correct)
+        cap, then remove last  -> "A\\n\\n\\n\\n\\nB"  (never capped)
+
+    So ordering is load-bearing, not stylistic.
+    """
+    body = _body(eol, "A", _ZWSP, _ZWSP, _ZWSP, _ZWSP, "B")
+
+    assert extract_reply_text(body) == "A\n\n\nB"
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_single_invisible_only_line_reads_as_one_blank_line(eol):
+    """The other side of the same rule: it must not over-collapse either."""
+    body = _body(eol, "Para one.", _ZWSP, "Para two.")
+
+    assert extract_reply_text(body) == "Para one.\n\nPara two."
+
+
+def test_a_reply_of_only_zwsp_is_empty():
+    """The empty-reply signal survives: invisible content is no content."""
+    assert extract_reply_text(f"{_ZWSP}{_BOM}  {_ZWSP}") == ""
+
+
+def test_zwnj_is_kept_where_it_can_join_and_trimmed_where_it_cannot():
+    """⚠️ THE PRESERVATION IS POSITIONAL, which is better than blanket.
+
+    I expected a reply of one bare ZWNJ to survive, and it does not — Fix 4's
+    edge trim already removes zero-width characters at the two ENDS, including
+    these two. Checking rather than assuming turned up a more coherent rule than
+    the one intended:
+
+        ZWNJ/ZWJ are kept exactly where they can DO something — between two
+        characters — and trimmed where they cannot, at a boundary with nothing
+        on one side to join.
+
+    So the typographic function is protected and the stray-at-the-edge case is
+    still cleaned up. Nothing was changed to achieve this; it falls out of the
+    two commits composing, and is pinned here so neither half is "tidied" later
+    without noticing the other.
+    """
+    # Nothing to join: trimmed.
+    assert extract_reply_text(_ZWNJ) == ""
+    assert extract_reply_text(f"{_ZWNJ}Thanks.{_ZWNJ}") == "Thanks."
+
+    # Between two characters: kept, because here it carries meaning.
+    assert extract_reply_text(f"mi{_ZWNJ}ravad") == f"mi{_ZWNJ}ravad"
+    assert extract_reply_text(f"می{_ZWNJ}رود") == (
+        f"می{_ZWNJ}رود"
+    )
+
+
+# --- boundary detection is untouched -----------------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_zero_width_removal_does_not_touch_boundary_detection(eol):
+    """Same placement guard as every prior commit in this series.
+
+    Removal happens inside `_normalize_reply`, which runs AFTER the slice. The
+    boundary is computed on the raw body, so an offset can never desynchronise
+    from the text being cut.
+    """
+    body = _body(
+        eol,
+        f"Than{_ZWSP}ks, I will fix it.",
+        "",
+        "-----Original Message-----",
+        "From: AAAI <a@openreview.net>",
+        "Date: 2026/09/01",
+        "To: reviewer <r@x.edu>",
+    )
+
+    assert find_quote_boundary(body) == body.index("-----Original Message-----")
+    assert [c.cue for c in find_quote_cues(body)] == ["divider", "header_block"]
+    assert extract_reply_text(body) == "Thanks, I will fix it."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_zwsp_indented_header_line_still_matches(eol):
+    """Pins a NON-change from Fix 5.
+
+    ZWSP is not `\\s`, so `_HEADER_LINE_RE`'s label opening always accepted one
+    directly — that was true before this commit and is unaffected by it, because
+    removal happens on the OUTPUT and never on the body being scanned.
+    """
+    body = _body(
+        eol,
+        "Thanks.",
+        "",
+        f"{_ZWSP}From: AAAI <a@openreview.net>",
+        f"{_ZWSP}Date: 2026/09/01",
+        f"{_ZWSP}To: reviewer <r@x.edu>",
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
+    assert extract_reply_text(body) == "Thanks."
