@@ -2092,3 +2092,214 @@ def test_the_earliest_attribution_still_wins_across_six_languages(eol):
 
     assert find_quote_boundary(body) == body.index("El ")
     assert extract_reply_text(body) == "Gracias."
+
+
+# =============================================================================
+# SHORT RULES ABOVE ANY CUE
+#
+# Fix 6 absorbed a short rule sitting above a HEADER BLOCK. Measuring the
+# leftover case showed the dangling marker was never specific to header blocks —
+# it appeared above every other cue too, and only the header-block variant was
+# covered:
+#
+#   rule + quoted_lines  ->  kept "Thanks.\n\n--- Original Message ---"
+#   rule + attribution   ->  kept "Thanks.\n\n--- Original Message ---"
+#   rule + 4-dash rule   ->  kept "Thanks.\n\n--- Original Message ---"
+#   rule + header block  ->  kept "Thanks."               (already handled)
+#
+# So the absorption moved to `find_quote_boundary`, where it applies to whatever
+# cue won. The corroboration rule and the one-line bound are unchanged — those
+# are what keep commit 5's `--- update ---` guard intact, and the guard has its
+# own section at the end.
+# =============================================================================
+
+_SHORT_RULE = "--- Original Message ---"
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "quote_lines, expected_cue",
+    [
+        pytest.param(["> quoted one", "> quoted two"], "quoted_lines", id="quoted-lines"),
+        pytest.param(
+            ["On Mon, 1 Sep 2026, X <a@b.net> wrote:", "quoted"],
+            "attribution",
+            id="attribution",
+        ),
+        pytest.param(
+            ["-----Original Message-----", "From: A <a@openreview.net>"],
+            "divider",
+            id="full-length-divider",
+        ),
+        pytest.param(
+            ["From: A <a@openreview.net>", "Date: 2026/09/01", "To: B <c@d.net>"],
+            "header_block",
+            id="header-block-fix-6",
+        ),
+    ],
+)
+def test_a_short_rule_above_any_cue_is_absorbed(eol, quote_lines, expected_cue):
+    """The marker is part of the quote's introduction, whatever follows it."""
+    body = _body(eol, "Thanks, I will fix it.", "", _SHORT_RULE, *quote_lines)
+
+    assert [c.cue for c in find_quote_cues(body)][0] == expected_cue
+    assert find_quote_boundary(body) == body.index(_SHORT_RULE)
+    assert extract_reply_text(body) == "Thanks, I will fix it."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "rule",
+    [
+        pytest.param("--- Original Message ---", id="dashes"),
+        pytest.param("=== 原始邮件 ===", id="equals-cjk"),
+        pytest.param("___ Forwarded ___", id="underscores"),
+    ],
+)
+def test_every_short_rule_character_is_absorbed(eol, rule):
+    """The rule characters `_DIVIDER_RE` accepts, at the length it refuses."""
+    body = _body(eol, "Thanks.", "", rule, "> quoted one", "> quoted two")
+
+    assert find_quote_boundary(body) == body.index(rule)
+    assert extract_reply_text(body) == "Thanks."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_absorption_is_bounded_to_one_line(eol):
+    """Only the line DIRECTLY above the boundary.
+
+    A rule with the person's own text between it and the quote is their text,
+    and must survive — this is the same bound Fix 6 established, now carrying
+    the guard for every cue rather than one.
+    """
+    body = _body(
+        eol,
+        "Thanks.",
+        "",
+        "--- my own heading ---",
+        "Some sentence I wrote myself.",
+        "> quoted one",
+        "> quoted two",
+    )
+
+    assert find_quote_boundary(body) == body.index("> quoted one")
+    assert extract_reply_text(body) == (
+        "Thanks.\n\n--- my own heading ---\nSome sentence I wrote myself."
+    )
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_absorption_does_not_run_away_up_the_body(eol):
+    """Two stacked rules take one step, not two.
+
+    Fix 6's header-block path may already have backtracked once; this must not
+    compound into a second. Asserted with two rules in a row, where a runaway
+    loop would eat both.
+    """
+    body = _body(
+        eol,
+        "Thanks.",
+        "--- first rule ---",
+        "--- second rule ---",
+        "> quoted one",
+        "> quoted two",
+    )
+
+    assert find_quote_boundary(body) == body.index("--- second rule ---")
+    assert extract_reply_text(body) == "Thanks.\n--- first rule ---"
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_rule_at_the_very_start_of_the_body_is_handled(eol):
+    """No line above it to inspect — the offset-0 guard."""
+    body = _body(eol, _SHORT_RULE, "> quoted one", "> quoted two")
+
+    assert find_quote_boundary(body) == 0
+    assert extract_reply_text(body) == ""
+
+
+# --- commit 5's guard, still the discriminator -------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_users_own_rule_followed_by_their_own_prose_is_untouched(eol):
+    """⚠️ THE CRITICAL REGRESSION GUARD — commit 5's exact case.
+
+    `--- update ---` with the person's own text after it and no cue anywhere.
+    Nothing corroborates the rule, so it is not a boundary and their whole
+    message survives. This is the case that makes lowering `_DIVIDER_RE` to
+    three per side unsafe, and it is unaffected by this commit.
+    """
+    body = _body(
+        eol, "Dear Chairs,", "", "--- update ---", "", "I resubmitted the paper."
+    )
+
+    assert find_quote_cues(body) == []
+    assert find_quote_boundary(body) is None
+    assert "I resubmitted the paper." in extract_reply_text(body)
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_users_own_rule_survives_even_when_the_body_does_contain_a_quote(eol):
+    """⚠️ THE SHARPER VERSION, and why the one-line bound is load-bearing.
+
+    Here a real quote DOES follow further down, so a boundary exists. Their
+    `--- update ---` still survives, because it is two lines above the boundary
+    rather than one. The protection is structural, not luck: a person writing a
+    section heading follows it with their own text, which is exactly what puts
+    distance between their rule and any quote.
+    """
+    body = _body(
+        eol,
+        "Dear Chairs,",
+        "",
+        "--- update ---",
+        "",
+        "I resubmitted the paper.",
+        "",
+        "> your earlier note",
+        "> second line",
+    )
+
+    assert find_quote_boundary(body) == body.index("> your earlier note")
+    assert extract_reply_text(body) == (
+        "Dear Chairs,\n\n--- update ---\n\nI resubmitted the paper."
+    )
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_users_own_rule_directly_above_a_quote_is_absorbed(eol):
+    """⚠️ PINS THE ACCEPTED COST, not a feature.
+
+    The one shape where a person's own decorative rule IS taken: when it sits
+    directly against quoted material. Indistinguishable from a client marker in
+    that position — which is the whole reason short rules need corroboration —
+    and Fix 6 already accepted exactly this trade for the header-block case.
+    The cost is one decorative line; the alternative is leaving a client marker
+    on every relayed reply.
+    """
+    body = _body(eol, "Dear Chairs,", "", "--- update ---", "> your note", "> second")
+
+    assert find_quote_boundary(body) == body.index("--- update ---")
+    assert extract_reply_text(body) == "Dear Chairs,"
+
+
+# --- the gap that stays open -------------------------------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_a_short_rule_with_no_cue_beneath_is_still_not_detected(eol):
+    """⚠️ PINS A KNOWN, DELIBERATELY UNFIXED DETECTION GAP.
+
+    A quote introduced by a short rule and carrying no cue of its own — no
+    header block, no `>` lines, no attribution, no full-length rule — is not
+    detected, and the whole body comes back as the reply.
+
+    This is NOT the dangling-marker problem this commit fixed; it is the
+    detection problem underneath it. There is nothing left to corroborate the
+    rule with, and promoting it unaided is precisely the change commit 5's
+    `--- update ---` guard exists to prevent. Closing it needs evidence this
+    module does not have, not a looser pattern.
+    """
+    body = _body(
+        eol, "Thanks.", "", _SHORT_RULE, "", "quoted prose with no cue of its own"
+    )
+
+    assert find_quote_cues(body) == []
+    assert "quoted prose with no cue of its own" in extract_reply_text(body)

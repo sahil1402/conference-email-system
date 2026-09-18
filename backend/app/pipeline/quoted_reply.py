@@ -91,13 +91,24 @@ LIMITATIONS — none of these are silent
   body. Naming the six is what keeps this a bounded, reviewable set rather than
   the start of a phrase list; adding a seventh is a decision, not a tidy-up.
 * SHORT dashed rules (``--- Original Message ---``, three per side) are not
-  dividers on their own. They are structurally identical to a person's own
-  ``--- update ---`` heading, and lowering ``_DIVIDER_RE``'s minimum to three
-  makes BOTH match — measured, not assumed. Such a rule is absorbed only when a
-  header block sits directly beneath it, where that block supplies the evidence
-  the rule cannot supply for itself. A short rule with nothing under it is
-  ignored, so a reply whose quote is introduced by one and carries no headers at
-  all is still missed.
+  dividers on their own, and CANNOT SAFELY BE MADE ONE. They are structurally
+  identical to a person's own ``--- update ---`` heading — same characters, same
+  counts, free text between — so lowering ``_DIVIDER_RE``'s minimum to three
+  makes BOTH match, and the second would cut a reply at its author's own section
+  heading. Measured, not assumed.
+
+  Such a rule is therefore absorbed ONLY when another cue has already placed the
+  boundary on the very next line: the cue supplies the evidence, the rule merely
+  introduces it. That holds for every cue, so the marker no longer dangles on
+  the end of a reply.
+
+  WHAT REMAINS OPEN, precisely: a quote introduced by a short rule and carrying
+  NO cue of its own beneath it — no header block, no ``>`` lines, no
+  attribution, no full-length rule — is not detected at all, and the whole body
+  comes back as the reply. There is nothing left to corroborate the rule with,
+  and promoting it unaided is exactly the change rejected above. This is a
+  DETECTION gap, not a tidying one, and closing it needs evidence this module
+  does not have rather than a looser pattern.
 * ``Begin forwarded message:`` needs no special handling and has none. It is a
   ``Label:`` line with an empty value, so it already joins the header run it
   introduces — the same shape as the real Chinese sample's bare ``抄送:``.
@@ -661,7 +672,57 @@ def find_quote_boundary(body: str) -> int | None:
     * a positive offset — the ordinary case.
     """
     cues = find_quote_cues(body)
-    return cues[0].offset if cues else None
+    if not cues:
+        return None
+    return _absorb_rule_above(body, cues[0].offset)
+
+
+def _absorb_rule_above(body: str, boundary: int) -> int:
+    """Back the boundary up over a short rule introducing the quote, if any.
+
+    GENERALISES Fix 6's one-line absorption from the header-block cue to EVERY
+    cue, because measuring showed the dangling marker was never specific to
+    header blocks:
+
+        rule + quoted_lines  -> kept "Thanks.\\n\\n--- Original Message ---"
+        rule + attribution   -> kept "Thanks.\\n\\n--- Original Message ---"
+        rule + 4-dash rule   -> kept "Thanks.\\n\\n--- Original Message ---"
+        rule + header block  -> kept "Thanks."          (already handled)
+
+    Only the last was covered, so a client marker was left on the end of the
+    reply — bound for a public venue — in the other three.
+
+    ⚠️ THE CORROBORATION RULE IS UNCHANGED, and it is the whole safety argument.
+    `--- Original Message ---` and `--- update ---` are structurally IDENTICAL,
+    so a short rule is never a boundary ON ITS OWN. It is absorbed only when
+    something else has already placed the boundary on the very next line — the
+    cue supplies the evidence, the rule merely introduces it.
+
+    ⚠️ BOUNDED TO EXACTLY ONE LINE, same as Fix 6. That bound is what protects
+    commit 5's guard, and the protection is structural rather than lucky: a
+    person writing `--- update ---` follows it with their OWN text, so their
+    rule is never the line directly above a quote. Measured —
+
+        "Dear Chairs,  /  --- update ---  /  I resubmitted it.  /  > your note"
+
+    keeps all three of their lines, because their rule is two lines up from the
+    boundary, not one.
+
+    Idempotent where Fix 6 already backtracked: the line above the rule is then
+    the reply or a blank, neither of which is a rule, so nothing more is taken.
+    """
+    # Cue offsets always point at the START of a line, so the newline just
+    # before `boundary` ends the previous line. A boundary of 0 needs no
+    # separate guard: `rfind` over an empty slice returns -1 and falls into the
+    # branch below. An explicit `if boundary <= 0` was written first and removed
+    # after a mutation proved it changed nothing — a redundant guard reads as
+    # load-bearing and sends the next reader hunting for the case it covers.
+    prev_end = body.rfind("\n", 0, boundary)
+    if prev_end == -1:
+        return boundary
+    prev_start = body.rfind("\n", 0, prev_end) + 1
+    previous = body[prev_start:prev_end].rstrip("\r")
+    return prev_start if _SHORT_RULE_RE.match(previous) else boundary
 
 
 def extract_reply_text(body: str) -> str:
