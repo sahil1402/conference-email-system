@@ -50,8 +50,9 @@ Cues are ordered by how much they depend on knowing a language:
                       language-specific; the SHAPE is not, so the shape is what
                       is matched.
 3. ``quoted_lines`` — ``>``-prefixed lines. Language-free.
-4. ``attribution``  — ``On ... wrote:`` and its siblings in French, German and
-                      Chinese. The only LANGUAGE-SPECIFIC tier, and it exists
+4. ``attribution``  — ``On ... wrote:`` and its siblings in French, German,
+                      Chinese, Spanish and Japanese.
+                      The only LANGUAGE-SPECIFIC tier, and it exists
                       because these formats ship no divider and no header block,
                       so nothing structural is left to find. Listed last for
                       exactly that reason: it is reached only when every
@@ -63,12 +64,13 @@ purpose expiring rather than its accuracy, but a corpus-mined phrase list is
 brittle in exactly the way a reply from an arbitrary mail client demands it not
 be, so it is not resurrected here in a new costume.
 
-The four attribution patterns are NOT that list, and the difference is the
+The six attribution patterns are NOT that list, and the difference is the
 source rather than the size. A mined list captures what a VENUE wrote — wording
 that goes stale the moment a template is edited. These capture what a MAIL
 CLIENT generates: the fixed sentence it builds around a quote, which is part of
-the client's output format. Four is also the whole set, matching the gap the
-LIMITATIONS section named; a fifth added on spec would be the mined list
+the client's output format, and each was checked against the real output of a
+major client rather than invented. Six is the whole set, matching the gap the
+LIMITATIONS section named; a seventh added on spec would be the mined list
 returning in a new costume.
 
 LIMITATIONS — none of these are silent
@@ -82,12 +84,12 @@ LIMITATIONS — none of these are silent
   would be sent. ``0`` is therefore a meaningful return value, distinct from
   ``None``, and a caller that wants to treat bottom-posting specially can test
   for it. See :func:`find_quote_boundary`.
-* ``attribution`` covers FOUR languages — English, French, German and Chinese —
-  and no others. A Spanish ``escribió:`` or Japanese ``さんが書きました:`` reply
-  carrying no divider and no header block is still NOT detected: the boundary
-  comes back ``None`` and the caller keeps the whole body. Naming the four is
-  what keeps this a bounded, reviewable set rather than the start of a
-  phrase list; adding a fifth is a decision, not a tidy-up.
+* ``attribution`` covers SIX languages — English, French, German, Chinese,
+  Spanish and Japanese — and no others. An Italian ``ha scritto:`` or Korean
+  ``작성했습니다:`` reply carrying no divider and no header block is still NOT
+  detected: the boundary comes back ``None`` and the caller keeps the whole
+  body. Naming the six is what keeps this a bounded, reviewable set rather than
+  the start of a phrase list; adding a seventh is a decision, not a tidy-up.
 * SHORT dashed rules (``--- Original Message ---``, three per side) are not
   dividers on their own. They are structurally identical to a person's own
   ``--- update ---`` heading, and lowering ``_DIVIDER_RE``'s minimum to three
@@ -243,6 +245,47 @@ _ATTRIBUTION_RES = (
     re.compile(
         r"^[ \t]*在.{0,200}?写道[ \t]*[:：][ \t]*\r?$",
         re.MULTILINE | re.DOTALL,
+    ),
+    # Spanish — "El 1 sept 2026, a las 10:00, X <a@b.net> escribió:"
+    # Verified as the dominant form: Gmail's Spanish attribution is
+    # `El <fecha> <hora>, "<nombre>" <correo> escribió:`, and Outlook's differs
+    # only in punctuation. Same double anchor as the others — `El` opening,
+    # `escribió:` closing.
+    re.compile(
+        r"^[ \t]*El\b.{0,200}?\bescribió[ \t]*:[ \t]*\r?$",
+        re.MULTILINE | re.DOTALL,
+    ),
+    # Japanese — "2026年9月1日 10:00 X さんは書きました:" / "…は次のように書きました:"
+    #
+    # ⚠️ THE ONE PATTERN WITH NO OPENING ANCHOR, and that is a property of the
+    # language rather than an oversight. Every other attribution opens with a
+    # preposition or particle to pin — On / Le / Am / El / 在 — and Japanese has
+    # none: the line begins with the date itself. Anchoring on `\d{4}年` was
+    # considered and rejected, because Thunderbird's DEFAULT (reply_header_type
+    # 1) emits the author with no date at all and would be missed.
+    #
+    # So the weight rests on the closing form: 書きました immediately followed by
+    # a colon at end of line. It is the invariant across both attested shapes —
+    # Thunderbird's `<名前>さんは書きました:` and the `…は次のように書きました:`
+    # variant. Japanese prose ends a sentence with 。, not with a colon, so a
+    # line ending exactly `書きました:` is an attribution rather than a sentence.
+    # No `\b` and a full-width colon accepted, for the same CJK reasons as above.
+    #
+    # ⚠️ NO re.DOTALL HERE — THE ONLY PATTERN WITHOUT IT, and removing it fixed a
+    # real bug rather than tidying one. The others carry DOTALL so a Gmail
+    # attribution that WRAPS (`On … <addr>` / newline / `wrote:`) still matches,
+    # and their opening anchor keeps that span honest: the match cannot begin
+    # anywhere but at an `On` / `Le` / `Am` / `El` / `在`.
+    #
+    # This pattern has no such anchor, so with DOTALL the leading `^.{0,200}?`
+    # started at the FIRST line of the body and ran across newlines to reach
+    # 書きました further down — swallowing the person's actual reply, which came
+    # back empty. Observed on the very first run, not reasoned about. Without
+    # DOTALL the match is confined to one line, which is also the correct shape:
+    # no wrapped Japanese attribution is attested.
+    re.compile(
+        r"^[ \t]*.{0,200}?書きました[ \t]*[:：][ \t]*\r?$",
+        re.MULTILINE,
     ),
 )
 

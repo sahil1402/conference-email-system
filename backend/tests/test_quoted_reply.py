@@ -1686,15 +1686,27 @@ def test_the_earliest_attribution_wins_across_languages(eol):
     assert extract_reply_text(body) == "Merci."
 
 
-def test_no_language_was_added_beyond_the_four():
-    """⚠️ PINS THE SET, so a fifth is a decision rather than a tidy-up.
+def test_the_supported_language_set_is_pinned():
+    """INVERTED from `test_no_language_was_added_beyond_the_four`.
 
-    Spanish is the obvious next one and is deliberately absent — the LIMITATIONS
-    section names it. This asserts the gap so it stays visible in the suite.
+    That test pinned Spanish as deliberately ABSENT — a scope boundary for the
+    commit that added French, German and Chinese, with a note that a fifth would
+    be a decision rather than a tidy-up. Sahil made that decision: Spanish and
+    Japanese are in, completing the set the LIMITATIONS docstring named.
+
+    Kept and renamed rather than deleted, so the history of the boundary stays
+    legible — and it still does the same job, one language further out: Italian
+    is the obvious next candidate and is NOT supported. Adding a seventh remains
+    a decision.
     """
-    body = "Gracias.\n\nEl 1 sept 2026, AAAI <a@b.net> escribió:\ntexto original"
+    spanish = "Gracias.\n\nEl 1 sept 2026, AAAI <a@b.net> escribió:\ntexto original"
+    japanese = "ありがとうございます。\n\nAAAI さんは書きました:\n元のメッセージ"
+    italian = "Grazie.\n\nIl 1 set 2026, AAAI <a@b.net> ha scritto:\ntesto originale"
 
-    assert find_quote_cues(body) == []
+    assert [c.cue for c in find_quote_cues(spanish)] == ["attribution"]
+    assert [c.cue for c in find_quote_cues(japanese)] == ["attribution"]
+    # Still bounded: six languages, not "whatever looks like one".
+    assert find_quote_cues(italian) == []
 
 
 # =============================================================================
@@ -1899,3 +1911,184 @@ def test_a_zwsp_indented_header_line_still_matches(eol):
 
     assert [c.cue for c in find_quote_cues(body)] == ["header_block"]
     assert extract_reply_text(body) == "Thanks."
+
+
+# =============================================================================
+# ATTRIBUTION — Spanish and Japanese
+#
+# Completes the tier. Each phrasing below was checked against the real output of
+# a major client rather than invented:
+#
+#   Spanish   Gmail emits `El <fecha> <hora>, "<nombre>" <correo> escribió:`
+#             Outlook differs only in punctuation. Two anchors, like the others.
+#
+#   Japanese  Thunderbird's default is `<名前> さんは書きました:`; the other
+#             attested shape is `… は次のように書きました:`. The invariant across
+#             both is 書きました immediately before the colon.
+#
+# ⚠️ JAPANESE IS THE ONE PATTERN WITH NO OPENING ANCHOR — the language supplies
+# none, because the line opens with the date itself. See the two tests at the
+# end of this section for what that cost and how it is contained.
+# =============================================================================
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param(
+            'El 1 sept 2026, a las 10:00, AAAI <a@b.net> escribió:', id="es-outlook"
+        ),
+        pytest.param(
+            'El 2/7/2026 3:11 p. m., "AAAI" <a@b.net> escribió:', id="es-gmail"
+        ),
+    ],
+)
+def test_spanish_attribution_is_detected(eol, line):
+    """Both attested Spanish shapes — Gmail's and Outlook's."""
+    body = _body(eol, "Gracias, lo corregiré.", "", line, "texto original")
+
+    assert [c.cue for c in find_quote_cues(body)] == ["attribution"]
+    assert find_quote_boundary(body) == body.index("El ")
+    assert extract_reply_text(body) == "Gracias, lo corregiré."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("AAAI さんは書きました:", id="ja-thunderbird-default"),
+        pytest.param(
+            "2026年9月1日 10:00 AAAI <a@b.net> さんは書きました:", id="ja-with-date"
+        ),
+        pytest.param("AAAI は次のように書きました:", id="ja-next-you"),
+        pytest.param("AAAI さんは書きました：", id="ja-fullwidth-colon"),
+    ],
+)
+def test_japanese_attribution_is_detected(eol, line):
+    """Every attested Japanese shape, including the full-width colon.
+
+    The date-less form is Thunderbird's DEFAULT, which is why the pattern cannot
+    anchor on a leading year.
+    """
+    body = _body(eol, "ありがとうございます。", "", line, "元のメッセージ")
+
+    assert [c.cue for c in find_quote_cues(body)] == ["attribution"]
+    assert extract_reply_text(body) == "ありがとうございます。"
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+@pytest.mark.parametrize(
+    "prose",
+    [
+        pytest.param(
+            "El informe que escribió: es demasiado largo en mi opinión.",
+            id="spanish-colon-mid-line",
+        ),
+        pytest.param(
+            "El autor escribió sus comentarios en el apéndice.",
+            id="spanish-no-colon",
+        ),
+        pytest.param(
+            "報告書に書きました。詳細は添付をご覧ください。", id="japanese-full-stop"
+        ),
+        pytest.param(
+            "その件はすでにメールに書きましたが、再送します。", id="japanese-mid-sentence"
+        ),
+        # ⚠️ THE CASE THAT ISOLATES THE `$` ANCHOR. A mutation removing it
+        # survived the two Japanese cases above, because both rely on there
+        # being no colon at all. Here a colon FOLLOWS 書きました mid-line, in
+        # ordinary prose introducing what was written — so only the end-of-line
+        # requirement separates it from an attribution.
+        pytest.param(
+            "メールに書きました: 詳細は添付のとおりです。",
+            id="japanese-colon-mid-line",
+        ),
+        # The Spanish twin of the same gap, for symmetry.
+        pytest.param(
+            "El equipo escribió: los detalles están en el apéndice.",
+            id="spanish-colon-introducing-clause",
+        ),
+    ],
+)
+def test_the_new_languages_do_not_fire_on_ordinary_prose(eol, prose):
+    """One rejection per language, the same methodology as the other four.
+
+    The `$` anchor does the work: prose keeps going past the trigger, so the
+    line never ends where an attribution would. Japanese prose also ends its
+    sentences with 。rather than a colon, which is a second separation.
+    """
+    body = _body(eol, "Hola,", "", prose, "", "Gracias.")
+
+    assert find_quote_cues(body) == []
+    assert find_quote_boundary(body) is None
+
+
+# --- the Japanese pattern's missing opening anchor ---------------------------
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_japanese_pattern_does_not_swallow_the_reply_above_it(eol):
+    """⚠️ REGRESSION TEST FOR A BUG THIS COMMIT ACTUALLY HAD.
+
+    Every other attribution pattern carries `re.DOTALL`, so a Gmail
+    attribution that WRAPS across two lines still matches; their opening anchor
+    (`On`/`Le`/`Am`/`El`/`在`) keeps that span honest.
+
+    The Japanese pattern has no opening anchor, and with DOTALL its leading
+    `^.{0,200}?` began at the FIRST line of the body and ran across newlines to
+    reach 書きました further down — so the boundary landed at offset 0 and
+    `extract_reply_text` returned "". The person's entire reply disappeared.
+
+    Fixed by compiling that one pattern WITHOUT DOTALL, which also matches
+    reality: no wrapped Japanese attribution is attested. This test pins the
+    boundary landing on the attribution line itself, several lines down.
+    """
+    body = _body(
+        eol,
+        "ありがとうございます。",
+        "",
+        "確認しました。",
+        "",
+        "AAAI さんは書きました:",
+        "元のメッセージ",
+    )
+
+    assert find_quote_boundary(body) == body.index("AAAI さんは書きました")
+    assert extract_reply_text(body) == "ありがとうございます。\n\n確認しました。"
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_english_wrapped_attribution_still_works(eol):
+    """The other half of that fix: DOTALL was removed from ONE pattern only.
+
+    Gmail wraps a long English attribution so `wrote:` lands on its own line,
+    and commit 5 added DOTALL specifically for it. Pinned here so a future
+    "consistency" pass that strips DOTALL from all six breaks loudly.
+    """
+    body = _body(
+        eol,
+        "Thanks.",
+        "",
+        "On Wed, 27 Aug 2026 at 15:28 AAAI 2027 <a@b.net>",
+        "wrote:",
+        "quoted original",
+    )
+
+    assert [c.cue for c in find_quote_cues(body)] == ["attribution"]
+    assert extract_reply_text(body) == "Thanks."
+
+
+@pytest.mark.parametrize("eol", _EOLS)
+def test_the_earliest_attribution_still_wins_across_six_languages(eol):
+    """Adding languages must not disturb the earliest-cue rule."""
+    body = _body(
+        eol,
+        "Gracias.",
+        "",
+        "El 1 sept 2026, AAAI <a@b.net> escribió:",
+        "texto citado",
+        "AAAI さんは書きました:",
+        "引用",
+    )
+
+    assert find_quote_boundary(body) == body.index("El ")
+    assert extract_reply_text(body) == "Gracias."
