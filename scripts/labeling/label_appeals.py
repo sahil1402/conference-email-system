@@ -62,6 +62,7 @@ REASONS = {
     "c": "reviewer misunderstood",
     "d": '"LLM-generated review" claim',
     "e": "general dissatisfaction",
+    "r": "reciprocal-review duty dispute",
     "o": "other/unclear",
 }
 NOT_APPEAL = "n"
@@ -242,7 +243,8 @@ def print_menu() -> None:
     print("  [n] not a reject appeal")
     print("  [a] wrong-paper review        [b] score/outcome mismatch")
     print('  [c] reviewer misunderstood    [d] "LLM-generated review" claim')
-    print("  [e] general dissatisfaction   [o] other/unclear")
+    print("  [e] general dissatisfaction   [r] reciprocal-review duty dispute")
+    print("  [o] other/unclear")
     print("  [t] show full thread first, then ask again")
     print("  [s] defer - unclear, come back to this later")
     print("  [q] save and quit")
