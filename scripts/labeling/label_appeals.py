@@ -146,6 +146,23 @@ def save(records: list[dict], path: Path) -> None:
         raise
 
 
+def walk_order(records: list[dict]) -> list[int]:
+    """The fixed walk order: a seeded shuffle over ALL ticket ids present.
+
+    The single definition of the ordering, so anything that needs to agree
+    with the labeler's sequence (the batch splitter, for one) reuses this
+    rather than re-deriving it and silently drifting. Sorting first makes the
+    result independent of the order the rows happen to sit in the file.
+
+    NOTE the order is a function of the ids PRESENT in `records`. Over a batch
+    file it reproduces that batch's internal order, not the batch's positions
+    within the full set -- which is what a labeler working a batch wants.
+    """
+    order = sorted(r["ticket_id"] for r in records)
+    random.Random(SEED).shuffle(order)
+    return order
+
+
 def progress(records: list[dict]) -> tuple[int, int, int, Counter]:
     """(labeled, deferred, untouched, reason breakdown).
 
@@ -236,6 +253,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Hand-label the Phase 1 reject-appeal set (manual, unassisted).",
     )
     parser.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        type=Path,
+        help="JSONL file to label. Defaults to the full Phase 1 set; point it "
+             "at a batch file (data/labeling/batch_*.jsonl) to work a slice "
+             "independently of anyone else.",
+    )
+    parser.add_argument(
         "--review-deferred",
         action="store_true",
         help="Revisit pass: show ONLY tickets deferred with [s] that are still "
@@ -255,11 +281,12 @@ def main(argv: list[str] | None = None) -> int:
         except (AttributeError, ValueError):
             pass
 
-    if not DATA_PATH.exists():
-        print("ERROR: data file not found: {}".format(DATA_PATH), file=sys.stderr)
+    path = args.path or DATA_PATH
+    if not path.exists():
+        print("ERROR: data file not found: {}".format(path), file=sys.stderr)
         return 2
 
-    records, migrated = load(DATA_PATH)
+    records, migrated = load(path)
     by_id = {r["ticket_id"]: r for r in records}
 
     # Nothing is written until a real label or defer happens. A migrated-only
@@ -268,19 +295,18 @@ def main(argv: list[str] | None = None) -> int:
 
     def persist() -> None:
         with _DeferInterrupt():
-            save(records, DATA_PATH)
+            save(records, path)
 
     # Shuffle ALL ids, then filter, so the walk order is identical every run
     # regardless of how much is already labeled or deferred.
-    order = sorted(by_id)
-    random.Random(SEED).shuffle(order)
+    order = walk_order(records)
     unlabeled = [tid for tid in order if by_id[tid].get("is_reject_appeal") is None]
     if args.review_deferred:
         queue = [tid for tid in unlabeled if by_id[tid].get(DEFERRED_KEY)]
     else:
         queue = [tid for tid in unlabeled if not by_id[tid].get(DEFERRED_KEY)]
 
-    print("Loaded {} tickets from {}".format(len(records), DATA_PATH.name))
+    print("Loaded {} tickets from {}".format(len(records), path.name))
     if migrated:
         print("({} rows defaulted to deferred=false in memory; "
               "written on the next real change)".format(migrated))
