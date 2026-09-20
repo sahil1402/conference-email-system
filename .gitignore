@@ -37,6 +37,9 @@ data/style_guide/batches/
 # Real-ticket eval set (ticket-derived text — PII)
 data/eval_real/
 
+# Labeling sets extracted from data/tickets (real PII) — never commit
+data/labeling/
+
 # Recovery-script reports (quote real ticket content — never commit)
 backend/scripts/recovery/output/
 
