@@ -1,9 +1,9 @@
 # ConfMail — Automated Conference Email Reply & Routing System
 
-> An AI-powered email management platform for academic conference organizations. Built for the Melady Lab at USC, piloting on **AAAI-27**, with NeurIPS/ICML/ICLR as longer-term targets.
+> An AI-powered email management platform for academic conference organizations. Built for the Melady Lab at USC, piloting live on **AAAI-27**, with NeurIPS/ICML/ICLR as longer-term targets.
 
-![Status](https://img.shields.io/badge/status-research%20MVP%20%C2%B7%20AAAI--27%20pilot-brightgreen)
-![Tests](https://img.shields.io/badge/tests-325%20incl--ml%20%7C%20303%20non--ml%20%7C%207%20skipped-brightgreen)
+![Status](https://img.shields.io/badge/status-research%20MVP%20%C2%B7%20AAAI--27%20live%20pilot-brightgreen)
+![Tests](https://img.shields.io/badge/tests-1%2C200%2B%20backend%20%C2%B7%20530%2B%20frontend-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -18,31 +18,33 @@ ConfMail separates these two classes automatically.
 
 **FAQ lane** — When (and only when) a generated reply is fully grounded, self-contained, and high-confidence, it becomes eligible for auto-reply. No hallucinated policies: every sentence is traceable to a retrieved source chunk.
 
-**Human-review lane** — Novel, ambiguous, low-confidence, or incomplete emails are routed to a chair queue with an AI-generated draft. Each is assigned to the responsible chair (Program, Diversity & Ethics, Local Arrangements, Publicity/Sponsorship, or a General fallback). Chairs approve, edit, or reroute — with a full audit trail, and reroutes captured as a future training signal.
+**Human-review lane** — Novel, ambiguous, low-confidence, or incomplete emails are routed to a chair queue with an AI-generated draft, complete with a full multi-turn conversation thread, cited policy sources, and extracted submission context. Each is assigned to the responsible chair (Program, Diversity & Ethics, Local Arrangements, Publicity/Sponsorship, or a General fallback). Chairs approve, edit, or reroute — with a full audit trail, and edits/reroutes captured as future training signal.
 
-This is a **research-grade MVP**. Every component — classifier, retriever, router, chair router, drafter, persistence — is a separate, config-flag-swappable module (an explicit architectural boundary, never mixed). It integrates live with Zendesk (read + write-back) and runs against the **real AAAI-27 policy corpus**.
+This is a **research-grade MVP that has grown into a live production pilot**. Every core module — classifier, retriever, router, chair router, drafter, persistence — remains a separate, config-flag-swappable component (an explicit architectural boundary, never mixed). Around that core pipeline sits a full chair-facing product surface: real-time Zendesk sync (read + write-back), OpenReview reply detection, thread-aware re-evaluation on policy change, a policy-conflict detector, and a continual-learning loop that turns chair edits into reviewable policy proposals. It runs against the **real AAAI-27 policy corpus** and is deployed on AAAI's own server.
 
 ---
 
 ## Architecture
 
-The six modules are independently replaceable. A key property of the current design: **the router runs *after* the drafter** — FAQ eligibility is a property of the *generated draft's* quality (grounded, complete, confident), not of the intent label alone.
+The core modules are independently replaceable. A key property of the design: **the router runs *after* the drafter** — FAQ eligibility is a property of the *generated draft's* quality (grounded, complete, confident), not of the intent label alone.
 
 ```mermaid
 flowchart TD
     subgraph ingest["Ingestion"]
         API["API ingest<br/>POST /emails/ingest"]
-        ZD["Zendesk sync<br/>read-only incremental poller"]
+        ZD["Zendesk sync<br/>incremental poller, status-filtered"]
+        OR["OpenReview poller<br/>detects author replies posted off-platform"]
     end
 
     subgraph mClass["Module 1 · Classifier"]
         KW["keyword | trainable"]
-        DS["Distiller (QUERY_STRATEGY=distill)<br/>one call: classify + build queries"]
+        DS["Distiller (QUERY_STRATEGY=distill)<br/>one call: classify + build queries + extract submission/author IDs"]
+        TT["Thread transcript builder<br/>bounded multi-turn context, internal notes excluded"]
     end
 
     subgraph mRet["Module 2 · Retriever"]
         R["bm25 | faiss | fusion"]
-        KB[("Policy KB<br/>real AAAI-27 corpus, 93 chunks")]
+        KB[("Policy KB<br/>real AAAI-27 corpus, versioned + chair-editable")]
     end
 
     subgraph mDraft["Module 4 · Drafter"]
@@ -60,19 +62,28 @@ flowchart TD
         AP["Module 6 · UI<br/>chair approval queue"]
     end
 
+    subgraph learn["Continual Experience Learning (background, best-effort)"]
+        CEL["Judge chair's [CHAIR:]-gap edit<br/>reusable? → draft policy suggestion"]
+        PC["Policy conflict detector<br/>checks new/edited policy vs. live KB"]
+    end
+
     subgraph persist["Module 5 · Persistence & Audit (cross-cutting)"]
-        DB[("PostgreSQL / SQLite<br/>emails · chairs · policies")]
+        DB[("PostgreSQL / SQLite<br/>emails · threads · chairs · policies · suggestions")]
         AU[("Audit log<br/>append-only")]
     end
 
     API --> mClass
     ZD --> mClass
+    OR -.surface as candidate.-> AP
+    TT --> DS
     mClass --> mRet
     mRet --> mDraft
     mDraft --> mRoute
     mRoute --> FAQ
     mRoute --> HR
     HR --> CR --> AP
+    AP -.chair edit.-> CEL --> PC
+    PC -.suggestion.-> AP
     KB -.-> R
     FAQ -.persist.-> DB
     AP -.persist.-> DB
@@ -119,12 +130,26 @@ flowchart TD
 | Module | Backend options | Notes |
 |---|---|---|
 | **Classifier** | `keyword` · `trainable` | 14-intent taxonomy (5 families) single-sourced in `taxonomy.py`. Trainable backend = sentence-embeddings + LogisticRegression; auto-falls back to keyword until trained |
-| **Retriever** | `bm25` · `faiss` · `fusion` | Grounds replies in the real AAAI-27 corpus (93 chunks from 6 official policy docs). `bm25` lexical; `faiss` dense (CPU sentence-embeddings, `IndexFlatIP` cosine); `fusion` = reciprocal-rank fusion. **Default `fusion`** (E003: distill+fusion lifted hit@3 .649 → .892 on real tickets) |
+| **Retriever** | `bm25` · `faiss` · `fusion` | Grounds replies in the real AAAI-27 corpus (versioned, chair-editable policy documents). `bm25` lexical; `faiss` dense (CPU sentence-embeddings, `IndexFlatIP` cosine); `fusion` = reciprocal-rank fusion. **Default `fusion`** |
 | **Router (lane)** | `rule_based` · `rl` | Runs after the drafter. `rl` = online epsilon-greedy contextual bandit updated on approve/reroute (groundwork; `rule_based` is the default path) |
 | **Chair Router** | `intent_mapping` | Second routing decision — which chair owns a human-review email; matches classified intent to each chair's areas, falls back to a general chair. Literal is a swap seam for a future learned policy |
-| **Drafter** | `anthropic_api` · `anthropic` · `local` · `template` · `fallback` | `local` = self-hosted OpenAI-compatible endpoint (pending GPU); `template` = zero-model, verbatim-grounded; `fallback` = deterministic no-network stub |
-| **Query strategy** | `prefix` · `distill` | `distill` rewrites the email into 1–3 policy-vocabulary queries **and** classifies intent in one call; any failure falls back to keyword classifier + prefix query. **Default `distill`** |
+| **Drafter** | `anthropic_api` · `anthropic` · `local` · `template` · `fallback` | `local` = self-hosted OpenAI-compatible endpoint; `template` = zero-model, verbatim-grounded; `fallback` = deterministic no-network stub |
+| **Query strategy** | `prefix` · `distill` | `distill` rewrites the email into 1–3 policy-vocabulary queries, classifies intent, and extracts submission/author identifiers in one call; any failure falls back to keyword classifier + prefix query. **Default `distill`** |
 | **Persistence** | PostgreSQL · SQLite | PostgreSQL in Docker (production/demo); SQLite is the safe local/test/CI default. Single async `DATABASE_URL` drives both the app engine and Alembic |
+
+### Beyond the core pipeline
+
+The chair-facing product has grown well past the six-module diagram above. These are the pieces that make it a workable daily tool rather than a pipeline demo:
+
+- **Multi-turn conversation threads** — a ticket's full comment history (not just the first message) is stored, rendered, and fed to the classifier/drafter as a budget-bounded transcript; internal notes are excluded from anything sent to a model. Follow-up messages trigger reprocessing.
+- **Quoted-reply / thread-hygiene parsing** — a dedicated module (`quoted_reply.py`) strips the quoted original message from a reply across the header/divider/attribution conventions of several email clients and languages, so drafts and transcripts see only what the requester actually wrote.
+- **OpenReview reply detection** — a background poller and candidate queue that catches the common case of an author replying on OpenReview instead of by email, surfaces it as a review candidate, and lets a chair approve-and-post, mark solved, or dismiss it as a false positive.
+- **Re-evaluation on policy change** — when a chair edits the knowledge base, a background sweep re-runs retrieval for every open ticket and re-drafts only the ones whose grounding actually shifted, without touching a chair's own edits.
+- **Policy-conflict detection** — before a new or edited internal policy is saved, one model call checks it against the live KB and flags exact conflicting text, so contradictory guidance can't silently accumulate.
+- **Continual Experience Learning (CEL)** — when a chair fills in a `[CHAIR: ...]` gap left by the drafter, a best-effort background job judges whether that edit encodes a reusable policy (versus a one-off), runs it through the same conflict detector, and files it as a chair-reviewable policy suggestion — turning routine edits into a standing proposal queue rather than a one-time fix.
+- **Submission & author extraction** — the distiller's raw identification of which paper(s) and author(s) an email concerns is validated and normalized into a "Submission Details" panel on the ticket.
+- **Active-learning flagging** — every approve/reroute is checked for two independent signals (a near-miss confidence band, or a substantially rewritten draft) and flagged for a future labeling pass, without ever triggering retraining automatically.
+- **Direct ticket links & Zendesk status filtering** — shareable per-ticket URLs, queue filters by Zendesk status and date range, and a synced status bar so the chair queue and Zendesk stay legible side by side.
 
 ---
 
@@ -139,7 +164,7 @@ All backend behavior is env-driven (`backend/.env`; see `backend/.env.example`).
 | `MODEL_PROVIDER` | `anthropic_api` · `anthropic` · `local` · `template` · `fallback` | Drafter backend | `anthropic_api` ¹ |
 | `CLASSIFIER_BACKEND` | `keyword` · `trainable` | Classifier backend | `keyword` |
 | `RETRIEVAL_BACKEND` | `bm25` · `faiss` · `fusion` | Retriever backend | `fusion` |
-| `QUERY_STRATEGY` | `prefix` · `distill` | Retrieval-query build (+ intent) | `distill` |
+| `QUERY_STRATEGY` | `prefix` · `distill` | Retrieval-query build (+ intent + extraction) | `distill` |
 | `ROUTING_STRATEGY` | `rule_based` · `rl` | Lane router | `rule_based` |
 | `CHAIR_ROUTING_STRATEGY` | `intent_mapping` | Which chair a human-review email goes to | `intent_mapping` |
 
@@ -151,32 +176,33 @@ All backend behavior is env-driven (`backend/.env`; see `backend/.env.example`).
 | `FAQ_CONFIDENCE_THRESHOLD` | float | Min classifier confidence for the FAQ lane | `0.65` |
 | `FAQ_ANSWER_CONFIDENCE_THRESHOLD` | float | Min drafter self-rated answer confidence for the FAQ lane | `0.85` |
 | `CALIBRATION_ENABLED` | bool | Use fitted confidence calibrator when present | `False` |
-| `INTENT_PRIOR_ENABLED` | bool | Soft intent→KB retrieval prior (regresses fusion per E010; kept off) | `False` |
+| `INTENT_PRIOR_ENABLED` | bool | Soft intent→KB retrieval prior (regresses fusion per prior eval; kept off) | `False` |
 | `ALLOW_AUTO_SEND` | bool | Transport gate — allow complete FAQ drafts to release without per-email approval | `False` |
+| `AL_CONFIDENCE_MARGIN` / `AL_EDIT_RATIO` | float | Active-learning near-miss / meaningful-edit thresholds | `0.15` / `0.15` |
 
-### Retriever / drafter tuning
+### Retriever / drafter / thread tuning
 
 | Flag | Type | Controls | Default |
 |---|---|---|---|
-| `MAX_RETRIEVED_CHUNKS` | int | Grounding chunks returned | `5` ² |
+| `MAX_RETRIEVED_CHUNKS` | int | Grounding chunks returned | `5` |
 | `WARM_RETRIEVER_ON_STARTUP` | bool | Build index (and load embed model) at startup | `True` |
 | `FAISS_MODEL_NAME` | str | CPU sentence-embedding model for `faiss`/`fusion` | `all-MiniLM-L6-v2` |
+| `THREAD_TRANSCRIPT_MAX_CHARS` | int | Character budget for the multi-turn transcript passed to classifier/drafter | `16000` |
 | `DRAFTER_MAX_TOKENS` | int | Max tokens per generated reply (sized for reasoning models, which use budget on hidden reasoning first) | `2500` |
 | `DRAFTER_TEMPERATURE` / `DRAFTER_SEED` | float / int | Drafter determinism | `0.0` / `7` |
-| `DRAFT_MODEL` | str | Hosted drafter model id (used when `MODEL_PROVIDER=anthropic_api`) | *configurable hosted model id* ³ |
+| `DRAFT_MODEL` | str | Hosted drafter model id (used when `MODEL_PROVIDER=anthropic_api`) | *configurable hosted model id* ² |
 | `LOCAL_MODEL_BASE_URL` | str | OpenAI-compatible local endpoint | `http://localhost:11434/v1` |
-| `LOCAL_MODEL_NAME` | str | Local model id (used when `MODEL_PROVIDER=local`) | *configurable local model id* ³ |
+| `LOCAL_MODEL_NAME` | str | Local model id (used when `MODEL_PROVIDER=local`) | *configurable local model id* ² |
 | `LOCAL_MODEL_API_KEY` | str? | Optional bearer token for a keyed local/hosted endpoint | `None` |
 | `STYLE_GUIDE_PATH` | str? | Reply style guide appended to the drafter system prompt | `../data/style_guide/style_guide_v2.md` |
-| `AL_CONFIDENCE_MARGIN` / `AL_EDIT_RATIO` | float | Active-learning near-miss / meaningful-edit thresholds | `0.15` / `0.15` |
 
-### Secrets, database & Zendesk
+### Secrets, database, Zendesk & OpenReview
 
 | Flag | Options / type | Controls | Default |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | secret | Cloud API key (only for `anthropic_api`) | `None` |
-| `DATABASE_URL` | str | Single async DB URL (app engine + Alembic) | SQLite ⁴ |
-| `ZENDESK_AUTH_MODE` | `token` · `oauth` | Credential provider | `token` ⁵ |
+| `DATABASE_URL` | str | Single async DB URL (app engine + Alembic) | SQLite ³ |
+| `ZENDESK_AUTH_MODE` | `token` · `oauth` | Credential provider | `token` ⁴ |
 | `ZENDESK_SUBDOMAIN` | str? | Account subdomain (REST + OAuth host) | `None` |
 | `ZENDESK_EMAIL` / `ZENDESK_API_TOKEN` | str? | Basic-auth fields (`token` mode) | `None` |
 | `ZENDESK_OAUTH_CLIENT_ID` / `_SECRET` | str? | OAuth client_credentials (`oauth` mode) | `None` |
@@ -186,13 +212,16 @@ All backend behavior is env-driven (`backend/.env`; see `backend/.env.example`).
 | `ZENDESK_SYNC_START_TIME` | int | Unix epoch for the first incremental pull | `1` |
 | `ZENDESK_SYNC_PER_PAGE` | int | Incremental export page size (max 1000) | `100` |
 | `ZENDESK_MAX_PAGES_PER_CYCLE` | int | Page bound per cycle | `10` |
+| `ZENDESK_SYNC_STATUSES` | str | Comma-separated Zendesk statuses eligible for sync/queue filtering | `new,open,pending,hold,solved,closed` |
+| `OPENREVIEW_USERNAME` / `OPENREVIEW_PASSWORD` | str? | OpenReview credentials for the reply-detection poller | `None` |
+| `OPENREVIEW_BASE_URL` | str | OpenReview API host | `https://api2.openreview.net` |
+| `OPENREVIEW_VENUE_ID` | str? | Venue to poll for author-note replies | `None` |
 
 **Notes on defaults**
-1. `config.py` defaults `MODEL_PROVIDER=anthropic_api`; `backend/.env.example` ships `local` (self-hosted path). Both `anthropic`/`anthropic_api` spellings are accepted.
-2. `config.py` default is `5`; `backend/.env.example` sets `3`.
-3. Model id is read from config, never hardcoded — paraphrased here per the project's model-name-free documentation policy.
-4. `config.py` defaults to local SQLite (safe for dev/test/CI). Under Docker Compose the backend's `DATABASE_URL` is injected as PostgreSQL (`postgresql+asyncpg://…@db:5432/confmail`) and overrides `.env`.
-5. `config.py` default is `token`; `.env.example` recommends `oauth` (the validated production path).
+1. `config.py` defaults `MODEL_PROVIDER=anthropic_api`; `backend/.env.example` may ship `local` (self-hosted path) for a no-key quick start. Both `anthropic`/`anthropic_api` spellings are accepted.
+2. Model id is read from config, never hardcoded — paraphrased here per the project's model-name-free documentation policy.
+3. `config.py` defaults to local SQLite (safe for dev/test/CI). Under Docker Compose the backend's `DATABASE_URL` is injected as PostgreSQL (`postgresql+asyncpg://…@db:5432/confmail`) and overrides `.env`.
+4. `config.py` default is `token`; `.env.example` recommends `oauth` (the validated production path).
 
 ---
 
@@ -212,23 +241,24 @@ All backend behavior is env-driven (`backend/.env`; see `backend/.env.example`).
 | Dense retrieval | faiss-cpu · sentence-transformers (`all-MiniLM-L6-v2`) |
 | Classifier / calibration | scikit-learn (LogisticRegression, Platt scaling) · joblib |
 | Drafting | swappable providers — hosted API (`anthropic` SDK), self-hosted OpenAI-compatible (`local`), `template`, `fallback` |
-| Query distillation | one-call query rewrite + intent classification (`distill`) |
+| Query distillation & extraction | one-call query rewrite + intent classification + submission/author identification (`distill`) |
+| Continual learning | best-effort, gated LLM calls for edit-judging (CEL) and policy-conflict detection — both fail closed (never raise, never block a send) |
 
 ### Frontend
 | Area | Technology |
 |---|---|
-| Framework | Next.js 14.2.35 (App Router) · TypeScript |
-| Styling / UI | Tailwind CSS v3.4 · shadcn/ui (`@radix-ui/react-slot`, `class-variance-authority`, `tailwind-merge`) · lucide-react |
-| Data / charts | `@tanstack/react-query` v5 · axios · recharts v3 |
+| Framework | Next.js 14 (App Router) · TypeScript |
+| Styling / UI | Tailwind CSS v3 · shadcn/ui (`@radix-ui/react-slot`, `class-variance-authority`, `tailwind-merge`) · lucide-react |
+| Data / charts | `@tanstack/react-query` v5 · axios · recharts |
 | Testing | Vitest · Testing Library (jsdom) |
 
 ### Infrastructure
 | Area | Technology |
 |---|---|
-| Orchestration | Docker Compose — `postgres:16-alpine` (`db`, loopback `127.0.0.1:5432`, healthcheck) + `backend` (`:8000`) + `frontend` (`:3000`) |
+| Orchestration | Docker Compose — `postgres:16-alpine` (`db`, loopback-only, healthcheck) + `backend` (`:8000`) + `frontend` (`:3000`) |
 | Database | PostgreSQL (asyncpg + psycopg2-binary) · SQLite (aiosqlite) local/test fallback |
-| Integrations | Zendesk (token/OAuth credential provider, incremental cursor sync, internal-note / public-reply write-back) |
-| CI / tests | GitHub Actions (secret-free, Postgres service) · pytest + pytest-asyncio (`ml` marker) — **325 tests incl-ml / 303 non-ml / 7 skipped** *(per CLAUDE.md; not re-run this session)* |
+| Integrations | Zendesk (token/OAuth credential provider, incremental cursor sync, status filtering, internal-note / public-reply write-back) · OpenReview (author-reply detection poller) |
+| CI / tests | GitHub Actions (secret-free, Postgres service) · pytest + pytest-asyncio (`ml` marker) — **1,200+ backend test functions** across 94 files · **530+ frontend test cases** across 52 files *(structural counts; not re-run this session — see `CLAUDE.md` for the last recorded live run)* |
 
 ---
 
@@ -318,7 +348,7 @@ The `docker-compose.prod.yml` override rebinds backend (`8000`) and frontend (`3
 
 ### What loopback-only bindings mean
 
-With the production override, the app is reachable **only from the server itself** (e.g. over an SSH tunnel: `ssh -L 3000:localhost:3000 user@server`), **not from the public internet**. This is deliberate for a shared-access internal deployment.
+With the production override, the app is reachable **only from the server itself** (e.g. over an SSH tunnel: `ssh -L 3000:localhost:3000 user@server`), **not from the public internet**. This is deliberate for a shared-access internal deployment, and is how the live AAAI-27 pilot is currently run.
 
 Exposing the app more widely — a reverse proxy and TLS termination in front of these loopback ports — is **out of scope here and a separate future piece**. Until that decision is made explicitly, the app stays internal-only.
 
@@ -333,11 +363,17 @@ Exposing the app more widely — a reverse proxy and TLS termination in front of
 
 **Chairs** — Program · Diversity & Ethics · Local Arrangements · Publicity/Sponsorship · General (fallback). Each owns a set of intent areas (re-seeded to the 14-intent families); `Email.assigned_chair_id` records the assignment and reroutes are audited as a future training signal.
 
+**Threads** — each `Email` can carry many `EmailThreadMessage` rows (the full Zendesk comment history); internal notes are stored but never surfaced to a model, and only the latest requester message anchors classification/retrieval.
+
+**Policy suggestions** — a `PolicySuggestion` is a chair-reviewable candidate policy proposed by CEL from a chair's edit, carrying its own conflict report and a full accept/reject audit trail (`SuggestionAuditLog`), independent of the main `PolicyAuditLog` kept on the policy documents themselves.
+
 ---
 
 ## Research Context
 
-Developed at the **Melady Lab, University of Southern California** (PI: Prof. Yan), exploring AI pipelines for academic conference operations. Active research directions: active learning from chair decisions, online RL routing with human-in-the-loop feedback, learned chair assignment from reroute signal, retrieval-augmented generation grounded in conference policy, and evaluation of AI-assisted human-in-the-loop workflows.
+Developed at the **Melady Lab, University of Southern California** (PI: Prof. Yan), exploring AI pipelines for academic conference operations. Active research directions: active learning from chair decisions, online RL routing with human-in-the-loop feedback, learned chair assignment from reroute signal, retrieval-augmented generation grounded in conference policy, continual policy learning from chair edits (CEL), and evaluation of AI-assisted human-in-the-loop workflows.
+
+A current workstream is building ground-truth labeled data (hand-labeled reject/appeal tickets, taxonomy of appeal reasons) to extend the pipeline toward automated, template-based bulk handling of the reject-appeal surge that follows each decision release — the next planned capability beyond today's per-ticket drafting.
 
 ---
 
